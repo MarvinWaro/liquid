@@ -9,24 +9,29 @@ use Inertia\Inertia;
 use Inertia\Response;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 
 class UserController extends Controller
 {
-    /**
-     * Display a listing of users.
-     */
     public function index(): Response
     {
         if (!auth()->user()->hasPermission('view_users')) {
             abort(403, 'Unauthorized action.');
         }
 
+        // ✅ FIX: Join roles table to sort by Role Name, then User Name
         $users = User::with('role')
-            ->orderBy('name')
+            ->join('roles', 'users.role_id', '=', 'roles.id')
+            ->select('users.*') // Important: Keep user columns, avoid overwriting ID with role ID
+            ->orderByRaw("CASE WHEN roles.name = 'Super Admin' THEN 0 ELSE 1 END")
+            ->orderBy('users.name', 'asc')
             ->get();
+
+        $roles = Role::select('id', 'name')->orderBy('name')->get();
 
         return Inertia::render('users/index', [
             'users' => $users,
+            'roles' => $roles,
             'canCreate' => auth()->user()->hasPermission('create_users'),
             'canEdit' => auth()->user()->hasPermission('edit_users'),
             'canDelete' => auth()->user()->hasPermission('delete_users'),
@@ -34,25 +39,6 @@ class UserController extends Controller
         ]);
     }
 
-    /**
-     * Show the form for creating a new user.
-     */
-    public function create(): Response
-    {
-        if (!auth()->user()->hasPermission('create_users')) {
-            abort(403, 'Unauthorized action.');
-        }
-
-        $roles = Role::orderBy('name')->get();
-
-        return Inertia::render('users/create', [
-            'roles' => $roles,
-        ]);
-    }
-
-    /**
-     * Store a newly created user.
-     */
     public function store(Request $request): RedirectResponse
     {
         if (!auth()->user()->hasPermission('create_users')) {
@@ -75,39 +61,22 @@ class UserController extends Controller
             'status' => $validated['status'],
         ]);
 
-        return redirect()->route('users.index')
-            ->with('success', 'User created successfully.');
+        return redirect()->back()->with('success', 'User created successfully.');
     }
 
-    /**
-     * Show the form for editing the user.
-     */
-    public function edit(User $user): Response
-    {
-        if (!auth()->user()->hasPermission('edit_users')) {
-            abort(403, 'Unauthorized action.');
-        }
-
-        $roles = Role::orderBy('name')->get();
-
-        return Inertia::render('users/edit', [
-            'user' => $user->load('role'),
-            'roles' => $roles,
-        ]);
-    }
-
-    /**
-     * Update the specified user.
-     */
     public function update(Request $request, User $user): RedirectResponse
     {
         if (!auth()->user()->hasPermission('edit_users')) {
             abort(403, 'Unauthorized action.');
         }
 
+        if ($user->isSuperAdmin() && !auth()->user()->isSuperAdmin()) {
+            abort(403, 'You cannot modify the Super Admin.');
+        }
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users,email,' . $user->id,
+            'email' => ['required', 'email', Rule::unique('users')->ignore($user->id)],
             'password' => 'nullable|string|min:8|confirmed',
             'role_id' => 'required|exists:roles,id',
             'status' => 'required|in:active,inactive',
@@ -126,51 +95,38 @@ class UserController extends Controller
 
         $user->update($updateData);
 
-        return redirect()->route('users.index')
-            ->with('success', 'User updated successfully.');
+        return redirect()->back()->with('success', 'User updated successfully.');
     }
 
-    /**
-     * Toggle user status.
-     */
     public function toggleStatus(User $user): RedirectResponse
     {
         if (!auth()->user()->hasPermission('change_user_status')) {
             abort(403, 'Unauthorized action.');
         }
 
-        // Prevent deactivating own account
         if ($user->id === auth()->id()) {
-            return redirect()->route('users.index')
-                ->with('error', 'Cannot change your own status.');
+            return redirect()->back()->with('error', 'Cannot change your own status.');
         }
 
         $user->update([
             'status' => $user->status === 'active' ? 'inactive' : 'active',
         ]);
 
-        return redirect()->route('users.index')
-            ->with('success', 'User status updated successfully.');
+        return redirect()->back()->with('success', 'User status updated successfully.');
     }
 
-    /**
-     * Remove the specified user.
-     */
     public function destroy(User $user): RedirectResponse
     {
         if (!auth()->user()->hasPermission('delete_users')) {
             abort(403, 'Unauthorized action.');
         }
 
-        // Prevent deleting own account
         if ($user->id === auth()->id()) {
-            return redirect()->route('users.index')
-                ->with('error', 'Cannot delete your own account.');
+            return redirect()->back()->with('error', 'Cannot delete your own account.');
         }
 
         $user->delete();
 
-        return redirect()->route('users.index')
-            ->with('success', 'User deleted successfully.');
+        return redirect()->back()->with('success', 'User deleted successfully.');
     }
 }

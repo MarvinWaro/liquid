@@ -11,48 +11,30 @@ use Illuminate\Http\RedirectResponse;
 
 class RoleController extends Controller
 {
-    /**
-     * Display a listing of roles.
-     */
     public function index(): Response
     {
-        // Check permission
         if (!auth()->user()->hasPermission('view_roles')) {
             abort(403, 'Unauthorized action.');
         }
 
         $roles = Role::withCount('users')
             ->with('permissions')
-            ->orderBy('name')
+            // ✅ FIX: Force Super Admin to the top, then sort others alphabetically
+            ->orderByRaw("CASE WHEN name = 'Super Admin' THEN 0 ELSE 1 END")
+            ->orderBy('name', 'asc')
             ->get();
+
+        $permissions = Permission::getGroupedByModule();
 
         return Inertia::render('roles/index', [
             'roles' => $roles,
+            'permissions' => $permissions,
             'canCreate' => auth()->user()->hasPermission('create_roles'),
             'canEdit' => auth()->user()->hasPermission('edit_roles'),
             'canDelete' => auth()->user()->hasPermission('delete_roles'),
         ]);
     }
 
-    /**
-     * Show the form for creating a new role.
-     */
-    public function create(): Response
-    {
-        if (!auth()->user()->hasPermission('create_roles')) {
-            abort(403, 'Unauthorized action.');
-        }
-
-        $permissions = Permission::getGroupedByModule();
-
-        return Inertia::render('roles/create', [
-            'permissions' => $permissions,
-        ]);
-    }
-
-    /**
-     * Store a newly created role.
-     */
     public function store(Request $request): RedirectResponse
     {
         if (!auth()->user()->hasPermission('create_roles')) {
@@ -75,36 +57,17 @@ class RoleController extends Controller
             $role->permissions()->attach($validated['permissions']);
         }
 
-        return redirect()->route('roles.index')
-            ->with('success', 'Role created successfully.');
+        return redirect()->back()->with('success', 'Role created successfully.');
     }
 
-    /**
-     * Show the form for editing the role.
-     */
-    public function edit(Role $role): Response
+    public function update(Request $request, Role $role): RedirectResponse
     {
         if (!auth()->user()->hasPermission('edit_roles')) {
             abort(403, 'Unauthorized action.');
         }
 
-        $permissions = Permission::getGroupedByModule();
-        $rolePermissions = $role->permissions->pluck('id')->toArray();
-
-        return Inertia::render('roles/edit', [
-            'role' => $role,
-            'permissions' => $permissions,
-            'rolePermissions' => $rolePermissions,
-        ]);
-    }
-
-    /**
-     * Update the specified role.
-     */
-    public function update(Request $request, Role $role): RedirectResponse
-    {
-        if (!auth()->user()->hasPermission('edit_roles')) {
-            abort(403, 'Unauthorized action.');
+        if ($role->name === 'Super Admin' && !auth()->user()->isSuperAdmin()) {
+            abort(403, 'Only Super Admin can modify Super Admin role.');
         }
 
         $validated = $request->validate([
@@ -121,34 +84,25 @@ class RoleController extends Controller
 
         $role->permissions()->sync($validated['permissions'] ?? []);
 
-        return redirect()->route('roles.index')
-            ->with('success', 'Role updated successfully.');
+        return redirect()->back()->with('success', 'Role updated successfully.');
     }
 
-    /**
-     * Remove the specified role.
-     */
     public function destroy(Role $role): RedirectResponse
     {
         if (!auth()->user()->hasPermission('delete_roles')) {
             abort(403, 'Unauthorized action.');
         }
 
-        // Prevent deleting Admin role
-        if ($role->name === 'Admin') {
-            return redirect()->route('roles.index')
-                ->with('error', 'Cannot delete Admin role.');
+        if ($role->name === 'Super Admin') {
+            return redirect()->back()->with('error', 'Cannot delete Super Admin role.');
         }
 
-        // Check if role has users
         if ($role->users()->count() > 0) {
-            return redirect()->route('roles.index')
-                ->with('error', 'Cannot delete role with assigned users.');
+            return redirect()->back()->with('error', 'Cannot delete role with assigned users.');
         }
 
         $role->delete();
 
-        return redirect()->route('roles.index')
-            ->with('success', 'Role deleted successfully.');
+        return redirect()->back()->with('success', 'Role deleted successfully.');
     }
 }

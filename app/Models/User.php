@@ -84,4 +84,20 @@ class User extends Authenticatable
     {
         return $this->status === 'active';
     }
+
+    /**
+     * Check if user can create admins.
+     */
+    public function canCreateAdmins(): bool
+    {
+        return $this->hasPermission('create_admins');
+    }
+
+    /**
+     * Check if user is super admin.
+     */
+    public function isSuperAdmin(): bool
+    {
+        return $this->role && $this->role->name === 'Super Admin';
+    }
 }
