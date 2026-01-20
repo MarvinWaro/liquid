@@ -13,7 +13,14 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { BookOpen, Folder, LayoutGrid, Shield, Users } from 'lucide-react';
+import {
+    BookOpen,
+    Folder,
+    LayoutGrid,
+    Shield,
+    Users,
+    FileText // ✅ Added Icon for Liquidation
+} from 'lucide-react';
 import AppLogo from './app-logo';
 
 const mainNavItems: NavItem[] = [
@@ -31,6 +38,12 @@ const mainNavItems: NavItem[] = [
         title: 'Users',
         href: '/users',
         icon: Users,
+    },
+    // ✅ NEW: Liquidation Reports Navigation Item
+    {
+        title: 'Liquidations',
+        href: '/liquidations',
+        icon: FileText,
     },
 ];
 
