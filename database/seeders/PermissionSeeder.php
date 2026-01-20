@@ -5,20 +5,18 @@ namespace Database\Seeders;
 use App\Models\Permission;
 use App\Models\Role;
 use Illuminate\Database\Seeder;
-//php artisan db:seed --class=PermissionSeeder
 
 class PermissionSeeder extends Seeder
 {
     public function run(): void
     {
-        // Define permissions by module
+        // Define all permissions
         $permissions = [
             'Roles & Permissions' => [
                 ['name' => 'view_roles', 'description' => 'View roles list'],
                 ['name' => 'create_roles', 'description' => 'Create new roles'],
                 ['name' => 'edit_roles', 'description' => 'Edit existing roles'],
                 ['name' => 'delete_roles', 'description' => 'Delete roles'],
-                ['name' => 'assign_permissions', 'description' => 'Assign permissions to roles'],
             ],
             'User Management' => [
                 ['name' => 'view_users', 'description' => 'View users list'],
@@ -49,74 +47,69 @@ class PermissionSeeder extends Seeder
             ],
         ];
 
-        // Create permissions
+        // Create or update permissions
         foreach ($permissions as $module => $perms) {
             foreach ($perms as $perm) {
-                Permission::create([
-                    'name' => $perm['name'],
-                    'module' => $module,
-                    'description' => $perm['description'],
-                ]);
+                Permission::updateOrCreate(
+                    ['name' => $perm['name']],
+                    [
+                        'module' => $module,
+                        'description' => $perm['description'],
+                    ]
+                );
             }
         }
 
-        // Create default Admin role with all permissions
-        $adminRole = Role::create([
-            'name' => 'Admin',
-            'description' => 'System administrator with full access',
+        // Create or update Super Admin role with ALL permissions
+        $superAdminRole = Role::updateOrCreate(
+            ['name' => 'Super Admin'],
+            ['description' => 'Has complete access to all system features']
+        );
+        $superAdminRole->permissions()->sync(Permission::all()->pluck('id'));
+
+        // Create some example roles (optional - Super Admin can create more via UI)
+        $this->createExampleRole('Admin', 'System administrator', [
+            'view_roles', 'create_roles', 'edit_roles', 'delete_roles',
+            'view_users', 'create_users', 'edit_users', 'delete_users', 'change_user_status',
+            'view_hei', 'create_hei', 'edit_hei', 'delete_hei', 'sync_hei_api',
+            'view_liquidation', 'create_liquidation', 'edit_liquidation', 'delete_liquidation',
+            'view_reports', 'export_reports', 'view_dashboard',
         ]);
 
-        // Assign all permissions to Admin
-        $allPermissions = Permission::all()->pluck('id');
-        $adminRole->permissions()->attach($allPermissions);
-
-        // Create default Regional Coordinator role
-        $rcRole = Role::create([
-            'name' => 'Regional Coordinator',
-            'description' => 'Reviews and endorses liquidation documents',
-        ]);
-
-        // Assign specific permissions to RC
-        $rcPermissions = Permission::whereIn('name', [
+        $this->createExampleRole('Regional Coordinator', 'Reviews and endorses liquidation', [
             'view_hei',
-            'view_liquidation',
-            'review_liquidation',
-            'endorse_liquidation',
-            'view_reports',
-            'view_dashboard',
-        ])->pluck('id');
-        $rcRole->permissions()->attach($rcPermissions);
-
-        // Create default Encoder role
-        $encoderRole = Role::create([
-            'name' => 'Encoder',
-            'description' => 'Data entry for HEI and liquidation records',
+            'view_liquidation', 'review_liquidation', 'endorse_liquidation',
+            'view_reports', 'view_dashboard',
         ]);
 
-        // Assign specific permissions to Encoder
-        $encoderPermissions = Permission::whereIn('name', [
+        $this->createExampleRole('Accountant', 'Reviews and endorses to COA', [
             'view_hei',
-            'create_hei',
-            'edit_hei',
-            'view_liquidation',
-            'create_liquidation',
-            'edit_liquidation',
-        ])->pluck('id');
-        $encoderRole->permissions()->attach($encoderPermissions);
-
-        // Create default Viewer role
-        $viewerRole = Role::create([
-            'name' => 'Viewer',
-            'description' => 'Read-only access to reports and data',
+            'view_liquidation', 'review_liquidation', 'endorse_liquidation',
+            'view_reports', 'view_dashboard',
         ]);
 
-        // Assign view-only permissions to Viewer
-        $viewerPermissions = Permission::whereIn('name', [
-            'view_hei',
-            'view_liquidation',
-            'view_reports',
-            'view_dashboard',
-        ])->pluck('id');
-        $viewerRole->permissions()->attach($viewerPermissions);
+        $this->createExampleRole('HEI', 'Higher Education Institution user', [
+            'view_liquidation', 'create_liquidation', 'edit_liquidation', 'delete_liquidation',
+        ]);
+
+        $this->createExampleRole('Encoder', 'Data entry staff', [
+            'view_hei', 'create_hei', 'edit_hei',
+            'view_liquidation', 'create_liquidation', 'edit_liquidation',
+        ]);
+
+        $this->createExampleRole('Viewer', 'Read-only access', [
+            'view_hei', 'view_liquidation', 'view_reports', 'view_dashboard',
+        ]);
+    }
+
+    private function createExampleRole(string $name, string $description, array $permissionNames): void
+    {
+        $role = Role::updateOrCreate(
+            ['name' => $name],
+            ['description' => $description]
+        );
+
+        $permissions = Permission::whereIn('name', $permissionNames)->pluck('id');
+        $role->permissions()->sync($permissions);
     }
 }
