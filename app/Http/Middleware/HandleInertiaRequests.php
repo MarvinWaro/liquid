@@ -38,14 +38,24 @@ class HandleInertiaRequests extends Middleware
     {
         [$message, $author] = str(Inspiring::quotes()->random())->explode('-');
 
+        $user = $request->user();
+
         return [
             ...parent::share($request),
             'name' => config('app.name'),
             'quote' => ['message' => trim($message), 'author' => trim($author)],
             'auth' => [
-                'user' => $request->user(),
+                'user' => $user ? $user->load('role.permissions') : null,
             ],
-            
+
+            // Navigation abilities - controls what menu items user can see
+            'can' => $user ? $user->getNavigationAbilities() : [
+                'canViewDashboard' => false,
+                'canViewLiquidation' => false,
+                'canViewRoles' => false,
+                'canViewUsers' => false,
+            ],
+
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),

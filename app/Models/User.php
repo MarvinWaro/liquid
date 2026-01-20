@@ -94,6 +94,20 @@ class User extends Authenticatable
     }
 
     /**
+     * Get navigation abilities for the user.
+     * This determines which navigation items the user can see.
+     */
+    public function getNavigationAbilities(): array
+    {
+        return [
+            'canViewDashboard' => true, // Everyone can see dashboard
+            'canViewLiquidation' => $this->hasPermission('view_liquidation'),
+            'canViewRoles' => $this->hasPermission('view_roles'),
+            'canViewUsers' => $this->hasPermission('view_users'),
+        ];
+    }
+
+    /**
      * Check if user is super admin.
      */
     public function isSuperAdmin(): bool

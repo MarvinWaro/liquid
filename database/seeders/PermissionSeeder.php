@@ -47,23 +47,25 @@ class PermissionSeeder extends Seeder
             ],
         ];
 
-        // Create permissions
+        // Create or update permissions
         foreach ($permissions as $module => $perms) {
             foreach ($perms as $perm) {
-                Permission::create([
-                    'name' => $perm['name'],
-                    'module' => $module,
-                    'description' => $perm['description'],
-                ]);
+                Permission::updateOrCreate(
+                    ['name' => $perm['name']],
+                    [
+                        'module' => $module,
+                        'description' => $perm['description'],
+                    ]
+                );
             }
         }
 
-        // Create Super Admin role with ALL permissions
-        $superAdminRole = Role::create([
-            'name' => 'Super Admin',
-            'description' => 'Has complete access to all system features',
-        ]);
-        $superAdminRole->permissions()->attach(Permission::all()->pluck('id'));
+        // Create or update Super Admin role with ALL permissions
+        $superAdminRole = Role::updateOrCreate(
+            ['name' => 'Super Admin'],
+            ['description' => 'Has complete access to all system features']
+        );
+        $superAdminRole->permissions()->sync(Permission::all()->pluck('id'));
 
         // Create some example roles (optional - Super Admin can create more via UI)
         $this->createExampleRole('Admin', 'System administrator', [
@@ -80,6 +82,16 @@ class PermissionSeeder extends Seeder
             'view_reports', 'view_dashboard',
         ]);
 
+        $this->createExampleRole('Accountant', 'Reviews and endorses to COA', [
+            'view_hei',
+            'view_liquidation', 'review_liquidation', 'endorse_liquidation',
+            'view_reports', 'view_dashboard',
+        ]);
+
+        $this->createExampleRole('HEI', 'Higher Education Institution user', [
+            'view_liquidation', 'create_liquidation', 'edit_liquidation', 'delete_liquidation',
+        ]);
+
         $this->createExampleRole('Encoder', 'Data entry staff', [
             'view_hei', 'create_hei', 'edit_hei',
             'view_liquidation', 'create_liquidation', 'edit_liquidation',
@@ -92,12 +104,12 @@ class PermissionSeeder extends Seeder
 
     private function createExampleRole(string $name, string $description, array $permissionNames): void
     {
-        $role = Role::create([
-            'name' => $name,
-            'description' => $description,
-        ]);
+        $role = Role::updateOrCreate(
+            ['name' => $name],
+            ['description' => $description]
+        );
 
         $permissions = Permission::whereIn('name', $permissionNames)->pluck('id');
-        $role->permissions()->attach($permissions);
+        $role->permissions()->sync($permissions);
     }
 }

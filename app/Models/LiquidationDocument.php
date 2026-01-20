@@ -1,0 +1,56 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class LiquidationDocument extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'liquidation_id',
+        'document_type',
+        'file_name',
+        'file_path',
+        'file_type',
+        'file_size',
+        'description',
+        'uploaded_by',
+    ];
+
+    /**
+     * Get the liquidation for this document.
+     */
+    public function liquidation(): BelongsTo
+    {
+        return $this->belongsTo(Liquidation::class);
+    }
+
+    /**
+     * Get the user who uploaded this document.
+     */
+    public function uploader(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'uploaded_by');
+    }
+
+    /**
+     * Get formatted file size.
+     */
+    public function getFormattedFileSize(): string
+    {
+        $bytes = $this->file_size;
+        $units = ['B', 'KB', 'MB', 'GB'];
+        $i = 0;
+
+        while ($bytes > 1024 && $i < count($units) - 1) {
+            $bytes /= 1024;
+            $i++;
+        }
+
+        return round($bytes, 2) . ' ' . $units[$i];
+    }
+}
