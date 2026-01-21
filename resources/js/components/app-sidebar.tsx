@@ -11,31 +11,37 @@ import {
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
-import { type NavItem } from '@/types';
-import { Link } from '@inertiajs/react';
+import { type NavItem, type SharedData, type NavigationAbilities } from '@/types';
+import { Link, usePage } from '@inertiajs/react';
 import { BookOpen, Folder, LayoutGrid, Shield, Users, FileText } from 'lucide-react';
 import AppLogo from './app-logo';
+import { useMemo } from 'react';
 
-const mainNavItems: NavItem[] = [
+// Define all navigation items with their required ability key
+const allNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
     {
         title: 'Dashboard',
         href: dashboard(),
         icon: LayoutGrid,
+        ability: 'canViewDashboard',
     },
     {
         title: 'Liquidation',
         href: '/liquidation',
         icon: FileText,
+        ability: 'canViewLiquidation',
     },
     {
         title: 'Roles & Permissions',
         href: '/roles',
         icon: Shield,
+        ability: 'canViewRoles',
     },
     {
         title: 'Users',
         href: '/users',
         icon: Users,
+        ability: 'canViewUsers',
     },
 ];
 
@@ -53,6 +59,23 @@ const footerNavItems: NavItem[] = [
 ];
 
 export function AppSidebar() {
+    const page = usePage<SharedData>();
+    const can = page.props.can || {
+        canViewDashboard: false,
+        canViewLiquidation: false,
+        canViewRoles: false,
+        canViewUsers: false,
+    };
+
+    // Filter navigation items based on user abilities
+    const mainNavItems = allNavItems.filter(item => {
+        // If no ability key specified, always show (fallback)
+        if (!item.ability) return true;
+
+        // Check if user has the required ability
+        return can[item.ability] === true;
+    });
+
     return (
         <Sidebar collapsible="icon" variant="inset">
             <SidebarHeader>

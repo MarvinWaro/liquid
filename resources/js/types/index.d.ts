@@ -22,10 +22,18 @@ export interface NavItem {
     isActive?: boolean;
 }
 
+export interface NavigationAbilities {
+    canViewDashboard: boolean;
+    canViewLiquidation: boolean;
+    canViewRoles: boolean;
+    canViewUsers: boolean;
+}
+
 export interface SharedData {
     name: string;
     quote: { message: string; author: string };
     auth: Auth;
+    can: NavigationAbilities;
     sidebarOpen: boolean;
     [key: string]: unknown;
 }

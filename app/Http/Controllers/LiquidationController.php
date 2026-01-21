@@ -80,7 +80,7 @@ class LiquidationController extends Controller
             'liquidations' => $liquidations,
             'heis' => $heis,
             'filters' => $request->only(['search']),
-            'can' => [
+            'permissions' => [
                 'create' => $request->user()->hasPermission('create_liquidation'),
                 'edit' => $request->user()->hasPermission('edit_liquidation'),
                 'delete' => $request->user()->hasPermission('delete_liquidation'),
@@ -214,7 +214,7 @@ class LiquidationController extends Controller
                 'can_submit' => $liquidation->canBeSubmitted(),
             ],
             'heis' => $heis,
-            'can' => [
+            'permissions' => [
                 'edit' => $request->user()->hasPermission('edit_liquidation'),
                 'delete' => $request->user()->hasPermission('delete_liquidation'),
             ],

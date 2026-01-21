@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(dir:*)",
+      "Bash(php artisan tinker:*)",
+      "Bash(php -r:*)",
+      "Bash(findstr:*)"
+    ]
+  }
+}
