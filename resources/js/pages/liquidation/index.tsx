@@ -18,11 +18,21 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Plus, Search, FileText, Eye } from 'lucide-react';
 import { LiquidationCreateModal } from '@/components/liquidation/liquidation-create-modal';
+import { CreateLiquidationModalHEI } from '@/components/liquidations/create-liquidation-modal-hei';
+import { ViewLiquidationModal } from '@/components/liquidations/view-liquidation-modal';
+import axios from 'axios';
 
 interface HEI {
     id: number;
     name: string;
     code: string;
+    uii?: string;
+}
+
+interface Program {
+    id: number;
+    code: string;
+    name: string;
 }
 
 interface Liquidation {
@@ -50,6 +60,8 @@ interface Props {
         meta: any;
     };
     heis: HEI[];
+    programs: Program[];
+    userHei: HEI | null;
     filters: {
         search?: string;
     };
@@ -63,9 +75,11 @@ interface Props {
     userRole: string;
 }
 
-export default function Index({ auth, liquidations, heis, filters, permissions, userRole }: Props) {
+export default function Index({ auth, liquidations, heis, programs, userHei, filters, permissions, userRole }: Props) {
     const [searchQuery, setSearchQuery] = useState(filters.search || '');
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+    const [selectedLiquidation, setSelectedLiquidation] = useState<any>(null);
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
@@ -86,14 +100,47 @@ export default function Index({ auth, liquidations, heis, filters, permissions, 
         return variants[badge] || 'secondary';
     };
 
+    const handleViewLiquidation = async (liquidationId: number) => {
+        try {
+            const response = await axios.get(route('liquidation.show', liquidationId));
+            setSelectedLiquidation(response.data);
+            setIsViewModalOpen(true);
+        } catch (error) {
+            console.error('Error loading liquidation:', error);
+        }
+    };
+
     return (
         <AppLayout>
             <Head title="Liquidation Management" />
 
-            <LiquidationCreateModal
-                isOpen={isCreateModalOpen}
-                onClose={() => setIsCreateModalOpen(false)}
-                heis={heis}
+            {/* Use different modals based on user type */}
+            {userHei ? (
+                <CreateLiquidationModalHEI
+                    isOpen={isCreateModalOpen}
+                    onClose={() => setIsCreateModalOpen(false)}
+                    programs={programs}
+                    userHei={userHei}
+                />
+            ) : (
+                <LiquidationCreateModal
+                    isOpen={isCreateModalOpen}
+                    onClose={() => setIsCreateModalOpen(false)}
+                    heis={heis}
+                />
+            )}
+
+            {/* View Liquidation Modal */}
+            <ViewLiquidationModal
+                isOpen={isViewModalOpen}
+                onClose={() => {
+                    setIsViewModalOpen(false);
+                    setSelectedLiquidation(null);
+                }}
+                liquidation={selectedLiquidation}
+                onDataChange={(updatedLiquidation) => {
+                    setSelectedLiquidation(updatedLiquidation);
+                }}
             />
 
             <div className="py-8 w-full">
@@ -202,12 +249,14 @@ export default function Index({ auth, liquidations, heis, filters, permissions, 
                                                     </TableCell>
                                                     <TableCell>{liquidation.created_at}</TableCell>
                                                     <TableCell className="text-right">
-                                                        <Link href={route('liquidation.edit', liquidation.id)}>
-                                                            <Button variant="ghost" size="sm">
-                                                                <Eye className="h-4 w-4 mr-1" />
-                                                                View
-                                                            </Button>
-                                                        </Link>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => handleViewLiquidation(liquidation.id)}
+                                                        >
+                                                            <Eye className="h-4 w-4 mr-1" />
+                                                            View
+                                                        </Button>
                                                     </TableCell>
                                                 </TableRow>
                                             ))

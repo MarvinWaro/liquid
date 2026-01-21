@@ -20,7 +20,7 @@ class UserController extends Controller
         }
 
         // ✅ FIX: Join roles table to sort by Role Name, then User Name
-        $users = User::with('role')
+        $users = User::with(['role', 'hei'])
             ->join('roles', 'users.role_id', '=', 'roles.id')
             ->select('users.*') // Important: Keep user columns, avoid overwriting ID with role ID
             ->orderByRaw("CASE WHEN roles.name = 'Super Admin' THEN 0 ELSE 1 END")

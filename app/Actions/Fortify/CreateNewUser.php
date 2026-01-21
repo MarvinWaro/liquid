@@ -2,6 +2,7 @@
 
 namespace App\Actions\Fortify;
 
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -19,6 +20,7 @@ class CreateNewUser implements CreatesNewUsers
     public function create(array $input): User
     {
         Validator::make($input, [
+            'hei_id' => ['required', 'exists:heis,id'],
             'name' => ['required', 'string', 'max:255'],
             'email' => [
                 'required',
@@ -30,10 +32,19 @@ class CreateNewUser implements CreatesNewUsers
             'password' => $this->passwordRules(),
         ])->validate();
 
+        // Get the HEI role (create if doesn't exist)
+        $heiRole = Role::firstOrCreate(
+            ['name' => 'HEI'],
+            ['description' => 'Higher Education Institution user']
+        );
+
         return User::create([
             'name' => $input['name'],
             'email' => $input['email'],
             'password' => $input['password'],
+            'hei_id' => $input['hei_id'],
+            'role_id' => $heiRole->id,
+            'status' => 'inactive', // Set to inactive by default, admin must activate
         ]);
     }
 }

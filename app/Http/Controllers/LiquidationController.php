@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\HEI;
 use App\Models\Liquidation;
 use App\Models\LiquidationDocument;
+use App\Models\Program;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Storage;
@@ -76,9 +77,23 @@ class LiquidationController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'code']);
 
+        $programs = Program::where('status', 'active')
+            ->orderBy('code')
+            ->get(['id', 'code', 'name']);
+
+        // Get user's HEI if they belong to one
+        $userHei = $request->user()->hei;
+
         return Inertia::render('liquidation/index', [
             'liquidations' => $liquidations,
             'heis' => $heis,
+            'programs' => $programs,
+            'userHei' => $userHei ? [
+                'id' => $userHei->id,
+                'name' => $userHei->name,
+                'code' => $userHei->code,
+                'uii' => $userHei->uii,
+            ] : null,
             'filters' => $request->only(['search']),
             'permissions' => [
                 'create' => $request->user()->hasPermission('create_liquidation'),
@@ -120,34 +135,45 @@ class LiquidationController extends Controller
 
         $validated = $request->validate([
             'hei_id' => 'required|exists:heis,id',
-            'disbursed_amount' => 'required|numeric|min:0',
-            'disbursement_date' => 'nullable|date',
-            'fund_source' => 'nullable|string|max:255',
-            'liquidated_amount' => 'nullable|numeric|min:0',
-            'purpose' => 'nullable|string',
-            'remarks' => 'nullable|string',
+            'program_id' => 'required|exists:programs,id',
+            'academic_year' => 'required|string',
+            'semester' => 'required|string',
+            'batch_no' => 'nullable|string|max:255',
+            'amount_received' => 'required|numeric|min:0',
         ]);
 
-        // Generate control number (using existing field)
-        $lastLiquidation = Liquidation::latest('id')->first();
-        $nextNumber = $lastLiquidation ? ($lastLiquidation->id + 1) : 1;
-        $controlNo = 'LIQ-' . date('Y') . '-' . str_pad($nextNumber, 5, '0', STR_PAD_LEFT);
+        // Get program to generate control number
+        $program = Program::findOrFail($validated['program_id']);
+
+        // Generate control number based on program: TES-YYYY-XXXXX or TDP-YYYY-XXXXX
+        $year = date('Y');
+        $lastLiquidation = Liquidation::where('program_id', $program->id)
+            ->whereYear('created_at', $year)
+            ->latest('id')
+            ->first();
+
+        $nextNumber = $lastLiquidation ? ((int) substr($lastLiquidation->control_no, -5) + 1) : 1;
+        $controlNo = $program->code . '-' . $year . '-' . str_pad($nextNumber, 5, '0', STR_PAD_LEFT);
 
         $liquidation = Liquidation::create([
-            ...$validated,
+            'hei_id' => $validated['hei_id'],
+            'program_id' => $validated['program_id'],
+            'academic_year' => $validated['academic_year'],
+            'semester' => $validated['semester'],
+            'batch_no' => $validated['batch_no'],
             'control_no' => $controlNo,
             'created_by' => $request->user()->id,
             'status' => 'draft',
-            'liquidated_amount' => $validated['liquidated_amount'] ?? 0,
-            // Set default values for existing required fields
-            'program_id' => 1, // You may need to adjust this
-            'academic_year' => date('Y') . '-' . (date('Y') + 1),
-            'semester' => '1st',
-            'amount_received' => $validated['disbursed_amount'],
+            // Initialize other required fields with defaults
+            'disbursed_amount' => $validated['amount_received'],
+            'amount_disbursed' => $validated['amount_received'],
+            'amount_received' => $validated['amount_received'],
+            'amount_refunded' => 0,
+            'liquidated_amount' => 0,
         ]);
 
-        return redirect()->route('liquidation.edit', $liquidation->id)
-            ->with('success', 'Liquidation created successfully. You can now upload documents.');
+        return redirect()->route('liquidation.index')
+            ->with('success', 'Liquidation report created successfully with Control No: ' . $controlNo);
     }
 
     /**
@@ -511,5 +537,248 @@ class LiquidationController extends Controller
 
         return redirect()->route('liquidation.index')
             ->with('success', 'Liquidation deleted successfully.');
+    }
+
+    /**
+     * Download beneficiary template Excel file.
+     */
+    public function downloadTemplate(Request $request)
+    {
+        if (!$request->user()->hasPermission('view_liquidation')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+
+        // Set headers
+        $headers = [
+            'Student No.',
+            'Last Name',
+            'First Name',
+            'Middle Name',
+            'Extension Name',
+            'Award No.',
+            'Amount',
+            'Date Disbursed'
+        ];
+
+        // Write headers in row 1
+        $column = 'A';
+        foreach ($headers as $header) {
+            $sheet->setCellValue($column . '1', $header);
+            $sheet->getStyle($column . '1')->getFont()->setBold(true);
+            $sheet->getStyle($column . '1')->getFill()
+                ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                ->getStartColor()->setARGB('FFD9EAD3');
+            $column++;
+        }
+
+        // Auto-size columns
+        foreach (range('A', 'H') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // Add sample data in row 2 as guide
+        $sheet->setCellValue('A2', '2024-001');
+        $sheet->setCellValue('B2', 'Dela Cruz');
+        $sheet->setCellValue('C2', 'Juan');
+        $sheet->setCellValue('D2', 'Santos');
+        $sheet->setCellValue('E2', 'Jr.');
+        $sheet->setCellValue('F2', 'TES-2024-123');
+        $sheet->setCellValue('G2', '10000.00');
+        $sheet->setCellValue('H2', date('Y-m-d'));
+
+        // Style sample row as lighter
+        $sheet->getStyle('A2:H2')->getFont()->setItalic(true);
+        $sheet->getStyle('A2:H2')->getFill()
+            ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+            ->getStartColor()->setARGB('FFF3F3F3');
+
+        // Create writer
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+
+        // Set headers for download
+        $filename = 'liquidation_beneficiaries_template_' . date('Y-m-d') . '.xlsx';
+
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment;filename="' . $filename . '"');
+        header('Cache-Control: max-age=0');
+
+        $writer->save('php://output');
+        exit;
+    }
+
+    /**
+     * Download CSV template for beneficiaries.
+     */
+    public function downloadBeneficiaryTemplate(Request $request, Liquidation $liquidation)
+    {
+        if (!$request->user()->hasPermission('view_liquidation')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $filename = 'beneficiaries_template_' . $liquidation->control_no . '.csv';
+
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $callback = function() {
+            $file = fopen('php://output', 'w');
+
+            // Add header row
+            fputcsv($file, [
+                'Student No',
+                'Last Name',
+                'First Name',
+                'Middle Name',
+                'Extension Name',
+                'Award No',
+                'Date Disbursed (YYYY-MM-DD)',
+                'Amount',
+                'Remarks'
+            ]);
+
+            // Add sample row
+            fputcsv($file, [
+                '2024-001',
+                'Dela Cruz',
+                'Juan',
+                'Santos',
+                'Jr.',
+                'TES-2024-123',
+                date('Y-m-d'),
+                '5000.00',
+                ''
+            ]);
+
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
+    /**
+     * Import beneficiaries from CSV.
+     */
+    public function importBeneficiaries(Request $request, Liquidation $liquidation)
+    {
+        $user = $request->user();
+
+        // Check permissions
+        if (!$user->hasPermission('edit_liquidation')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        // Check if user can edit this liquidation
+        if (!$user->isSuperAdmin() && !in_array($user->role->name, ['Admin'])) {
+            if ($liquidation->created_by !== $user->id || !$liquidation->isEditableByHEI()) {
+                abort(403, 'You cannot edit this liquidation.');
+            }
+        }
+
+        $validated = $request->validate([
+            'csv_file' => 'required|file|mimes:csv,txt|max:2048',
+        ]);
+
+        $file = $request->file('csv_file');
+        $path = $file->getRealPath();
+
+        $csv = array_map('str_getcsv', file($path));
+        $header = array_shift($csv); // Remove header row
+
+        $imported = 0;
+        $errors = [];
+
+        foreach ($csv as $index => $row) {
+            // Skip empty rows
+            if (empty(array_filter($row))) {
+                continue;
+            }
+
+            try {
+                \App\Models\LiquidationBeneficiary::create([
+                    'liquidation_id' => $liquidation->id,
+                    'student_no' => $row[0] ?? '',
+                    'last_name' => $row[1] ?? '',
+                    'first_name' => $row[2] ?? '',
+                    'middle_name' => $row[3] ?? null,
+                    'extension_name' => $row[4] ?? null,
+                    'award_no' => $row[5] ?? '',
+                    'date_disbursed' => $row[6] ?? now(),
+                    'amount' => $row[7] ?? 0,
+                    'remarks' => $row[8] ?? null,
+                ]);
+                $imported++;
+            } catch (\Exception $e) {
+                $errors[] = "Row " . ($index + 2) . ": " . $e->getMessage();
+            }
+        }
+
+        // Update total disbursed amount
+        $totalDisbursed = $liquidation->beneficiaries()->sum('amount');
+        $liquidation->update([
+            'liquidated_amount' => $totalDisbursed,
+        ]);
+
+        if (count($errors) > 0) {
+            return redirect()->back()->with('error', 'Imported ' . $imported . ' beneficiaries with ' . count($errors) . ' errors.');
+        }
+
+        return redirect()->back()->with('success', 'Successfully imported ' . $imported . ' beneficiaries.');
+    }
+
+    /**
+     * Get liquidation details with beneficiaries.
+     */
+    public function show(Request $request, Liquidation $liquidation)
+    {
+        $user = $request->user();
+
+        if (!$user->hasPermission('view_liquidation')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        // Check if user can view this liquidation
+        $isReviewer = in_array($user->role->name, ['Regional Coordinator', 'Accountant', 'Admin', 'Super Admin']);
+        if (!$isReviewer && $liquidation->created_by !== $user->id) {
+            abort(403, 'You can only view your own liquidations.');
+        }
+
+        $liquidation->load(['hei', 'program', 'beneficiaries']);
+
+        $totalDisbursed = $liquidation->beneficiaries->sum('amount');
+        $remaining = $liquidation->amount_received - $totalDisbursed;
+
+        return response()->json([
+            'id' => $liquidation->id,
+            'control_no' => $liquidation->control_no,
+            'hei_name' => $liquidation->hei->name,
+            'program_name' => $liquidation->program->name,
+            'academic_year' => $liquidation->academic_year,
+            'semester' => $liquidation->semester,
+            'batch_no' => $liquidation->batch_no,
+            'amount_received' => $liquidation->amount_received,
+            'total_disbursed' => $totalDisbursed,
+            'remaining_amount' => $remaining,
+            'status' => $liquidation->status,
+            'status_label' => $liquidation->getStatusLabel(),
+            'beneficiaries' => $liquidation->beneficiaries->map(function ($b) {
+                return [
+                    'id' => $b->id,
+                    'student_no' => $b->student_no,
+                    'last_name' => $b->last_name,
+                    'first_name' => $b->first_name,
+                    'middle_name' => $b->middle_name,
+                    'extension_name' => $b->extension_name,
+                    'award_no' => $b->award_no,
+                    'date_disbursed' => $b->date_disbursed->format('Y-m-d'),
+                    'amount' => $b->amount,
+                    'remarks' => $b->remarks,
+                ];
+            }),
+        ]);
     }
 }

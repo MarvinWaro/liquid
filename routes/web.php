@@ -54,6 +54,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('liquidation/{liquidation}/upload-document', [LiquidationController::class, 'uploadDocument'])->name('liquidation.upload-document');
     Route::get('liquidation-documents/{document}/download', [LiquidationController::class, 'downloadDocument'])->name('liquidation.download-document');
     Route::delete('liquidation-documents/{document}', [LiquidationController::class, 'deleteDocument'])->name('liquidation.delete-document');
+
+    // Liquidation Template Download
+    Route::get('liquidation/template/download', [LiquidationController::class, 'downloadTemplate'])->name('liquidation.download-template');
+
+    // Liquidation Beneficiary Routes
+    Route::get('liquidation/{liquidation}', [LiquidationController::class, 'show'])->name('liquidation.show');
+    Route::get('liquidation/{liquidation}/beneficiary-template', [LiquidationController::class, 'downloadBeneficiaryTemplate'])->name('liquidation.download-beneficiary-template');
+    Route::post('liquidation/{liquidation}/import-beneficiaries', [LiquidationController::class, 'importBeneficiaries'])->name('liquidation.import-beneficiaries');
 });
 
 require __DIR__.'/settings.php';

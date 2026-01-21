@@ -5,7 +5,15 @@
       "Bash(dir:*)",
       "Bash(php artisan tinker:*)",
       "Bash(php -r:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(php artisan make:migration:*)",
+      "Bash(php artisan:*)",
+      "Bash(composer require:*)",
+      "Bash(composer show:*)",
+      "Bash(powershell \"\\(Get-Content ''app\\\\Http\\\\Controllers\\\\LiquidationController.php'' | Measure-Object -Line\\).Lines\")",
+      "Bash(php assign_hei.php:*)",
+      "Bash(del:*)",
+      "Bash(npm run build:*)"
     ]
   }
 }

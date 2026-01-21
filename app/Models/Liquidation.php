@@ -65,6 +65,14 @@ class Liquidation extends Model
     }
 
     /**
+     * Get the program for this liquidation.
+     */
+    public function program(): BelongsTo
+    {
+        return $this->belongsTo(Program::class);
+    }
+
+    /**
      * Get the user who created this liquidation.
      */
     public function creator(): BelongsTo
@@ -102,6 +110,14 @@ class Liquidation extends Model
     public function documents(): HasMany
     {
         return $this->hasMany(LiquidationDocument::class);
+    }
+
+    /**
+     * Get beneficiaries for this liquidation.
+     */
+    public function beneficiaries(): HasMany
+    {
+        return $this->hasMany(LiquidationBeneficiary::class);
     }
 
     /**

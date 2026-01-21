@@ -24,6 +24,7 @@ class User extends Authenticatable
         'email',
         'password',
         'role_id',
+        'hei_id',
         'status',
     ];
 
@@ -59,6 +60,14 @@ class User extends Authenticatable
     public function role(): BelongsTo
     {
         return $this->belongsTo(Role::class);
+    }
+
+    /**
+     * Get the HEI that owns the user (for HEI users).
+     */
+    public function hei(): BelongsTo
+    {
+        return $this->belongsTo(HEI::class);
     }
 
     /**
