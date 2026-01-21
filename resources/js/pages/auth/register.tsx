@@ -8,13 +8,31 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import AuthLayout from '@/layouts/auth-layout';
 
-export default function Register() {
+interface HEI {
+    id: number;
+    name: string;
+    code: string;
+    uii: string | null;
+}
+
+interface Props {
+    heis: HEI[];
+}
+
+export default function Register({ heis }: Props) {
     return (
         <AuthLayout
-            title="Create an account"
-            description="Enter your details below to create your account"
+            title="Create HEI Account"
+            description="Register your Higher Education Institution account"
         >
             <Head title="Register" />
             <Form
@@ -27,7 +45,24 @@ export default function Register() {
                     <>
                         <div className="grid gap-6">
                             <div className="grid gap-2">
-                                <Label htmlFor="name">Name</Label>
+                                <Label htmlFor="hei_id">Institution *</Label>
+                                <Select name="hei_id" required>
+                                    <SelectTrigger id="hei_id">
+                                        <SelectValue placeholder="Select your institution" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {heis.map((hei) => (
+                                            <SelectItem key={hei.id} value={hei.id.toString()}>
+                                                {hei.name} ({hei.code})
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <InputError message={errors.hei_id} />
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label htmlFor="name">Contact Person Name</Label>
                                 <Input
                                     id="name"
                                     type="text"
@@ -45,7 +80,7 @@ export default function Register() {
                             </div>
 
                             <div className="grid gap-2">
-                                <Label htmlFor="email">Email address</Label>
+                                <Label htmlFor="email">Institutional Email Address</Label>
                                 <Input
                                     id="email"
                                     type="email"
@@ -53,7 +88,7 @@ export default function Register() {
                                     tabIndex={2}
                                     autoComplete="email"
                                     name="email"
-                                    placeholder="email@example.com"
+                                    placeholder="email@institution.edu.ph"
                                 />
                                 <InputError message={errors.email} />
                             </div>

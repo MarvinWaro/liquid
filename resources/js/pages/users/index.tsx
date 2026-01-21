@@ -45,6 +45,12 @@ interface Role {
     name: string;
 }
 
+interface HEI {
+    id: number;
+    name: string;
+    code: string;
+}
+
 interface User {
     id: number;
     name: string;
@@ -52,6 +58,7 @@ interface User {
     status: string;
     role: Role;
     role_id: number;
+    hei?: HEI;
     created_at: string;
 }
 
@@ -152,6 +159,7 @@ export default function Index({ auth, users, roles, canCreate, canEdit, canDelet
                                     <TableRow>
                                         <TableHead className="pl-6 h-12">User</TableHead>
                                         <TableHead>Role</TableHead>
+                                        <TableHead>Institution</TableHead>
                                         <TableHead>Status</TableHead>
                                         <TableHead>Joined Date</TableHead>
                                         <TableHead className="text-right pr-6">Actions</TableHead>
@@ -160,7 +168,7 @@ export default function Index({ auth, users, roles, canCreate, canEdit, canDelet
                                 <TableBody>
                                     {filteredUsers.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+                                            <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
                                                  <div className="flex flex-col items-center gap-2">
                                                     <UserIcon className="h-8 w-8 text-muted-foreground/50" />
                                                     <p>No users found matching your search.</p>
@@ -199,6 +207,16 @@ export default function Index({ auth, users, roles, canCreate, canEdit, canDelet
                                                     <Badge variant="outline" className="border-border bg-background">
                                                         {user.role?.name || 'No Role'}
                                                     </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {user.hei ? (
+                                                        <div className="flex flex-col">
+                                                            <span className="text-sm font-medium">{user.hei.name}</span>
+                                                            <span className="text-xs text-muted-foreground">{user.hei.code}</span>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-sm text-muted-foreground">-</span>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell>
                                                     <Badge
