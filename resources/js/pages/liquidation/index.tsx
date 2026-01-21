@@ -53,7 +53,7 @@ interface Props {
     filters: {
         search?: string;
     };
-    can: {
+    permissions: {
         create: boolean;
         edit: boolean;
         delete: boolean;
@@ -63,7 +63,7 @@ interface Props {
     userRole: string;
 }
 
-export default function Index({ auth, liquidations, heis, filters, can, userRole }: Props) {
+export default function Index({ auth, liquidations, heis, filters, permissions, userRole }: Props) {
     const [searchQuery, setSearchQuery] = useState(filters.search || '');
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
@@ -107,7 +107,7 @@ export default function Index({ auth, liquidations, heis, filters, can, userRole
                                 {!['Regional Coordinator', 'Accountant'].includes(userRole) && 'Manage liquidation records and submissions'}
                             </p>
                         </div>
-                        {can.create && (
+                        {permissions.create && (
                             <Button onClick={() => setIsCreateModalOpen(true)}>
                                 <Plus className="mr-2 h-4 w-4" />
                                 Create Liquidation
@@ -153,7 +153,7 @@ export default function Index({ auth, liquidations, heis, filters, can, userRole
                                                 <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                                                     <FileText className="mx-auto h-12 w-12 mb-2 opacity-50" />
                                                     <p>No liquidation records found</p>
-                                                    {can.create && (
+                                                    {permissions.create && (
                                                         <Button
                                                             variant="link"
                                                             onClick={() => setIsCreateModalOpen(true)}

@@ -59,18 +59,22 @@ const footerNavItems: NavItem[] = [
 ];
 
 export function AppSidebar() {
-    const { can } = usePage<SharedData>().props;
+    const page = usePage<SharedData>();
+    const can = page.props.can || {
+        canViewDashboard: false,
+        canViewLiquidation: false,
+        canViewRoles: false,
+        canViewUsers: false,
+    };
 
     // Filter navigation items based on user abilities
-    const mainNavItems = useMemo(() => {
-        return allNavItems.filter(item => {
-            // If no ability key specified, always show (fallback)
-            if (!item.ability) return true;
+    const mainNavItems = allNavItems.filter(item => {
+        // If no ability key specified, always show (fallback)
+        if (!item.ability) return true;
 
-            // Check if user has the required ability
-            return can[item.ability] === true;
-        });
-    }, [can]);
+        // Check if user has the required ability
+        return can[item.ability] === true;
+    });
 
     return (
         <Sidebar collapsible="icon" variant="inset">
