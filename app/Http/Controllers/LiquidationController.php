@@ -6,6 +6,7 @@ use App\Models\HEI;
 use App\Models\Liquidation;
 use App\Models\LiquidationDocument;
 use App\Models\Program;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Storage;
@@ -57,9 +58,9 @@ class LiquidationController extends Controller
                 'id' => $liquidation->id,
                 'reference_number' => $liquidation->control_no ?? $liquidation->reference_number,
                 'hei' => [
-                    'id' => $liquidation->hei->id,
-                    'name' => $liquidation->hei->name,
-                    'code' => $liquidation->hei->code,
+                    'id' => $liquidation->hei?->id ?? 0,
+                    'name' => $liquidation->hei?->name ?? 'N/A',
+                    'code' => $liquidation->hei?->code ?? 'N/A',
                 ],
                 'disbursed_amount' => number_format($liquidation->disbursed_amount, 2),
                 'liquidated_amount' => number_format($liquidation->liquidated_amount, 2),
@@ -67,9 +68,10 @@ class LiquidationController extends Controller
                 'status_label' => $liquidation->getStatusLabel(),
                 'status_badge' => $liquidation->getStatusBadgeClass(),
                 'created_at' => $liquidation->created_at->format('M d, Y'),
-                'created_by' => $liquidation->creator->name,
+                'created_by' => $liquidation->creator?->name ?? 'N/A',
                 'reviewed_by' => $liquidation->reviewer?->name,
                 'accountant_reviewed_by' => $liquidation->accountantReviewer?->name,
+                'days_lapsed' => $liquidation->days_lapsed,
             ];
         });
 
@@ -84,6 +86,15 @@ class LiquidationController extends Controller
         // Get user's HEI if they belong to one
         $userHei = $request->user()->hei;
 
+        // Get users by role for dropdowns
+        $regionalCoordinators = User::whereHas('role', function ($q) {
+            $q->where('name', 'Regional Coordinator');
+        })->where('status', 'active')->orderBy('name')->get(['id', 'name']);
+
+        $accountants = User::whereHas('role', function ($q) {
+            $q->where('name', 'Accountant');
+        })->where('status', 'active')->orderBy('name')->get(['id', 'name']);
+
         return Inertia::render('liquidation/index', [
             'liquidations' => $liquidations,
             'heis' => $heis,
@@ -94,6 +105,8 @@ class LiquidationController extends Controller
                 'code' => $userHei->code,
                 'uii' => $userHei->uii,
             ] : null,
+            'regionalCoordinators' => $regionalCoordinators,
+            'accountants' => $accountants,
             'filters' => $request->only(['search']),
             'permissions' => [
                 'create' => $request->user()->hasPermission('create_liquidation'),
@@ -140,6 +153,7 @@ class LiquidationController extends Controller
             'semester' => 'required|string',
             'batch_no' => 'nullable|string|max:255',
             'amount_received' => 'required|numeric|min:0',
+            'date_fund_released' => 'nullable|date',
         ]);
 
         // Get program to generate control number
@@ -164,12 +178,14 @@ class LiquidationController extends Controller
             'control_no' => $controlNo,
             'created_by' => $request->user()->id,
             'status' => 'draft',
+            'date_fund_released' => $validated['date_fund_released'] ?? null,
             // Initialize other required fields with defaults
             'disbursed_amount' => $validated['amount_received'],
             'amount_disbursed' => $validated['amount_received'],
             'amount_received' => $validated['amount_received'],
             'amount_refunded' => 0,
             'liquidated_amount' => 0,
+            'document_status' => 'No Submission',
         ]);
 
         return redirect()->route('liquidation.index')
@@ -295,8 +311,21 @@ class LiquidationController extends Controller
             abort(403, 'This liquidation cannot be submitted in its current status.');
         }
 
+        // Determine document status based on beneficiaries and documents
+        $hasBeneficiaries = $liquidation->beneficiaries()->count() > 0;
+        $hasDocuments = $liquidation->documents()->count() > 0;
+
+        $documentStatus = 'No Submission';
+        if ($hasBeneficiaries && $hasDocuments) {
+            $documentStatus = 'Complete Submission';
+        } elseif ($hasBeneficiaries || $hasDocuments) {
+            $documentStatus = 'Partial Submission';
+        }
+
         $liquidation->update([
             'status' => 'for_initial_review',
+            'date_submitted' => now(),
+            'document_status' => $documentStatus,
         ]);
 
         return redirect()->route('liquidation.index')
@@ -322,13 +351,26 @@ class LiquidationController extends Controller
 
         $validated = $request->validate([
             'review_remarks' => 'nullable|string',
+            'receiver_name' => 'nullable|string|max:255',
+            'document_location' => 'nullable|string|max:255',
+            'transmittal_reference_no' => 'required|string|max:255',
+            'number_of_folders' => 'nullable|integer',
+            'folder_location_number' => 'nullable|string|max:255',
+            'group_transmittal' => 'nullable|string|max:255',
         ]);
 
         $liquidation->update([
             'status' => 'endorsed_to_accounting',
             'reviewed_by' => $user->id,
             'reviewed_at' => now(),
+            'received_at' => now(),
             'review_remarks' => $validated['review_remarks'] ?? null,
+            'receiver_name' => $validated['receiver_name'] ?? null,
+            'document_location' => $validated['document_location'] ?? null,
+            'transmittal_reference_no' => $validated['transmittal_reference_no'],
+            'number_of_folders' => $validated['number_of_folders'] ?? null,
+            'folder_location_number' => $validated['folder_location_number'] ?? null,
+            'group_transmittal' => $validated['group_transmittal'] ?? null,
         ]);
 
         return redirect()->route('liquidation.index')
@@ -354,13 +396,33 @@ class LiquidationController extends Controller
 
         $validated = $request->validate([
             'review_remarks' => 'required|string',
+            'documents_for_compliance' => 'nullable|string',
+            'receiver_name' => 'nullable|string|max:255',
+            'document_location' => 'nullable|string|max:255',
         ]);
+
+        // Append to review history
+        $reviewHistory = $liquidation->review_history ?? [];
+        $reviewHistory[] = [
+            'returned_at' => now()->toIso8601String(),
+            'returned_by' => $user->name,
+            'returned_by_id' => $user->id,
+            'review_remarks' => $validated['review_remarks'],
+            'documents_for_compliance' => $validated['documents_for_compliance'] ?? null,
+        ];
 
         $liquidation->update([
             'status' => 'returned_to_hei',
             'reviewed_by' => $user->id,
             'reviewed_at' => now(),
+            'received_at' => now(),
             'review_remarks' => $validated['review_remarks'],
+            'documents_for_compliance' => $validated['documents_for_compliance'] ?? null,
+            'compliance_status' => 'Pending Review by HEI',
+            'date_concerns_emailed' => now(),
+            'receiver_name' => $validated['receiver_name'] ?? null,
+            'document_location' => $validated['document_location'] ?? null,
+            'review_history' => $reviewHistory,
         ]);
 
         return redirect()->route('liquidation.index')
@@ -420,11 +482,21 @@ class LiquidationController extends Controller
             'accountant_remarks' => 'required|string',
         ]);
 
+        // Append to accountant review history
+        $accountantHistory = $liquidation->accountant_review_history ?? [];
+        $accountantHistory[] = [
+            'returned_at' => now()->toIso8601String(),
+            'returned_by' => $user->name,
+            'returned_by_id' => $user->id,
+            'accountant_remarks' => $validated['accountant_remarks'],
+        ];
+
         $liquidation->update([
             'status' => 'returned_to_rc',
             'accountant_reviewed_by' => $user->id,
             'accountant_reviewed_at' => now(),
             'accountant_remarks' => $validated['accountant_remarks'],
+            'accountant_review_history' => $accountantHistory,
         ]);
 
         return redirect()->route('liquidation.index')
@@ -747,7 +819,7 @@ class LiquidationController extends Controller
             abort(403, 'You can only view your own liquidations.');
         }
 
-        $liquidation->load(['hei', 'program', 'beneficiaries']);
+        $liquidation->load(['hei', 'program', 'beneficiaries', 'documents']);
 
         $totalDisbursed = $liquidation->beneficiaries->sum('amount');
         $remaining = $liquidation->amount_received - $totalDisbursed;
@@ -755,8 +827,8 @@ class LiquidationController extends Controller
         return response()->json([
             'id' => $liquidation->id,
             'control_no' => $liquidation->control_no,
-            'hei_name' => $liquidation->hei->name,
-            'program_name' => $liquidation->program->name,
+            'hei_name' => $liquidation->hei?->name ?? 'N/A',
+            'program_name' => $liquidation->program?->name ?? 'N/A',
             'academic_year' => $liquidation->academic_year,
             'semester' => $liquidation->semester,
             'batch_no' => $liquidation->batch_no,
@@ -765,6 +837,12 @@ class LiquidationController extends Controller
             'remaining_amount' => $remaining,
             'status' => $liquidation->status,
             'status_label' => $liquidation->getStatusLabel(),
+            'review_remarks' => $liquidation->review_remarks,
+            'documents_for_compliance' => $liquidation->documents_for_compliance,
+            'compliance_status' => $liquidation->compliance_status,
+            'review_history' => $liquidation->review_history ?? [],
+            'accountant_review_history' => $liquidation->accountant_review_history ?? [],
+            'accountant_remarks' => $liquidation->accountant_remarks,
             'beneficiaries' => $liquidation->beneficiaries->map(function ($b) {
                 return [
                     'id' => $b->id,
@@ -777,6 +855,14 @@ class LiquidationController extends Controller
                     'date_disbursed' => $b->date_disbursed->format('Y-m-d'),
                     'amount' => $b->amount,
                     'remarks' => $b->remarks,
+                ];
+            }),
+            'documents' => $liquidation->documents->map(function ($doc) {
+                return [
+                    'id' => $doc->id,
+                    'file_name' => $doc->file_name,
+                    'file_path' => $doc->file_path,
+                    'uploaded_at' => $doc->created_at->format('Y-m-d H:i:s'),
                 ];
             }),
         ]);

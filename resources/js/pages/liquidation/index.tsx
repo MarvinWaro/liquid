@@ -48,6 +48,12 @@ interface Liquidation {
     created_by: string;
     reviewed_by: string | null;
     accountant_reviewed_by: string | null;
+    days_lapsed: number | null;
+}
+
+interface User {
+    id: number;
+    name: string;
 }
 
 interface Props {
@@ -62,6 +68,8 @@ interface Props {
     heis: HEI[];
     programs: Program[];
     userHei: HEI | null;
+    regionalCoordinators: User[];
+    accountants: User[];
     filters: {
         search?: string;
     };
@@ -75,7 +83,7 @@ interface Props {
     userRole: string;
 }
 
-export default function Index({ auth, liquidations, heis, programs, userHei, filters, permissions, userRole }: Props) {
+export default function Index({ auth, liquidations, heis, programs, userHei, regionalCoordinators, accountants, filters, permissions, userRole }: Props) {
     const [searchQuery, setSearchQuery] = useState(filters.search || '');
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
@@ -141,6 +149,11 @@ export default function Index({ auth, liquidations, heis, programs, userHei, fil
                 onDataChange={(updatedLiquidation) => {
                     setSelectedLiquidation(updatedLiquidation);
                 }}
+                canSubmit={userHei !== null}
+                canReview={permissions.review}
+                userRole={userRole}
+                regionalCoordinators={regionalCoordinators}
+                accountants={accountants}
             />
 
             <div className="py-8 w-full">
@@ -189,6 +202,7 @@ export default function Index({ auth, liquidations, heis, programs, userHei, fil
                                             <TableHead className="text-right">Disbursed Amount</TableHead>
                                             <TableHead className="text-right">Liquidated Amount</TableHead>
                                             <TableHead>Status</TableHead>
+                                            <TableHead className="text-center">Days Lapsed</TableHead>
                                             <TableHead>Created By</TableHead>
                                             <TableHead>Date Created</TableHead>
                                             <TableHead className="text-right">Actions</TableHead>
@@ -197,7 +211,7 @@ export default function Index({ auth, liquidations, heis, programs, userHei, fil
                                     <TableBody>
                                         {liquidations.data.length === 0 ? (
                                             <TableRow>
-                                                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                                                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                                                     <FileText className="mx-auto h-12 w-12 mb-2 opacity-50" />
                                                     <p>No liquidation records found</p>
                                                     {permissions.create && (
@@ -233,6 +247,33 @@ export default function Index({ auth, liquidations, heis, programs, userHei, fil
                                                         <Badge variant={getBadgeVariant(liquidation.status_badge)}>
                                                             {liquidation.status_label}
                                                         </Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {liquidation.days_lapsed !== null ? (
+                                                            <div className="flex flex-col gap-1">
+                                                                <Badge
+                                                                    variant={
+                                                                        liquidation.days_lapsed <= 7 ? "default" :
+                                                                        liquidation.days_lapsed <= 14 ? "secondary" :
+                                                                        liquidation.days_lapsed <= 30 ? "warning" :
+                                                                        "destructive"
+                                                                    }
+                                                                    className="w-fit"
+                                                                >
+                                                                    {liquidation.days_lapsed} {liquidation.days_lapsed === 1 ? 'day' : 'days'}
+                                                                </Badge>
+                                                                <span className="text-xs text-muted-foreground">
+                                                                    {liquidation.status === 'for_initial_review' && 'Pending RC Review'}
+                                                                    {liquidation.status === 'returned_to_hei' && 'With HEI'}
+                                                                    {liquidation.status === 'returned_to_rc' && 'With RC'}
+                                                                    {liquidation.status === 'endorsed_to_accounting' && 'With Accountant'}
+                                                                    {liquidation.status === 'endorsed_to_coa' && 'With COA'}
+                                                                    {liquidation.status === 'approved' && 'Completed'}
+                                                                </span>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-xs text-muted-foreground">Not submitted</span>
+                                                        )}
                                                     </TableCell>
                                                     <TableCell>
                                                         <div className="text-sm">{liquidation.created_by}</div>
