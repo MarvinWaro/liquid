@@ -63,6 +63,7 @@ export function CreateLiquidationModalHEI({ isOpen, onClose, programs, userHei }
         semester: '',
         batch_no: '',
         amount_received: '',
+        date_fund_released: '',
     });
 
     const [controlNumber, setControlNumber] = React.useState('');
@@ -248,6 +249,22 @@ export function CreateLiquidationModalHEI({ isOpen, onClose, programs, userHei }
                                             <p className="text-sm text-destructive">{errors.semester}</p>
                                         )}
                                     </div>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <Label className="text-sm" htmlFor="date_fund_released">Date Fund Released/Endorsed for Payment *</Label>
+                                    <Input
+                                        id="date_fund_released"
+                                        type="date"
+                                        value={data.date_fund_released}
+                                        onChange={(e) => setData('date_fund_released', e.target.value)}
+                                    />
+                                    {errors.date_fund_released && (
+                                        <p className="text-sm text-destructive">{errors.date_fund_released}</p>
+                                    )}
+                                    <p className="text-xs text-muted-foreground">
+                                        Date when CHED released/endorsed the funds for payment
+                                    </p>
                                 </div>
 
                                 <div className="space-y-1.5">

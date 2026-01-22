@@ -19,6 +19,7 @@ class Liquidation extends Model
         'program_id',
         'academic_year',
         'semester',
+        'batch_no',
         'amount_received',
         'amount_disbursed',
         'amount_refunded',
@@ -40,20 +41,83 @@ class Liquidation extends Model
         'accountant_reviewed_by',
         'accountant_reviewed_at',
         'accountant_remarks',
+        'review_history',
+        'accountant_review_history',
         'coa_endorsed_by',
         'coa_endorsed_at',
+
+        // Fund Release & Tracking
+        'date_fund_released',
+
+        // Document Status
+        'document_status',
+        'date_submitted',
+
+        // Physical Document Management
+        'receiver_name',
+        'received_at',
+        'document_location',
+        'document_location_history',
+
+        // Refund Details
+        'refund_or_number',
+        'amount_with_complete_docs',
+
+        // Compliance Tracking
+        'documents_for_compliance',
+        'compliance_status',
+        'date_concerns_emailed',
+        'date_compliance_submitted',
+
+        // Endorsement to Accounting
+        'transmittal_reference_no',
+        'number_of_folders',
+        'folder_location_number',
+        'group_transmittal',
+        'other_file_location',
     ];
+
+    protected $appends = ['days_lapsed'];
 
     protected function casts(): array
     {
         return [
             'disbursed_amount' => 'decimal:2',
             'liquidated_amount' => 'decimal:2',
+            'amount_with_complete_docs' => 'decimal:2',
             'disbursement_date' => 'date',
+            'date_fund_released' => 'date',
             'reviewed_at' => 'datetime',
             'accountant_reviewed_at' => 'datetime',
             'coa_endorsed_at' => 'datetime',
+            'date_submitted' => 'datetime',
+            'received_at' => 'datetime',
+            'date_concerns_emailed' => 'datetime',
+            'date_compliance_submitted' => 'datetime',
+            'document_location_history' => 'array',
+            'review_history' => 'array',
+            'accountant_review_history' => 'array',
         ];
+    }
+
+    /**
+     * Calculate days lapsed since submission.
+     */
+    public function getDaysLapsedAttribute(): ?int
+    {
+        // Only calculate for submitted liquidations
+        if (!$this->date_submitted) {
+            return null;
+        }
+
+        // If already approved/endorsed to COA, calculate from submission to final endorsement
+        if (in_array($this->status, ['endorsed_to_coa', 'approved'])) {
+            $endDate = $this->coa_endorsed_at ?? $this->accountant_reviewed_at ?? now();
+            return $this->date_submitted->diffInDays($endDate);
+        }
+
+        // For ongoing reviews, calculate from submission to now
+        return $this->date_submitted->diffInDays(now());
     }
 
     /**
