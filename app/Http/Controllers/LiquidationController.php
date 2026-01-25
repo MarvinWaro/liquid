@@ -43,6 +43,11 @@ class LiquidationController extends Controller
             $query->where('created_by', $user->id);
         }
 
+        // Status filter
+        if ($request->status && $request->status !== 'all') {
+            $query->where('status', $request->status);
+        }
+
         // Search
         if ($request->search) {
             $query->where(function ($q) use ($request) {

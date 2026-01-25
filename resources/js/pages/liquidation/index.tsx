@@ -16,6 +16,13 @@ import {
     CardContent,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import { Plus, Search, FileText, Eye } from 'lucide-react';
 import { LiquidationCreateModal } from '@/components/liquidation/liquidation-create-modal';
 import { CreateLiquidationModalHEI } from '@/components/liquidations/create-liquidation-modal-hei';
@@ -85,19 +92,28 @@ interface Props {
 
 export default function Index({ auth, liquidations, heis, programs, userHei, regionalCoordinators, accountants, filters, permissions, userRole }: Props) {
     const [searchQuery, setSearchQuery] = useState(filters.search || '');
+    const [statusFilter, setStatusFilter] = useState('');
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
     const [selectedLiquidation, setSelectedLiquidation] = useState<any>(null);
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        router.get(route('liquidation.index'), { search: searchQuery }, {
+        router.get(route('liquidation.index'), { search: searchQuery, status: statusFilter }, {
             preserveState: true,
             preserveScroll: true,
         });
     };
 
-    const getBadgeVariant = (badge: string) => {
+    const handleStatusFilter = (value: string) => {
+        setStatusFilter(value);
+        router.get(route('liquidation.index'), { search: searchQuery, status: value }, {
+            preserveState: true,
+            preserveScroll: true,
+        });
+    };
+
+    const getBadgeVariant = (badge: string): any => {
         const variants: Record<string, any> = {
             'secondary': 'secondary',
             'warning': 'default',
@@ -106,6 +122,13 @@ export default function Index({ auth, liquidations, heis, programs, userHei, reg
             'success': 'default',
         };
         return variants[badge] || 'secondary';
+    };
+
+    const getBadgeClassName = (badge: string) => {
+        if (badge === 'success') {
+            return 'bg-green-600 text-white hover:bg-green-700';
+        }
+        return '';
     };
 
     const handleViewLiquidation = async (liquidationId: number) => {
@@ -189,6 +212,20 @@ export default function Index({ auth, liquidations, heis, programs, userHei, reg
                                             className="pl-8"
                                         />
                                     </div>
+                                    <Select value={statusFilter} onValueChange={handleStatusFilter}>
+                                        <SelectTrigger className="w-[200px]">
+                                            <SelectValue placeholder="Filter by status" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All Statuses</SelectItem>
+                                            <SelectItem value="draft">Draft</SelectItem>
+                                            <SelectItem value="for_initial_review">For Initial Review</SelectItem>
+                                            <SelectItem value="returned_to_hei">Returned to HEI</SelectItem>
+                                            <SelectItem value="endorsed_to_accounting">Endorsed to Accounting</SelectItem>
+                                            <SelectItem value="returned_to_rc">Returned to RC</SelectItem>
+                                            <SelectItem value="endorsed_to_coa">Endorsed to COA</SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                     <Button type="submit">Search</Button>
                                 </div>
                             </form>
@@ -244,7 +281,10 @@ export default function Index({ auth, liquidations, heis, programs, userHei, reg
                                                         ₱{liquidation.liquidated_amount}
                                                     </TableCell>
                                                     <TableCell>
-                                                        <Badge variant={getBadgeVariant(liquidation.status_badge)}>
+                                                        <Badge
+                                                            variant={getBadgeVariant(liquidation.status_badge)}
+                                                            className={getBadgeClassName(liquidation.status_badge)}
+                                                        >
                                                             {liquidation.status_label}
                                                         </Badge>
                                                     </TableCell>
@@ -294,6 +334,7 @@ export default function Index({ auth, liquidations, heis, programs, userHei, reg
                                                             variant="ghost"
                                                             size="sm"
                                                             onClick={() => handleViewLiquidation(liquidation.id)}
+                                                            className="text-green-600 hover:text-green-700 hover:bg-green-50"
                                                         >
                                                             <Eye className="h-4 w-4 mr-1" />
                                                             View

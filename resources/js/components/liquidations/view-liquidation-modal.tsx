@@ -363,21 +363,21 @@ export function ViewLiquidationModal({
                         <Card>
                             <CardHeader className="pb-3">
                                 <CardDescription className="text-xs">Amount Received</CardDescription>
-                                <CardTitle className="text-2xl">₱{liquidation.amount_received.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</CardTitle>
+                                <CardTitle className="text-2xl">₱{Number(liquidation.amount_received).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</CardTitle>
                             </CardHeader>
                         </Card>
 
                         <Card>
                             <CardHeader className="pb-3">
                                 <CardDescription className="text-xs">Disbursed to Students</CardDescription>
-                                <CardTitle className="text-2xl text-blue-600">₱{liquidation.total_disbursed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</CardTitle>
+                                <CardTitle className="text-2xl text-blue-600">₱{Number(liquidation.total_disbursed).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</CardTitle>
                             </CardHeader>
                         </Card>
 
                         <Card>
                             <CardHeader className="pb-3">
                                 <CardDescription className="text-xs">Remaining / Refund</CardDescription>
-                                <CardTitle className="text-2xl text-orange-600">₱{liquidation.remaining_amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</CardTitle>
+                                <CardTitle className="text-2xl text-orange-600">₱{Number(liquidation.remaining_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</CardTitle>
                             </CardHeader>
                         </Card>
                     </div>
