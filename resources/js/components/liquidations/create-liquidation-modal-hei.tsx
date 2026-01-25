@@ -67,6 +67,7 @@ export function CreateLiquidationModalHEI({ isOpen, onClose, programs, userHei }
     });
 
     const [controlNumber, setControlNumber] = React.useState('');
+    const [displayAmount, setDisplayAmount] = React.useState('');
 
     // Generate control number when program is selected
     useEffect(() => {
@@ -97,7 +98,73 @@ export function CreateLiquidationModalHEI({ isOpen, onClose, programs, userHei }
     const handleClose = () => {
         reset();
         setControlNumber('');
+        setDisplayAmount('');
         onClose();
+    };
+
+    // Format number with comma separators
+    const formatNumberWithCommas = (value: string) => {
+        const parts = value.split('.');
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        return parts.join('.');
+    };
+
+    // Handle calculator-style money input (right to left, starting with cents)
+    const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        let input = e.target.value.replace(/[^0-9]/g, ''); // Remove non-numeric characters
+
+        if (input === '') {
+            setDisplayAmount('');
+            setData('amount_received', '');
+            return;
+        }
+
+        // Pad with zeros if less than 3 digits (to ensure cents)
+        input = input.padStart(3, '0');
+
+        // Insert decimal point before last 2 digits (cents)
+        const cents = input.slice(-2);
+        const dollars = input.slice(0, -2);
+
+        // Remove leading zeros from dollars part but keep at least one zero
+        const dollarsClean = dollars.replace(/^0+/, '') || '0';
+
+        // Create the actual value
+        const actualValue = `${dollarsClean}.${cents}`;
+
+        // Create display value with commas
+        const displayValue = formatNumberWithCommas(`${dollarsClean}.${cents}`);
+
+        setDisplayAmount(displayValue);
+        setData('amount_received', actualValue);
+    };
+
+    // Handle backspace/delete
+    const handleAmountKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+            e.preventDefault();
+            let numericValue = data.amount_received.replace(/[^0-9]/g, '');
+
+            if (numericValue.length <= 1) {
+                setDisplayAmount('');
+                setData('amount_received', '');
+                return;
+            }
+
+            // Remove last digit
+            numericValue = numericValue.slice(0, -1);
+
+            // Reformat
+            numericValue = numericValue.padStart(3, '0');
+            const cents = numericValue.slice(-2);
+            const dollars = numericValue.slice(0, -2).replace(/^0+/, '') || '0';
+
+            const actualValue = `${dollars}.${cents}`;
+            const displayValue = formatNumberWithCommas(`${dollars}.${cents}`);
+
+            setDisplayAmount(displayValue);
+            setData('amount_received', actualValue);
+        }
     };
 
     return (
@@ -273,19 +340,20 @@ export function CreateLiquidationModalHEI({ isOpen, onClose, programs, userHei }
                                         <span className="absolute left-3 top-2.5 text-muted-foreground">₱</span>
                                         <Input
                                             id="amount_received"
-                                            type="number"
-                                            step="0.01"
+                                            type="text"
+                                            inputMode="numeric"
                                             placeholder="0.00"
-                                            value={data.amount_received}
-                                            onChange={(e) => setData('amount_received', e.target.value)}
-                                            className="pl-8"
+                                            value={displayAmount}
+                                            onChange={handleAmountChange}
+                                            onKeyDown={handleAmountKeyDown}
+                                            className="pl-8 text-right"
                                         />
                                     </div>
                                     {errors.amount_received && (
                                         <p className="text-sm text-destructive">{errors.amount_received}</p>
                                     )}
                                     <p className="text-xs text-muted-foreground">
-                                        Total amount disbursed by CHED to your institution
+                                        Type numbers like a calculator (e.g., 1000000 = ₱10,000.00)
                                     </p>
                                 </div>
                             </CardContent>
