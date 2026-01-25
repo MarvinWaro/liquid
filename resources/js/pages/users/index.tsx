@@ -37,7 +37,8 @@ import {
     PowerOff,
     Search,
     ShieldAlert,
-    Lock
+    Lock,
+    UserRoundPlus
 } from 'lucide-react';
 
 interface Role {
@@ -145,7 +146,7 @@ export default function Index({ auth, users, roles, canCreate, canEdit, canDelet
                             </div>
                             {canCreate && (
                                 <Button onClick={handleCreate} className="bg-primary hover:bg-primary/90 shadow-sm">
-                                    <Plus className="mr-2 h-4 w-4" />
+                                    <UserRoundPlus className="mr-2 h-4 w-4" />
                                     Add User
                                 </Button>
                             )}

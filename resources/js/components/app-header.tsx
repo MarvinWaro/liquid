@@ -5,13 +5,13 @@ import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuItem,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
     NavigationMenu,
     NavigationMenuItem,
     NavigationMenuList,
-    navigationMenuTriggerStyle,
 } from '@/components/ui/navigation-menu';
 import {
     Sheet,
@@ -20,24 +20,32 @@ import {
     SheetTitle,
     SheetTrigger,
 } from '@/components/ui/sheet';
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { UserMenuContent } from '@/components/user-menu-content';
-import { useInitials } from '@/hooks/use-initials';
 import { useActiveUrl } from '@/hooks/use-active-url';
 import { useAppearance } from '@/hooks/use-appearance';
+import { useInitials } from '@/hooks/use-initials';
 import { cn } from '@/lib/utils';
 import { dashboard } from '@/routes';
-import { type BreadcrumbItem, type NavItem, type SharedData, type NavigationAbilities } from '@/types';
+import {
+    type BreadcrumbItem,
+    type NavigationAbilities,
+    type NavItem,
+    type SharedData,
+} from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { LayoutGrid, Menu, Shield, Users, FileText, Monitor, Moon, Sun, Check } from 'lucide-react';
-import AppLogoIcon from './app-logo-icon';
+import {
+    Check,
+    FileText,
+    LayoutGrid,
+    Menu,
+    Monitor,
+    Moon,
+    Shield,
+    Sun,
+    Users,
+} from 'lucide-react';
 import { useMemo } from 'react';
-import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import AppLogoIcon from './app-logo-icon';
 
 // Define all navigation items with their required ability key
 const allNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
@@ -67,7 +75,6 @@ const allNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
     },
 ];
 
-
 interface AppHeaderProps {
     breadcrumbs?: BreadcrumbItem[];
 }
@@ -88,7 +95,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
 
     // Filter navigation items based on user abilities
     const mainNavItems = useMemo(() => {
-        return allNavItems.filter(item => {
+        return allNavItems.filter((item) => {
             // If no ability key specified, always show (fallback)
             if (!item.ability) return true;
 
@@ -101,7 +108,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
         <>
             {/* Top Bar - Logo and User Section */}
             <div className="bg-[#2c3e50]">
-                <div className="flex h-16 items-center px-4 md:px-24 border-b border-white/10">
+                <div className="flex h-16 items-center border-b border-white/10 px-4 md:px-24">
                     {/* Mobile Menu */}
                     <div className="lg:hidden">
                         <Sheet>
@@ -109,7 +116,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="mr-2 h-[34px] w-[34px] text-white/80 hover:text-white hover:bg-white/10"
+                                    className="mr-2 h-[34px] w-[34px] text-white/80 hover:bg-white/10 hover:text-white"
                                 >
                                     <Menu className="h-5 w-5" />
                                 </Button>
@@ -160,15 +167,22 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                             className="h-10 w-10"
                         />
                         <div className="flex flex-col">
-                            <span className="text-white font-semibold text-base leading-tight">
-                                UniFAST BARMM Admin
+                            <span className="text-base leading-tight font-semibold text-white">
+                                Unified Student Financial Assistance System for
+                                Tertiary Education
+                                <span className="text-orange-500">
+                                    {' '}
+                                    (UniFAST)
+                                </span>
                             </span>
                         </div>
                     </Link>
 
                     <div className="ml-auto flex items-center space-x-2">
-                        <div className="hidden md:flex items-center space-x-2 text-white/90 text-sm">
-                            <span className="font-medium">{auth.user.name}</span>
+                        <div className="hidden items-center space-x-2 text-sm text-white/90 md:flex">
+                            <span className="font-medium">
+                                {auth.user.name}
+                            </span>
                         </div>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -181,7 +195,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                             src={auth.user.avatar}
                                             alt={auth.user.name}
                                         />
-                                        <AvatarFallback className="rounded-full bg-white/20 text-white border border-white/30">
+                                        <AvatarFallback className="rounded-full border border-white/30 bg-white/20 text-white">
                                             {getInitials(auth.user.name)}
                                         </AvatarFallback>
                                     </Avatar>
@@ -197,28 +211,49 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-9 w-9 text-white/80 hover:text-white hover:bg-white/10"
+                                    className="h-9 w-9 text-white/80 hover:bg-white/10 hover:text-white"
                                 >
-                                    {appearance === 'light' && <Sun className="h-5 w-5" />}
-                                    {appearance === 'dark' && <Moon className="h-5 w-5" />}
-                                    {appearance === 'system' && <Monitor className="h-5 w-5" />}
+                                    {appearance === 'light' && (
+                                        <Sun className="h-5 w-5" />
+                                    )}
+                                    {appearance === 'dark' && (
+                                        <Moon className="h-5 w-5" />
+                                    )}
+                                    {appearance === 'system' && (
+                                        <Monitor className="h-5 w-5" />
+                                    )}
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => updateAppearance('light')} className="cursor-pointer">
+                                <DropdownMenuItem
+                                    onClick={() => updateAppearance('light')}
+                                    className="cursor-pointer"
+                                >
                                     <Sun className="mr-2 h-4 w-4" />
                                     <span>Light</span>
-                                    {appearance === 'light' && <Check className="ml-auto h-4 w-4" />}
+                                    {appearance === 'light' && (
+                                        <Check className="ml-auto h-4 w-4" />
+                                    )}
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => updateAppearance('dark')} className="cursor-pointer">
+                                <DropdownMenuItem
+                                    onClick={() => updateAppearance('dark')}
+                                    className="cursor-pointer"
+                                >
                                     <Moon className="mr-2 h-4 w-4" />
                                     <span>Dark</span>
-                                    {appearance === 'dark' && <Check className="ml-auto h-4 w-4" />}
+                                    {appearance === 'dark' && (
+                                        <Check className="ml-auto h-4 w-4" />
+                                    )}
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => updateAppearance('system')} className="cursor-pointer">
+                                <DropdownMenuItem
+                                    onClick={() => updateAppearance('system')}
+                                    className="cursor-pointer"
+                                >
                                     <Monitor className="mr-2 h-4 w-4" />
                                     <span>System</span>
-                                    {appearance === 'system' && <Check className="ml-auto h-4 w-4" />}
+                                    {appearance === 'system' && (
+                                        <Check className="ml-auto h-4 w-4" />
+                                    )}
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
@@ -229,7 +264,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
             {/* Navigation Bar */}
             <div className="border-b border-sidebar-border/70">
                 <div className="px-4 md:px-24">
-                    <div className="hidden lg:flex h-14 items-center">
+                    <div className="hidden h-14 items-center lg:flex">
                         <NavigationMenu className="flex h-full items-stretch">
                             <NavigationMenuList className="flex h-full items-stretch space-x-1">
                                 {mainNavItems.map((item, index) => (
@@ -240,8 +275,9 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                         <Link
                                             href={item.href}
                                             className={cn(
-                                                'h-full cursor-pointer px-4 text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 inline-flex items-center justify-center whitespace-nowrap text-sm font-medium transition-colors',
-                                                urlIsActive(item.href) && 'text-neutral-900 dark:text-neutral-100',
+                                                'inline-flex h-full cursor-pointer items-center justify-center px-4 text-sm font-medium whitespace-nowrap text-neutral-600 transition-colors hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100',
+                                                urlIsActive(item.href) &&
+                                                    'text-neutral-900 dark:text-neutral-100',
                                             )}
                                         >
                                             {item.icon && (
@@ -265,7 +301,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
 
             {breadcrumbs.length > 1 && (
                 <div className="flex w-full border-b border-sidebar-border/70">
-                    <div className="flex h-12 w-full items-center justify-start px-4 md:px-24 text-neutral-500">
+                    <div className="flex h-12 w-full items-center justify-start px-4 text-neutral-500 md:px-24">
                         <Breadcrumbs breadcrumbs={breadcrumbs} />
                     </div>
                 </div>
