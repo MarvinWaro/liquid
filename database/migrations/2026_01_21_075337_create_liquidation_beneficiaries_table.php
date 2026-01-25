@@ -12,8 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('liquidation_beneficiaries', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('liquidation_id')->constrained()->onDelete('cascade');
+            $table->uuid('id')->primary();
+            $table->uuid('liquidation_id');
+            $table->foreign('liquidation_id')->references('id')->on('liquidations')->onDelete('cascade');
             $table->string('student_no');
             $table->string('last_name');
             $table->string('first_name');

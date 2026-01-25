@@ -77,24 +77,33 @@ export function AppSidebar() {
     });
 
     return (
-        <Sidebar collapsible="icon" variant="inset">
-            <SidebarHeader>
+        <Sidebar collapsible="icon" variant="inset" className="bg-[#2c3e50] border-r border-[#1a252f]">
+            <SidebarHeader className="bg-[#2c3e50]">
                 <SidebarMenu>
                     <SidebarMenuItem>
-                        <SidebarMenuButton size="lg" asChild>
-                            <Link href={dashboard()} prefetch>
-                                <AppLogo />
+                        <SidebarMenuButton size="lg" asChild className="hover:bg-white/10">
+                            <Link href={dashboard()} prefetch className="flex items-center space-x-3">
+                                <img
+                                    src="/assets/img/unifast.png"
+                                    alt="UniFAST Logo"
+                                    className="h-8 w-8"
+                                />
+                                <div className="flex flex-col group-data-[collapsible=icon]:hidden">
+                                    <span className="text-white font-semibold text-sm leading-tight">
+                                        UniFAST
+                                    </span>
+                                </div>
                             </Link>
                         </SidebarMenuButton>
                     </SidebarMenuItem>
                 </SidebarMenu>
             </SidebarHeader>
 
-            <SidebarContent>
+            <SidebarContent className="bg-[#2c3e50]">
                 <NavMain items={mainNavItems} />
             </SidebarContent>
 
-            <SidebarFooter>
+            <SidebarFooter className="bg-[#2c3e50]">
                 <NavFooter items={footerNavItems} className="mt-auto" />
                 <NavUser />
             </SidebarFooter>

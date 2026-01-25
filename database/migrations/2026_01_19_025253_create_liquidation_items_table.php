@@ -9,11 +9,13 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('liquidation_items', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
 
             // Link to Parent Table
-            $table->foreignId('liquidation_id')
-                  ->constrained('liquidations')
+            $table->uuid('liquidation_id');
+            $table->foreign('liquidation_id')
+                  ->references('id')
+                  ->on('liquidations')
                   ->onDelete('cascade'); // If report is deleted, delete items too
 
             // Student Details

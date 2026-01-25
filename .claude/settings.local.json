@@ -14,7 +14,10 @@
       "Bash(php assign_hei.php:*)",
       "Bash(del:*)",
       "Bash(npm run build:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(done)",
+      "Bash(php:*)",
+      "Bash(php -l:*)"
     ]
   }
 }

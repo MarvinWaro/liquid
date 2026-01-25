@@ -31,7 +31,8 @@ return new class extends Migration
         Schema::table('liquidations', function (Blueprint $table) {
             // Add workflow tracking columns if they don't exist
             if (!Schema::hasColumn('liquidations', 'created_by')) {
-                $table->foreignId('created_by')->nullable()->after('hei_id')->constrained('users')->onDelete('cascade');
+                $table->uuid('created_by')->nullable()->after('hei_id');
+                $table->foreign('created_by')->references('id')->on('users')->onDelete('cascade');
             }
 
             if (!Schema::hasColumn('liquidations', 'disbursed_amount')) {
@@ -56,7 +57,8 @@ return new class extends Migration
 
             // Regional Coordinator Review
             if (!Schema::hasColumn('liquidations', 'reviewed_by')) {
-                $table->foreignId('reviewed_by')->nullable()->constrained('users')->comment('Regional Coordinator');
+                $table->uuid('reviewed_by')->nullable()->comment('Regional Coordinator');
+                $table->foreign('reviewed_by')->references('id')->on('users');
             }
             if (!Schema::hasColumn('liquidations', 'reviewed_at')) {
                 $table->timestamp('reviewed_at')->nullable();
@@ -67,7 +69,8 @@ return new class extends Migration
 
             // Accountant Review
             if (!Schema::hasColumn('liquidations', 'accountant_reviewed_by')) {
-                $table->foreignId('accountant_reviewed_by')->nullable()->constrained('users')->comment('Accountant');
+                $table->uuid('accountant_reviewed_by')->nullable()->comment('Accountant');
+                $table->foreign('accountant_reviewed_by')->references('id')->on('users');
             }
             if (!Schema::hasColumn('liquidations', 'accountant_reviewed_at')) {
                 $table->timestamp('accountant_reviewed_at')->nullable();
@@ -78,7 +81,8 @@ return new class extends Migration
 
             // COA Endorsement
             if (!Schema::hasColumn('liquidations', 'coa_endorsed_by')) {
-                $table->foreignId('coa_endorsed_by')->nullable()->constrained('users')->comment('Who endorsed to COA');
+                $table->uuid('coa_endorsed_by')->nullable()->comment('Who endorsed to COA');
+                $table->foreign('coa_endorsed_by')->references('id')->on('users');
             }
             if (!Schema::hasColumn('liquidations', 'coa_endorsed_at')) {
                 $table->timestamp('coa_endorsed_at')->nullable();

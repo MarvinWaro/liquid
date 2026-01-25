@@ -18,19 +18,20 @@ class ProgramSeeder extends Seeder
                 'name' => 'Tertiary Education Subsidy',
                 'description' => 'Financial assistance program for tertiary education students',
                 'status' => 'active',
-                'created_at' => now(),
-                'updated_at' => now(),
             ],
             [
                 'code' => 'TDP',
                 'name' => 'Tulong Dunong Program',
                 'description' => 'Scholarship program for deserving students',
                 'status' => 'active',
-                'created_at' => now(),
-                'updated_at' => now(),
             ],
         ];
 
-        \DB::table('programs')->insert($programs);
+        foreach ($programs as $program) {
+            \App\Models\Program::updateOrCreate(
+                ['code' => $program['code']],
+                $program
+            );
+        }
     }
 }

@@ -14,7 +14,7 @@ export function NavMain({ items = [] }: { items: NavItem[] }) {
 
     return (
         <SidebarGroup className="px-2 py-0">
-            <SidebarGroupLabel>Platform</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-white/60 text-xs uppercase tracking-wider">Platform</SidebarGroupLabel>
             <SidebarMenu>
                 {items.map((item) => (
                     <SidebarMenuItem key={item.title}>
@@ -22,6 +22,7 @@ export function NavMain({ items = [] }: { items: NavItem[] }) {
                             asChild
                             isActive={urlIsActive(item.href)}
                             tooltip={{ children: item.title }}
+                            className="text-white/80 hover:text-white hover:bg-white/10 data-[active=true]:bg-white/10 data-[active=true]:text-white"
                         >
                             <Link href={item.href} prefetch>
                                 {item.icon && <item.icon />}

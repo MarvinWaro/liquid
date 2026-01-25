@@ -9,12 +9,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('liquidations', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
 
             // Reference Information
             $table->string('control_no')->unique(); // e.g., LIQ-2024-001
-            $table->unsignedBigInteger('hei_id'); // Links to the School (User or HEI table)
-            $table->unsignedBigInteger('program_id'); // Links to TES, TDP, etc.
+            $table->uuid('hei_id'); // Links to the School (User or HEI table)
+            $table->uuid('program_id'); // Links to TES, TDP, etc.
 
             // Period Coverage
             $table->string('academic_year'); // e.g., "2023-2024"
@@ -38,6 +38,10 @@ return new class extends Migration
             $table->text('remarks')->nullable(); // For comments/rejection notes
 
             $table->timestamps();
+
+            // Foreign key constraints
+            $table->foreign('hei_id')->references('id')->on('heis')->onDelete('cascade');
+            $table->foreign('program_id')->references('id')->on('programs')->onDelete('cascade');
 
             // Indexes for faster searching
             $table->index(['hei_id', 'status']);
