@@ -5,7 +5,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
-import AuthLayout from '@/layouts/auth-layout';
+import { Card, CardContent } from "@/components/ui/card";
 import { register } from '@/routes';
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
@@ -23,98 +23,121 @@ export default function Login({
     canRegister,
 }: LoginProps) {
     return (
-        <AuthLayout
-            title="Log in to your account"
-            description="Enter your email and password below to log in"
-        >
+        <div className="relative min-h-svh flex flex-col items-center justify-center p-6 md:p-10 overflow-hidden bg-white">
             <Head title="Log in" />
 
-            <Form
-                {...store.form()}
-                resetOnSuccess={['password']}
-                className="flex flex-col gap-6"
-            >
-                {({ processing, errors }) => (
-                    <>
-                        <div className="grid gap-6">
-                            <div className="grid gap-2">
-                                <Label htmlFor="email">Email address</Label>
-                                <Input
-                                    id="email"
-                                    type="email"
-                                    name="email"
-                                    required
-                                    autoFocus
-                                    tabIndex={1}
-                                    autoComplete="email"
-                                    placeholder="email@example.com"
-                                />
-                                <InputError message={errors.email} />
-                            </div>
+            {/* BACKGROUND LAYER 1: Image Texture */}
+            <div className="absolute inset-0 z-0">
+                <img
+                    src="/assets/img/unifastbg.jpg"
+                    alt=""
+                    className="h-full w-full object-cover opacity-20"
+                />
+            </div>
 
-                            <div className="grid gap-2">
-                                <div className="flex items-center">
-                                    <Label htmlFor="password">Password</Label>
-                                    {canResetPassword && (
-                                        <TextLink
-                                            href={request()}
-                                            className="ml-auto text-sm"
-                                            tabIndex={5}
-                                        >
-                                            Forgot password?
-                                        </TextLink>
-                                    )}
-                                </div>
-                                <Input
-                                    id="password"
-                                    type="password"
-                                    name="password"
-                                    required
-                                    tabIndex={2}
-                                    autoComplete="current-password"
-                                    placeholder="Password"
-                                />
-                                <InputError message={errors.password} />
-                            </div>
+            {/* BACKGROUND LAYER 2: Gradient Overlay (Light Blue/White theme) */}
+            <div className="absolute inset-0 z-10 bg-gradient-to-br from-blue-50/90 via-white/80 to-blue-100/50 mix-blend-overlay" />
 
-                            <div className="flex items-center space-x-3">
-                                <Checkbox
-                                    id="remember"
-                                    name="remember"
-                                    tabIndex={3}
-                                />
-                                <Label htmlFor="remember">Remember me</Label>
-                            </div>
+            {/* CONTENT LAYER */}
+            <div className="relative z-20 w-full max-w-sm md:max-w-4xl">
+                <Card className="overflow-hidden shadow-2xl border-0 rounded-2xl">
+                    <CardContent className="grid p-0 md:grid-cols-2 h-full">
 
-                            <Button
-                                type="submit"
-                                className="mt-4 w-full"
-                                tabIndex={4}
-                                disabled={processing}
-                                data-test="login-button"
-                            >
-                                {processing && <Spinner />}
-                                Log in
-                            </Button>
+                        {/* LEFT SIDE: BRAND IMAGE (Flipped from previous) */}
+                        <div
+                        className="relative hidden md:flex flex-col justify-end bg-cover bg-center text-white ms-5 rounded-2xl overflow-hidden"
+                        style={{ backgroundImage: `url('/assets/img/unifastbg.jpg')` }}
+                        >
+                            {/* Dark overlay for contrast */}
+                            <div className="absolute inset-0 bg-black/20 z-0"></div>
                         </div>
 
-                        {canRegister && (
-                            <div className="text-center text-sm text-muted-foreground">
-                                Don't have an account?{' '}
-                                <TextLink href={register()} tabIndex={5}>
-                                    Sign up
-                                </TextLink>
-                            </div>
-                        )}
-                    </>
-                )}
-            </Form>
+                        {/* RIGHT SIDE: LOGIN FORM */}
+                        <div className="flex flex-col justify-center p-8 md:p-12 bg-white">
 
-            {status && (
-                <div className="mb-4 text-center text-sm font-medium text-green-600">
-                    {status}
-                </div>
-            )}
-        </AuthLayout>
+                            {/* LOGO HEADER */}
+                            <div className="flex justify-center items-center gap-4 mb-8">
+                                {/* <img src="/assets/img/bagong-pilipinas.png" alt="Bagong Pilipinas" className="h-10 w-auto" /> */}
+                                <img src="/assets/img/ched-logo.png" alt="CHED" className="h-11 w-auto" />
+                                <img src="/assets/img/unifast.png" alt="UniFAST" className="h-10 w-auto" />
+                            </div>
+
+                            <div className="flex flex-col items-center gap-1 text-center mb-6">
+                                <h2 className="text-xs font-bold tracking-widest text-muted-foreground uppercase">User Login</h2>
+                                <p className="text-xs text-muted-foreground">
+                                    Enter your email and password to continue
+                                </p>
+                            </div>
+
+                            <Form
+                                {...store.form()}
+                                resetOnSuccess={['password']}
+                                className="flex flex-col gap-5"
+                            >
+                                {({ processing, errors }) => (
+                                    <>
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="email" className="text-xs uppercase font-medium text-gray-600">Email address</Label>
+                                            <Input
+                                                id="email"
+                                                type="email"
+                                                name="email"
+                                                required
+                                                autoFocus
+                                                tabIndex={1}
+                                                autoComplete="email"
+                                                placeholder="email@example.com"
+                                                className="bg-gray-50 border-gray-200"
+                                            />
+                                            <InputError message={errors.email} />
+                                        </div>
+
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="password" className="text-xs uppercase font-medium text-gray-600">Password</Label>
+                                            <Input
+                                                id="password"
+                                                type="password"
+                                                name="password"
+                                                required
+                                                tabIndex={2}
+                                                autoComplete="current-password"
+                                                placeholder="Password"
+                                                className="bg-gray-50 border-gray-200"
+                                            />
+                                            <InputError message={errors.password} />
+                                        </div>
+
+                                        <Button
+                                            type="submit"
+                                            className="w-full mt-2 bg-blue-900 hover:bg-blue-800 text-white rounded-md"
+                                            tabIndex={4}
+                                            disabled={processing}
+                                        >
+                                            {processing && <Spinner className="mr-2" />}
+                                            Log in
+                                        </Button>
+
+                                        {canRegister && (
+                                            <div className="text-center text-xs mt-4 text-gray-500">
+                                                Don&apos;t have an account?{' '}
+                                                <TextLink href={register()} className="font-bold text-gray-900 hover:underline" tabIndex={5}>
+                                                    Sign up
+                                                </TextLink>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </Form>
+                            {status && (
+                                <div className="mt-4 text-center text-sm font-medium text-green-600">
+                                    {status}
+                                </div>
+                            )}
+                        </div>
+
+                    </CardContent>
+                </Card>
+            </div>
+        </div>
     );
 }
