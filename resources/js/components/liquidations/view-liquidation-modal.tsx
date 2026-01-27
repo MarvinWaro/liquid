@@ -25,6 +25,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Download, Upload, Search, FileText, Send, File, X, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
     Select,
     SelectContent,
@@ -60,11 +67,17 @@ interface Document {
 }
 
 interface ReviewHistoryEntry {
-    returned_at: string;
-    returned_by: string;
-    returned_by_id: number;
-    review_remarks: string;
+    returned_at?: string;
+    returned_by?: string;
+    returned_by_id?: number;
+    review_remarks?: string;
     documents_for_compliance?: string | null;
+    // HEI Resubmission fields
+    resubmitted_at?: string;
+    resubmitted_by?: string;
+    resubmitted_by_id?: number;
+    hei_remarks?: string;
+    type?: string;
 }
 
 interface AccountantReviewHistoryEntry {
@@ -87,6 +100,7 @@ interface Liquidation {
     remaining_amount: number;
     status: string;
     status_label: string;
+    remarks?: string | null;
     review_remarks?: string | null;
     documents_for_compliance?: string | null;
     compliance_status?: string | null;
@@ -152,6 +166,16 @@ export function ViewLiquidationModal({
     const [isEndorseToCOAModalOpen, setIsEndorseToCOAModalOpen] = useState(false);
     const [isReturnToRCModalOpen, setIsReturnToRCModalOpen] = useState(false);
     const [accountantRemarks, setAccountantRemarks] = useState('');
+
+    // Helper function to get user initials
+    const getInitials = (name: string) => {
+        return name
+            .split(' ')
+            .map(word => word[0])
+            .join('')
+            .toUpperCase()
+            .slice(0, 2);
+    };
 
     if (!liquidation) return null;
 
@@ -381,6 +405,38 @@ export function ViewLiquidationModal({
                             </CardHeader>
                         </Card>
                     </div>
+
+                    {/* HEI Latest Remarks - Show most recent remarks (either initial or latest resubmission) */}
+                    {(() => {
+                        // Find the most recent HEI resubmission in history
+                        const heiResubmissions = liquidation.review_history?.filter(entry => entry.type === 'hei_resubmission') || [];
+                        const latestResubmission = heiResubmissions.length > 0 ? heiResubmissions[heiResubmissions.length - 1] : null;
+
+                        // Show latest resubmission remarks if exists, otherwise show initial remarks
+                        const latestRemarks = latestResubmission?.hei_remarks || liquidation.remarks;
+                        const isResubmission = !!latestResubmission;
+
+                        return latestRemarks ? (
+                            <Card className="border-green-200 bg-green-50 dark:bg-green-950/20">
+                                <CardHeader>
+                                    <CardTitle className="text-base">
+                                        {isResubmission ? 'HEI Latest Remarks' : 'HEI Initial Remarks'}
+                                    </CardTitle>
+                                    <CardDescription>
+                                        {isResubmission
+                                            ? `Latest remarks from resubmission on ${new Date(latestResubmission.resubmitted_at!).toLocaleDateString()}`
+                                            : 'Notes provided by the HEI on initial submission'
+                                        }
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="p-3 bg-background rounded-md border">
+                                        <p className="text-sm">{latestRemarks}</p>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        ) : null;
+                    })()}
 
                     {/* RC Review Remarks - Show when returned to HEI */}
                     {liquidation.status === 'returned_to_hei' && (liquidation.review_remarks || liquidation.documents_for_compliance) && (
@@ -644,32 +700,59 @@ export function ViewLiquidationModal({
 
 
                     {/* RC Review History Section */}
-                    {liquidation.review_history && liquidation.review_history.length > 0 && (
+                    {liquidation.review_history && liquidation.review_history.length > 0 && (() => {
+                        // Get all entries except the latest HEI resubmission (which is shown at the top)
+                        const heiResubmissions = liquidation.review_history.filter(entry => entry.type === 'hei_resubmission');
+                        const latestResubmissionIndex = heiResubmissions.length > 0
+                            ? liquidation.review_history.lastIndexOf(heiResubmissions[heiResubmissions.length - 1])
+                            : -1;
+
+                        // Filter out the latest resubmission for history display
+                        const historyEntries = liquidation.review_history.filter((_, index) => index !== latestResubmissionIndex);
+
+                        return historyEntries.length > 0 ? (
                         <Card>
                             <CardHeader className="pb-3">
-                                <CardTitle className="text-base">RC Review History</CardTitle>
+                                <CardTitle className="text-base">Review & Resubmission History</CardTitle>
                                 <CardDescription className="text-xs">
-                                    History of Regional Coordinator returns and compliance requirements
+                                    Past history of RC returns and HEI resubmissions
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="pt-0">
                                 <Accordion type="single" collapsible className="w-full">
-                                    {[...liquidation.review_history].reverse().map((entry, displayIndex) => {
-                                        const returnNumber = displayIndex + 1;
+                                    {[...historyEntries].reverse().map((entry, displayIndex) => {
+                                        const isHEIResubmission = entry.type === 'hei_resubmission';
+                                        // Calculate chronological number (newest first, so reverse the count)
+                                        const entryNumber = historyEntries.length - displayIndex;
+
                                         return (
-                                            <AccordionItem key={displayIndex} value={`rc-item-${displayIndex}`}>
+                                            <AccordionItem key={displayIndex} value={`review-item-${displayIndex}`}>
                                                 <AccordionTrigger className="hover:no-underline">
                                                     <div className="flex items-center justify-between w-full pr-2">
                                                         <div className="flex items-center gap-2">
-                                                            <Badge variant="outline" className="text-xs">
-                                                                Return #{returnNumber}
+                                                            <TooltipProvider>
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <Avatar className="h-6 w-6">
+                                                                            <AvatarFallback className={`text-xs ${isHEIResubmission ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                                                                                {getInitials(isHEIResubmission ? entry.resubmitted_by! : entry.returned_by!)}
+                                                                            </AvatarFallback>
+                                                                        </Avatar>
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent>
+                                                                        <p>{isHEIResubmission ? entry.resubmitted_by : entry.returned_by}</p>
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            </TooltipProvider>
+                                                            <Badge
+                                                                variant={isHEIResubmission ? "secondary" : "outline"}
+                                                                className={`text-xs ${isHEIResubmission ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' : ''}`}
+                                                            >
+                                                                {isHEIResubmission ? `HEI Resubmission #${entryNumber}` : `RC Return #${entryNumber}`}
                                                             </Badge>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                by {entry.returned_by}
-                                                            </span>
                                                         </div>
                                                         <span className="text-xs text-muted-foreground">
-                                                            {new Date(entry.returned_at).toLocaleString('en-US', {
+                                                            {new Date(isHEIResubmission ? entry.resubmitted_at! : entry.returned_at!).toLocaleString('en-US', {
                                                                 year: 'numeric',
                                                                 month: 'short',
                                                                 day: 'numeric',
@@ -681,22 +764,37 @@ export function ViewLiquidationModal({
                                                 </AccordionTrigger>
                                                 <AccordionContent>
                                                     <div className="space-y-3 pt-2">
-                                                        {entry.documents_for_compliance && (
-                                                            <div>
-                                                                <Label className="text-xs font-semibold">Documents Required:</Label>
-                                                                <div className="mt-1 p-2 bg-muted/50 rounded text-xs">
-                                                                    <pre className="whitespace-pre-wrap font-sans">{entry.documents_for_compliance}</pre>
+                                                        {isHEIResubmission ? (
+                                                            // HEI Resubmission
+                                                            entry.hei_remarks && (
+                                                                <div>
+                                                                    <Label className="text-xs font-semibold">HEI Remarks on Resubmission:</Label>
+                                                                    <div className="mt-1 p-2 bg-green-50 dark:bg-green-950/20 rounded text-xs border border-green-200">
+                                                                        <p>{entry.hei_remarks}</p>
+                                                                    </div>
                                                                 </div>
-                                                            </div>
-                                                        )}
+                                                            )
+                                                        ) : (
+                                                            // RC Return
+                                                            <>
+                                                                {entry.documents_for_compliance && (
+                                                                    <div>
+                                                                        <Label className="text-xs font-semibold">Documents Required:</Label>
+                                                                        <div className="mt-1 p-2 bg-muted/50 rounded text-xs">
+                                                                            <pre className="whitespace-pre-wrap font-sans">{entry.documents_for_compliance}</pre>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
 
-                                                        {entry.review_remarks && (
-                                                            <div>
-                                                                <Label className="text-xs font-semibold">Remarks:</Label>
-                                                                <div className="mt-1 p-2 bg-muted/50 rounded text-xs">
-                                                                    <p>{entry.review_remarks}</p>
-                                                                </div>
-                                                            </div>
+                                                                {entry.review_remarks && (
+                                                                    <div>
+                                                                        <Label className="text-xs font-semibold">RC Remarks:</Label>
+                                                                        <div className="mt-1 p-2 bg-muted/50 rounded text-xs">
+                                                                            <p>{entry.review_remarks}</p>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </>
                                                         )}
                                                     </div>
                                                 </AccordionContent>
@@ -706,7 +804,8 @@ export function ViewLiquidationModal({
                                 </Accordion>
                             </CardContent>
                         </Card>
-                    )}
+                        ) : null;
+                    })()}
 
                     {/* Accountant Review History Section */}
                     {liquidation.accountant_review_history && liquidation.accountant_review_history.length > 0 && (
@@ -720,18 +819,30 @@ export function ViewLiquidationModal({
                             <CardContent className="pt-0">
                                 <Accordion type="single" collapsible className="w-full">
                                     {[...liquidation.accountant_review_history].reverse().map((entry, displayIndex) => {
-                                        const returnNumber = displayIndex + 1;
+                                        // Calculate chronological number (newest first, so reverse the count)
+                                        const returnNumber = liquidation.accountant_review_history.length - displayIndex;
                                         return (
                                             <AccordionItem key={displayIndex} value={`acc-item-${displayIndex}`}>
                                                 <AccordionTrigger className="hover:no-underline">
                                                     <div className="flex items-center justify-between w-full pr-2">
                                                         <div className="flex items-center gap-2">
+                                                            <TooltipProvider>
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <Avatar className="h-6 w-6">
+                                                                            <AvatarFallback className="text-xs bg-blue-100 text-blue-700">
+                                                                                {getInitials(entry.returned_by)}
+                                                                            </AvatarFallback>
+                                                                        </Avatar>
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent>
+                                                                        <p>{entry.returned_by}</p>
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            </TooltipProvider>
                                                             <Badge variant="outline" className="text-xs">
                                                                 Return #{returnNumber}
                                                             </Badge>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                by {entry.returned_by}
-                                                            </span>
                                                         </div>
                                                         <span className="text-xs text-muted-foreground">
                                                             {new Date(entry.returned_at).toLocaleString('en-US', {
