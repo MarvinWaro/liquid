@@ -22,7 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Download, Upload, Search, FileText, Send, File, X, Loader2 } from 'lucide-react';
+import { Download, Upload, Search, FileText, Send, File, X, Loader2, BarChart3 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -45,6 +45,12 @@ import {
     AccordionItem,
     AccordionTrigger,
 } from '@/components/ui/accordion';
+import {
+    Tabs,
+    TabsList,
+    TabsTrigger,
+    TabsContent,
+} from '@/components/ui/tabs';
 
 interface Beneficiary {
     id: number;
@@ -186,6 +192,11 @@ export function ViewLiquidationModal({
         beneficiary.award_no.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
+    // Calculate % Age of Liquidation: (total_disbursed / amount_received) * 100
+    const percentLiquidated = liquidation.amount_received > 0
+        ? (liquidation.total_disbursed / liquidation.amount_received) * 100
+        : 0;
+
     const handleDownloadTemplate = () => {
         window.location.href = route('liquidation.download-beneficiary-template', liquidation.id);
     };
@@ -201,7 +212,6 @@ export function ViewLiquidationModal({
 
         router.post(route('liquidation.import-beneficiaries', liquidation.id), formData, {
             onSuccess: async () => {
-                // Reload the liquidation data to show updated beneficiaries
                 try {
                     const response = await axios.get(route('liquidation.show', liquidation.id));
                     if (onDataChange) {
@@ -233,7 +243,6 @@ export function ViewLiquidationModal({
 
         router.post(route('liquidation.upload-document', liquidation.id), formData, {
             onSuccess: async () => {
-                // Reload the liquidation data to show updated documents
                 try {
                     const response = await axios.get(route('liquidation.show', liquidation.id));
                     if (onDataChange) {
@@ -381,501 +390,601 @@ export function ViewLiquidationModal({
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-4 overflow-y-auto flex-1 px-1">
-                    {/* Summary Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Card>
-                            <CardHeader className="pb-3">
-                                <CardDescription className="text-xs">Amount Received</CardDescription>
-                                <CardTitle className="text-2xl">₱{Number(liquidation.amount_received).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</CardTitle>
-                            </CardHeader>
-                        </Card>
+                <Tabs defaultValue="overview" className="flex-1 flex flex-col overflow-hidden">
+                    <TabsList variant="line" className="flex-shrink-0">
+                        <TabsTrigger value="overview">Overview & Files</TabsTrigger>
+                        <TabsTrigger value="history">History</TabsTrigger>
+                        <TabsTrigger value="analytics">Analytics</TabsTrigger>
+                    </TabsList>
 
-                        <Card>
-                            <CardHeader className="pb-3">
-                                <CardDescription className="text-xs">Disbursed to Students</CardDescription>
-                                <CardTitle className="text-2xl text-blue-600">₱{Number(liquidation.total_disbursed).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</CardTitle>
-                            </CardHeader>
-                        </Card>
+                    {/* Overview & Files Tab */}
+                    <TabsContent value="overview" className="flex-1 overflow-y-auto mt-4 space-y-4 px-1">
+                        {/* Summary Cards */}
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <Card>
+                                <CardHeader className="pb-3">
+                                    <CardDescription className="text-xs">Amount Received</CardDescription>
+                                    <CardTitle className="text-2xl">₱{Number(liquidation.amount_received).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</CardTitle>
+                                </CardHeader>
+                            </Card>
 
-                        <Card>
-                            <CardHeader className="pb-3">
-                                <CardDescription className="text-xs">Remaining / Refund</CardDescription>
-                                <CardTitle className="text-2xl text-orange-600">₱{Number(liquidation.remaining_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</CardTitle>
-                            </CardHeader>
-                        </Card>
-                    </div>
+                            <Card>
+                                <CardHeader className="pb-3">
+                                    <CardDescription className="text-xs">Disbursed to Students</CardDescription>
+                                    <CardTitle className="text-2xl text-blue-600">₱{Number(liquidation.total_disbursed).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</CardTitle>
+                                </CardHeader>
+                            </Card>
 
-                    {/* HEI Latest Remarks - Show most recent remarks (either initial or latest resubmission) */}
-                    {(() => {
-                        // Find the most recent HEI resubmission in history
-                        const heiResubmissions = liquidation.review_history?.filter(entry => entry.type === 'hei_resubmission') || [];
-                        const latestResubmission = heiResubmissions.length > 0 ? heiResubmissions[heiResubmissions.length - 1] : null;
+                            <Card>
+                                <CardHeader className="pb-3">
+                                    <CardDescription className="text-xs">Remaining / Refund</CardDescription>
+                                    <CardTitle className="text-2xl text-orange-600">₱{Number(liquidation.remaining_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</CardTitle>
+                                </CardHeader>
+                            </Card>
 
-                        // Show latest resubmission remarks if exists, otherwise show initial remarks
-                        const latestRemarks = latestResubmission?.hei_remarks || liquidation.remarks;
-                        const isResubmission = !!latestResubmission;
+                            <Card>
+                                <CardHeader className="pb-3">
+                                    <CardDescription className="text-xs">% Age of Liquidation</CardDescription>
+                                    <CardTitle className="text-2xl text-green-600">{percentLiquidated.toFixed(2)}%</CardTitle>
+                                </CardHeader>
+                            </Card>
+                        </div>
 
-                        return latestRemarks ? (
-                            <Card className="border-green-200 bg-green-50 dark:bg-green-950/20">
+                        {/* HEI Latest Remarks */}
+                        {(() => {
+                            const heiResubmissions = liquidation.review_history?.filter(entry => entry.type === 'hei_resubmission') || [];
+                            const latestResubmission = heiResubmissions.length > 0 ? heiResubmissions[heiResubmissions.length - 1] : null;
+                            const latestRemarks = latestResubmission?.hei_remarks || liquidation.remarks;
+                            const isResubmission = !!latestResubmission;
+
+                            return latestRemarks ? (
+                                <Card className="border-green-200 bg-green-50 dark:bg-green-950/20">
+                                    <CardHeader>
+                                        <CardTitle className="text-base">
+                                            {isResubmission ? 'HEI Latest Remarks' : 'HEI Initial Remarks'}
+                                        </CardTitle>
+                                        <CardDescription>
+                                            {isResubmission
+                                                ? `Latest remarks from resubmission on ${new Date(latestResubmission.resubmitted_at!).toLocaleDateString()}`
+                                                : 'Notes provided by the HEI on initial submission'
+                                            }
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="p-3 bg-background rounded-md border">
+                                            <p className="text-sm">{latestRemarks}</p>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            ) : null;
+                        })()}
+
+                        {/* RC Review Remarks - Show when returned to HEI */}
+                        {liquidation.status === 'returned_to_hei' && (liquidation.review_remarks || liquidation.documents_for_compliance) && (
+                            <Card className="border-destructive bg-destructive/5">
                                 <CardHeader>
-                                    <CardTitle className="text-base">
-                                        {isResubmission ? 'HEI Latest Remarks' : 'HEI Initial Remarks'}
+                                    <CardTitle className="text-destructive flex items-center gap-2">
+                                        <X className="h-5 w-5" />
+                                        Returned for Compliance
                                     </CardTitle>
                                     <CardDescription>
-                                        {isResubmission
-                                            ? `Latest remarks from resubmission on ${new Date(latestResubmission.resubmitted_at!).toLocaleDateString()}`
-                                            : 'Notes provided by the HEI on initial submission'
-                                        }
+                                        Please address the following issues and resubmit
                                     </CardDescription>
                                 </CardHeader>
-                                <CardContent>
-                                    <div className="p-3 bg-background rounded-md border">
-                                        <p className="text-sm">{latestRemarks}</p>
-                                    </div>
+                                <CardContent className="space-y-4">
+                                    {liquidation.documents_for_compliance && (
+                                        <div>
+                                            <Label className="text-sm font-semibold">Documents Required for Compliance:</Label>
+                                            <div className="mt-2 p-3 bg-background rounded-md border">
+                                                <pre className="text-sm whitespace-pre-wrap font-sans">{liquidation.documents_for_compliance}</pre>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {liquidation.review_remarks && (
+                                        <div>
+                                            <Label className="text-sm font-semibold">Review Remarks:</Label>
+                                            <div className="mt-2 p-3 bg-background rounded-md border">
+                                                <p className="text-sm">{liquidation.review_remarks}</p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </CardContent>
                             </Card>
-                        ) : null;
-                    })()}
+                        )}
 
-                    {/* RC Review Remarks - Show when returned to HEI */}
-                    {liquidation.status === 'returned_to_hei' && (liquidation.review_remarks || liquidation.documents_for_compliance) && (
-                        <Card className="border-destructive bg-destructive/5">
+                        {/* Accountant Review Remarks - Show when returned to RC */}
+                        {liquidation.status === 'returned_to_rc' && liquidation.accountant_remarks && (
+                            <Card className="border-destructive bg-destructive/5">
+                                <CardHeader>
+                                    <CardTitle className="text-destructive flex items-center gap-2">
+                                        <X className="h-5 w-5" />
+                                        Returned by Accountant
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Please address the following issues before re-endorsing
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    {liquidation.accountant_remarks && (
+                                        <div>
+                                            <Label className="text-sm font-semibold">Accountant Remarks:</Label>
+                                            <div className="mt-2 p-3 bg-background rounded-md border">
+                                                <p className="text-sm">{liquidation.accountant_remarks}</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        )}
+
+                        {/* Beneficiaries Section */}
+                        <Card>
                             <CardHeader>
-                                <CardTitle className="text-destructive flex items-center gap-2">
-                                    <X className="h-5 w-5" />
-                                    Returned for Compliance
-                                </CardTitle>
-                                <CardDescription>
-                                    Please address the following issues and resubmit
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                {liquidation.documents_for_compliance && (
+                                <div className="flex items-center justify-between">
                                     <div>
-                                        <Label className="text-sm font-semibold">Documents Required for Compliance:</Label>
-                                        <div className="mt-2 p-3 bg-background rounded-md border">
-                                            <pre className="text-sm whitespace-pre-wrap font-sans">{liquidation.documents_for_compliance}</pre>
-                                        </div>
+                                        <CardTitle>Beneficiaries</CardTitle>
+                                        <CardDescription>List of students who received funds</CardDescription>
                                     </div>
-                                )}
-                                {liquidation.review_remarks && (
-                                    <div>
-                                        <Label className="text-sm font-semibold">Review Remarks:</Label>
-                                        <div className="mt-2 p-3 bg-background rounded-md border">
-                                            <p className="text-sm">{liquidation.review_remarks}</p>
-                                        </div>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={handleDownloadTemplate}
+                                        >
+                                            <Download className="h-4 w-4 mr-2" />
+                                            Template
+                                        </Button>
+                                        {canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status) && (
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => document.getElementById('csv-upload')?.click()}
+                                                disabled={isUploading}
+                                            >
+                                                <Upload className="h-4 w-4 mr-2" />
+                                                {isUploading ? 'Uploading...' : 'Upload CSV'}
+                                            </Button>
+                                        )}
+                                        <input
+                                            id="csv-upload"
+                                            type="file"
+                                            accept=".csv"
+                                            className="hidden"
+                                            onChange={handleUploadCSV}
+                                        />
                                     </div>
-                                )}
-                            </CardContent>
-                        </Card>
-                    )}
-
-                    {/* Accountant Review Remarks - Show when returned to RC */}
-                    {liquidation.status === 'returned_to_rc' && liquidation.accountant_remarks && (
-                        <Card className="border-destructive bg-destructive/5">
-                            <CardHeader>
-                                <CardTitle className="text-destructive flex items-center gap-2">
-                                    <X className="h-5 w-5" />
-                                    Returned by Accountant
-                                </CardTitle>
-                                <CardDescription>
-                                    Please address the following issues before re-endorsing
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                {liquidation.accountant_remarks && (
-                                    <div>
-                                        <Label className="text-sm font-semibold">Accountant Remarks:</Label>
-                                        <div className="mt-2 p-3 bg-background rounded-md border">
-                                            <p className="text-sm">{liquidation.accountant_remarks}</p>
-                                        </div>
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
-                    )}
-
-                    {/* Beneficiaries Section */}
-                    <Card>
-                        <CardHeader>
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <CardTitle>Beneficiaries</CardTitle>
-                                    <CardDescription>List of students who received funds</CardDescription>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={handleDownloadTemplate}
-                                    >
-                                        <Download className="h-4 w-4 mr-2" />
-                                        Template
-                                    </Button>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="mb-4">
+                                    <div className="relative">
+                                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            type="search"
+                                            placeholder="Search student..."
+                                            className="pl-8"
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="rounded-md border">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Student No.</TableHead>
+                                                <TableHead>Full Name</TableHead>
+                                                <TableHead>Award No.</TableHead>
+                                                <TableHead>Date Disbursed</TableHead>
+                                                <TableHead className="text-right">Amount</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {isLoadingData ? (
+                                                Array.from({ length: 5 }).map((_, index) => (
+                                                    <TableRow key={`skeleton-${index}`}>
+                                                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                                                        <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                                                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                                                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                                                        <TableCell><Skeleton className="h-4 w-20 ml-auto" /></TableCell>
+                                                    </TableRow>
+                                                ))
+                                            ) : filteredBeneficiaries.length === 0 ? (
+                                                <TableRow>
+                                                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                                                        <div className="flex flex-col items-center gap-2">
+                                                            <FileText className="h-8 w-8 opacity-50" />
+                                                            <p>No students found.</p>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ) : (
+                                                filteredBeneficiaries.map((beneficiary) => (
+                                                    <TableRow key={beneficiary.id}>
+                                                        <TableCell className="font-mono text-sm">
+                                                            {beneficiary.student_no}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="flex flex-col">
+                                                                <span className="font-medium">
+                                                                    {beneficiary.last_name}, {beneficiary.first_name} {beneficiary.middle_name || ''}
+                                                                </span>
+                                                                {beneficiary.extension_name && (
+                                                                    <span className="text-xs text-muted-foreground">
+                                                                        {beneficiary.extension_name}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell className="font-mono text-sm">
+                                                            {beneficiary.award_no}
+                                                        </TableCell>
+                                                        <TableCell className="text-sm">
+                                                            {new Date(beneficiary.date_disbursed).toLocaleDateString()}
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-medium">
+                                                            ₱{parseFloat(beneficiary.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+
+                                {filteredBeneficiaries.length > 0 && (
+                                    <div className="mt-4 text-sm text-muted-foreground">
+                                        Showing {filteredBeneficiaries.length} of {liquidation.beneficiaries.length} beneficiaries
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        {/* Documents Section */}
+                        <Card>
+                            <CardHeader className="pb-3">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <CardTitle className="text-base">Supporting Documents</CardTitle>
+                                        <CardDescription className="text-xs">Upload liquidation reports and supporting files</CardDescription>
+                                    </div>
                                     {canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status) && (
                                         <Button
                                             variant="outline"
                                             size="sm"
-                                            onClick={() => document.getElementById('csv-upload')?.click()}
-                                            disabled={isUploading}
+                                            onClick={() => document.getElementById('document-upload')?.click()}
+                                            disabled={isUploadingDoc}
                                         >
                                             <Upload className="h-4 w-4 mr-2" />
-                                            {isUploading ? 'Uploading...' : 'Upload CSV'}
+                                            {isUploadingDoc ? 'Uploading...' : 'Upload'}
                                         </Button>
                                     )}
                                     <input
-                                        id="csv-upload"
+                                        id="document-upload"
                                         type="file"
-                                        accept=".csv"
+                                        accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
                                         className="hidden"
-                                        onChange={handleUploadCSV}
+                                        onChange={handleUploadDocument}
                                     />
                                 </div>
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            {/* Search */}
-                            <div className="mb-4">
-                                <div className="relative">
-                                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                                    <Input
-                                        type="search"
-                                        placeholder="Search student..."
-                                        className="pl-8"
-                                        value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Table */}
-                            <div className="rounded-md border">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Student No.</TableHead>
-                                            <TableHead>Full Name</TableHead>
-                                            <TableHead>Award No.</TableHead>
-                                            <TableHead>Date Disbursed</TableHead>
-                                            <TableHead className="text-right">Amount</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {isLoadingData ? (
-                                            // Show skeleton loader when uploading
-                                            Array.from({ length: 5 }).map((_, index) => (
-                                                <TableRow key={`skeleton-${index}`}>
-                                                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                                                    <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                                                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                                                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                                                    <TableCell><Skeleton className="h-4 w-20 ml-auto" /></TableCell>
-                                                </TableRow>
-                                            ))
-                                        ) : filteredBeneficiaries.length === 0 ? (
-                                            <TableRow>
-                                                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                                                    <div className="flex flex-col items-center gap-2">
-                                                        <FileText className="h-8 w-8 opacity-50" />
-                                                        <p>No students found.</p>
+                            </CardHeader>
+                            <CardContent className="pt-0">
+                                {liquidation.documents && liquidation.documents.length > 0 ? (
+                                    <div className="space-y-1.5">
+                                        {liquidation.documents.map((doc) => (
+                                            <div key={doc.id} className="flex items-center justify-between p-2 border rounded-md hover:bg-muted/50 transition-colors">
+                                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                    <File className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="text-sm font-medium truncate">{doc.file_name}</p>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            {new Date(doc.uploaded_at).toLocaleDateString()}
+                                                        </p>
                                                     </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        ) : (
-                                            filteredBeneficiaries.map((beneficiary) => (
-                                                <TableRow key={beneficiary.id}>
-                                                    <TableCell className="font-mono text-sm">
-                                                        {beneficiary.student_no}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div className="flex flex-col">
-                                                            <span className="font-medium">
-                                                                {beneficiary.last_name}, {beneficiary.first_name} {beneficiary.middle_name || ''}
-                                                            </span>
-                                                            {beneficiary.extension_name && (
-                                                                <span className="text-xs text-muted-foreground">
-                                                                    {beneficiary.extension_name}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="font-mono text-sm">
-                                                        {beneficiary.award_no}
-                                                    </TableCell>
-                                                    <TableCell className="text-sm">
-                                                        {new Date(beneficiary.date_disbursed).toLocaleDateString()}
-                                                    </TableCell>
-                                                    <TableCell className="text-right font-medium">
-                                                        ₱{parseFloat(beneficiary.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))
-                                        )}
-                                    </TableBody>
-                                </Table>
-                            </div>
-
-                            {filteredBeneficiaries.length > 0 && (
-                                <div className="mt-4 text-sm text-muted-foreground">
-                                    Showing {filteredBeneficiaries.length} of {liquidation.beneficiaries.length} beneficiaries
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-
-                    {/* Documents Section */}
-                    <Card>
-                        <CardHeader className="pb-3">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <CardTitle className="text-base">Supporting Documents</CardTitle>
-                                    <CardDescription className="text-xs">Upload liquidation reports and supporting files</CardDescription>
-                                </div>
-                                {canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status) && (
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => document.getElementById('document-upload')?.click()}
-                                        disabled={isUploadingDoc}
-                                    >
-                                        <Upload className="h-4 w-4 mr-2" />
-                                        {isUploadingDoc ? 'Uploading...' : 'Upload'}
-                                    </Button>
-                                )}
-                                <input
-                                    id="document-upload"
-                                    type="file"
-                                    accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
-                                    className="hidden"
-                                    onChange={handleUploadDocument}
-                                />
-                            </div>
-                        </CardHeader>
-                        <CardContent className="pt-0">
-                            {liquidation.documents && liquidation.documents.length > 0 ? (
-                                <div className="space-y-1.5">
-                                    {liquidation.documents.map((doc) => (
-                                        <div key={doc.id} className="flex items-center justify-between p-2 border rounded-md hover:bg-muted/50 transition-colors">
-                                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                <File className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                                                <div className="min-w-0 flex-1">
-                                                    <p className="text-sm font-medium truncate">{doc.file_name}</p>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        {new Date(doc.uploaded_at).toLocaleDateString()}
-                                                    </p>
                                                 </div>
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="h-8 w-8 p-0"
-                                                    onClick={() => window.open(route('liquidation.download-document', doc.id), '_blank')}
-                                                >
-                                                    <Download className="h-3.5 w-3.5" />
-                                                </Button>
-                                                {canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status) && (
+                                                <div className="flex items-center gap-1">
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
                                                         className="h-8 w-8 p-0"
-                                                        onClick={() => handleDeleteDocument(doc.id)}
+                                                        onClick={() => window.open(route('liquidation.download-document', doc.id), '_blank')}
                                                     >
-                                                        <X className="h-3.5 w-3.5 text-destructive" />
+                                                        <Download className="h-3.5 w-3.5" />
                                                     </Button>
-                                                )}
+                                                    {canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status) && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-8 w-8 p-0"
+                                                            onClick={() => handleDeleteDocument(doc.id)}
+                                                        >
+                                                            <X className="h-3.5 w-3.5 text-destructive" />
+                                                        </Button>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="text-center py-6 text-muted-foreground">
-                                    <File className="h-6 w-6 mx-auto mb-1.5 opacity-50" />
-                                    <p className="text-sm">No documents uploaded yet</p>
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-
-
-                    {/* RC Review History Section */}
-                    {liquidation.review_history && liquidation.review_history.length > 0 && (() => {
-                        // Get all entries except the latest HEI resubmission (which is shown at the top)
-                        const heiResubmissions = liquidation.review_history.filter(entry => entry.type === 'hei_resubmission');
-                        const latestResubmissionIndex = heiResubmissions.length > 0
-                            ? liquidation.review_history.lastIndexOf(heiResubmissions[heiResubmissions.length - 1])
-                            : -1;
-
-                        // Filter out the latest resubmission for history display
-                        const historyEntries = liquidation.review_history.filter((_, index) => index !== latestResubmissionIndex);
-
-                        return historyEntries.length > 0 ? (
-                        <Card>
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-base">Review & Resubmission History</CardTitle>
-                                <CardDescription className="text-xs">
-                                    Past history of RC returns and HEI resubmissions
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="pt-0">
-                                <Accordion type="single" collapsible className="w-full">
-                                    {[...historyEntries].reverse().map((entry, displayIndex) => {
-                                        const isHEIResubmission = entry.type === 'hei_resubmission';
-                                        // Calculate chronological number (newest first, so reverse the count)
-                                        const entryNumber = historyEntries.length - displayIndex;
-
-                                        return (
-                                            <AccordionItem key={displayIndex} value={`review-item-${displayIndex}`}>
-                                                <AccordionTrigger className="hover:no-underline">
-                                                    <div className="flex items-center justify-between w-full pr-2">
-                                                        <div className="flex items-center gap-2">
-                                                            <TooltipProvider>
-                                                                <Tooltip>
-                                                                    <TooltipTrigger asChild>
-                                                                        <Avatar className="h-6 w-6">
-                                                                            <AvatarFallback className={`text-xs ${isHEIResubmission ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                                                                                {getInitials(isHEIResubmission ? entry.resubmitted_by! : entry.returned_by!)}
-                                                                            </AvatarFallback>
-                                                                        </Avatar>
-                                                                    </TooltipTrigger>
-                                                                    <TooltipContent>
-                                                                        <p>{isHEIResubmission ? entry.resubmitted_by : entry.returned_by}</p>
-                                                                    </TooltipContent>
-                                                                </Tooltip>
-                                                            </TooltipProvider>
-                                                            <Badge
-                                                                variant={isHEIResubmission ? "secondary" : "outline"}
-                                                                className={`text-xs ${isHEIResubmission ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' : ''}`}
-                                                            >
-                                                                {isHEIResubmission ? `HEI Resubmission #${entryNumber}` : `RC Return #${entryNumber}`}
-                                                            </Badge>
-                                                        </div>
-                                                        <span className="text-xs text-muted-foreground">
-                                                            {new Date(isHEIResubmission ? entry.resubmitted_at! : entry.returned_at!).toLocaleString('en-US', {
-                                                                year: 'numeric',
-                                                                month: 'short',
-                                                                day: 'numeric',
-                                                                hour: '2-digit',
-                                                                minute: '2-digit'
-                                                            })}
-                                                        </span>
-                                                    </div>
-                                                </AccordionTrigger>
-                                                <AccordionContent>
-                                                    <div className="space-y-3 pt-2">
-                                                        {isHEIResubmission ? (
-                                                            // HEI Resubmission
-                                                            entry.hei_remarks && (
-                                                                <div>
-                                                                    <Label className="text-xs font-semibold">HEI Remarks on Resubmission:</Label>
-                                                                    <div className="mt-1 p-2 bg-green-50 dark:bg-green-950/20 rounded text-xs border border-green-200">
-                                                                        <p>{entry.hei_remarks}</p>
-                                                                    </div>
-                                                                </div>
-                                                            )
-                                                        ) : (
-                                                            // RC Return
-                                                            <>
-                                                                {entry.documents_for_compliance && (
-                                                                    <div>
-                                                                        <Label className="text-xs font-semibold">Documents Required:</Label>
-                                                                        <div className="mt-1 p-2 bg-muted/50 rounded text-xs">
-                                                                            <pre className="whitespace-pre-wrap font-sans">{entry.documents_for_compliance}</pre>
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-
-                                                                {entry.review_remarks && (
-                                                                    <div>
-                                                                        <Label className="text-xs font-semibold">RC Remarks:</Label>
-                                                                        <div className="mt-1 p-2 bg-muted/50 rounded text-xs">
-                                                                            <p>{entry.review_remarks}</p>
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                </AccordionContent>
-                                            </AccordionItem>
-                                        );
-                                    })}
-                                </Accordion>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-6 text-muted-foreground">
+                                        <File className="h-6 w-6 mx-auto mb-1.5 opacity-50" />
+                                        <p className="text-sm">No documents uploaded yet</p>
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
-                        ) : null;
-                    })()}
+                    </TabsContent>
 
-                    {/* Accountant Review History Section */}
-                    {liquidation.accountant_review_history && liquidation.accountant_review_history.length > 0 && (
-                        <Card>
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-base">Accountant Review History</CardTitle>
-                                <CardDescription className="text-xs">
-                                    History of Accountant returns to Regional Coordinator
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="pt-0">
-                                <Accordion type="single" collapsible className="w-full">
-                                    {[...liquidation.accountant_review_history].reverse().map((entry, displayIndex) => {
-                                        // Calculate chronological number (newest first, so reverse the count)
-                                        const returnNumber = liquidation.accountant_review_history.length - displayIndex;
-                                        return (
-                                            <AccordionItem key={displayIndex} value={`acc-item-${displayIndex}`}>
-                                                <AccordionTrigger className="hover:no-underline">
-                                                    <div className="flex items-center justify-between w-full pr-2">
-                                                        <div className="flex items-center gap-2">
-                                                            <TooltipProvider>
-                                                                <Tooltip>
-                                                                    <TooltipTrigger asChild>
-                                                                        <Avatar className="h-6 w-6">
-                                                                            <AvatarFallback className="text-xs bg-blue-100 text-blue-700">
-                                                                                {getInitials(entry.returned_by)}
-                                                                            </AvatarFallback>
-                                                                        </Avatar>
-                                                                    </TooltipTrigger>
-                                                                    <TooltipContent>
-                                                                        <p>{entry.returned_by}</p>
-                                                                    </TooltipContent>
-                                                                </Tooltip>
-                                                            </TooltipProvider>
-                                                            <Badge variant="outline" className="text-xs">
-                                                                Return #{returnNumber}
-                                                            </Badge>
-                                                        </div>
-                                                        <span className="text-xs text-muted-foreground">
-                                                            {new Date(entry.returned_at).toLocaleString('en-US', {
-                                                                year: 'numeric',
-                                                                month: 'short',
-                                                                day: 'numeric',
-                                                                hour: '2-digit',
-                                                                minute: '2-digit'
-                                                            })}
-                                                        </span>
-                                                    </div>
-                                                </AccordionTrigger>
-                                                <AccordionContent>
-                                                    <div className="space-y-3 pt-2">
-                                                        {entry.accountant_remarks && (
-                                                            <div>
-                                                                <Label className="text-xs font-semibold">Remarks:</Label>
-                                                                <div className="mt-1 p-2 bg-muted/50 rounded text-xs">
-                                                                    <p>{entry.accountant_remarks}</p>
-                                                                </div>
+                    {/* History Tab */}
+                    <TabsContent value="history" className="flex-1 overflow-y-auto mt-4 space-y-4 px-1">
+                        {/* RC Review History Section */}
+                        {liquidation.review_history && liquidation.review_history.length > 0 && (() => {
+                            const heiResubmissions = liquidation.review_history.filter(entry => entry.type === 'hei_resubmission');
+                            const latestResubmissionIndex = heiResubmissions.length > 0
+                                ? liquidation.review_history.lastIndexOf(heiResubmissions[heiResubmissions.length - 1])
+                                : -1;
+
+                            const historyEntries = liquidation.review_history.filter((_, index) => index !== latestResubmissionIndex);
+
+                            return historyEntries.length > 0 ? (
+                            <Card>
+                                <CardHeader className="pb-3">
+                                    <CardTitle className="text-base">Review & Resubmission History</CardTitle>
+                                    <CardDescription className="text-xs">
+                                        Past history of RC returns and HEI resubmissions
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent className="pt-0">
+                                    <Accordion type="single" collapsible className="w-full">
+                                        {[...historyEntries].reverse().map((entry, displayIndex) => {
+                                            const isHEIResubmission = entry.type === 'hei_resubmission';
+                                            const entryNumber = historyEntries.length - displayIndex;
+
+                                            return (
+                                                <AccordionItem key={displayIndex} value={`review-item-${displayIndex}`}>
+                                                    <AccordionTrigger className="hover:no-underline">
+                                                        <div className="flex items-center justify-between w-full pr-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <TooltipProvider>
+                                                                    <Tooltip>
+                                                                        <TooltipTrigger asChild>
+                                                                            <Avatar className="h-6 w-6">
+                                                                                <AvatarFallback className={`text-xs ${isHEIResubmission ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                                                                                    {getInitials(isHEIResubmission ? entry.resubmitted_by! : entry.returned_by!)}
+                                                                                </AvatarFallback>
+                                                                            </Avatar>
+                                                                        </TooltipTrigger>
+                                                                        <TooltipContent>
+                                                                            <p>{isHEIResubmission ? entry.resubmitted_by : entry.returned_by}</p>
+                                                                        </TooltipContent>
+                                                                    </Tooltip>
+                                                                </TooltipProvider>
+                                                                <Badge
+                                                                    variant={isHEIResubmission ? "secondary" : "outline"}
+                                                                    className={`text-xs ${isHEIResubmission ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' : ''}`}
+                                                                >
+                                                                    {isHEIResubmission ? `HEI Resubmission #${entryNumber}` : `RC Return #${entryNumber}`}
+                                                                </Badge>
                                                             </div>
-                                                        )}
-                                                    </div>
-                                                </AccordionContent>
-                                            </AccordionItem>
-                                        );
-                                    })}
-                                </Accordion>
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {new Date(isHEIResubmission ? entry.resubmitted_at! : entry.returned_at!).toLocaleString('en-US', {
+                                                                    year: 'numeric',
+                                                                    month: 'short',
+                                                                    day: 'numeric',
+                                                                    hour: '2-digit',
+                                                                    minute: '2-digit'
+                                                                })}
+                                                            </span>
+                                                        </div>
+                                                    </AccordionTrigger>
+                                                    <AccordionContent>
+                                                        <div className="space-y-3 pt-2">
+                                                            {isHEIResubmission ? (
+                                                                entry.hei_remarks && (
+                                                                    <div>
+                                                                        <Label className="text-xs font-semibold">HEI Remarks on Resubmission:</Label>
+                                                                        <div className="mt-1 p-2 bg-green-50 dark:bg-green-950/20 rounded text-xs border border-green-200">
+                                                                            <p>{entry.hei_remarks}</p>
+                                                                        </div>
+                                                                    </div>
+                                                                )
+                                                            ) : (
+                                                                <>
+                                                                    {entry.documents_for_compliance && (
+                                                                        <div>
+                                                                            <Label className="text-xs font-semibold">Documents Required:</Label>
+                                                                            <div className="mt-1 p-2 bg-muted/50 rounded text-xs">
+                                                                                <pre className="whitespace-pre-wrap font-sans">{entry.documents_for_compliance}</pre>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+
+                                                                    {entry.review_remarks && (
+                                                                        <div>
+                                                                            <Label className="text-xs font-semibold">RC Remarks:</Label>
+                                                                            <div className="mt-1 p-2 bg-muted/50 rounded text-xs">
+                                                                                <p>{entry.review_remarks}</p>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </AccordionContent>
+                                                </AccordionItem>
+                                            );
+                                        })}
+                                    </Accordion>
+                                </CardContent>
+                            </Card>
+                            ) : (
+                                <Card>
+                                    <CardContent className="pt-6 text-center text-muted-foreground">
+                                        <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                        <p className="text-sm">No review history yet</p>
+                                    </CardContent>
+                                </Card>
+                            );
+                        })()}
+
+                        {/* Accountant Review History Section */}
+                        {liquidation.accountant_review_history && liquidation.accountant_review_history.length > 0 ? (
+                            <Card>
+                                <CardHeader className="pb-3">
+                                    <CardTitle className="text-base">Accountant Review History</CardTitle>
+                                    <CardDescription className="text-xs">
+                                        History of Accountant returns to Regional Coordinator
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent className="pt-0">
+                                    <Accordion type="single" collapsible className="w-full">
+                                        {[...liquidation.accountant_review_history].reverse().map((entry, displayIndex) => {
+                                            const returnNumber = liquidation.accountant_review_history!.length - displayIndex;
+                                            return (
+                                                <AccordionItem key={displayIndex} value={`acc-item-${displayIndex}`}>
+                                                    <AccordionTrigger className="hover:no-underline">
+                                                        <div className="flex items-center justify-between w-full pr-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <TooltipProvider>
+                                                                    <Tooltip>
+                                                                        <TooltipTrigger asChild>
+                                                                            <Avatar className="h-6 w-6">
+                                                                                <AvatarFallback className="text-xs bg-blue-100 text-blue-700">
+                                                                                    {getInitials(entry.returned_by)}
+                                                                                </AvatarFallback>
+                                                                            </Avatar>
+                                                                        </TooltipTrigger>
+                                                                        <TooltipContent>
+                                                                            <p>{entry.returned_by}</p>
+                                                                        </TooltipContent>
+                                                                    </Tooltip>
+                                                                </TooltipProvider>
+                                                                <Badge variant="outline" className="text-xs">
+                                                                    Return #{returnNumber}
+                                                                </Badge>
+                                                            </div>
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {new Date(entry.returned_at).toLocaleString('en-US', {
+                                                                    year: 'numeric',
+                                                                    month: 'short',
+                                                                    day: 'numeric',
+                                                                    hour: '2-digit',
+                                                                    minute: '2-digit'
+                                                                })}
+                                                            </span>
+                                                        </div>
+                                                    </AccordionTrigger>
+                                                    <AccordionContent>
+                                                        <div className="space-y-3 pt-2">
+                                                            {entry.accountant_remarks && (
+                                                                <div>
+                                                                    <Label className="text-xs font-semibold">Remarks:</Label>
+                                                                    <div className="mt-1 p-2 bg-muted/50 rounded text-xs">
+                                                                        <p>{entry.accountant_remarks}</p>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </AccordionContent>
+                                                </AccordionItem>
+                                            );
+                                        })}
+                                    </Accordion>
+                                </CardContent>
+                            </Card>
+                        ) : !liquidation.review_history || liquidation.review_history.length === 0 ? (
+                            <Card>
+                                <CardContent className="pt-6 text-center text-muted-foreground">
+                                    <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                    <p className="text-sm">No accountant review history yet</p>
+                                </CardContent>
+                            </Card>
+                        ) : null}
+                    </TabsContent>
+
+                    {/* Analytics Tab */}
+                    <TabsContent value="analytics" className="flex-1 overflow-y-auto mt-4 space-y-4 px-1">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <BarChart3 className="h-5 w-5" />
+                                    Liquidation Analytics
+                                </CardTitle>
+                                <CardDescription>
+                                    View detailed statistics and progress of this liquidation
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                {/* Progress Bar */}
+                                <div>
+                                    <div className="flex justify-between mb-2">
+                                        <span className="text-sm font-medium">Liquidation Progress</span>
+                                        <span className="text-sm font-semibold text-green-600">{percentLiquidated.toFixed(2)}%</span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-3">
+                                        <div
+                                            className="bg-green-600 h-3 rounded-full transition-all"
+                                            style={{ width: `${Math.min(percentLiquidated, 100)}%` }}
+                                        />
+                                    </div>
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        Formula: (Total Disbursed ÷ Amount Received) × 100
+                                    </p>
+                                </div>
+
+                                {/* Statistics Grid */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="p-4 border rounded-lg">
+                                        <p className="text-xs text-muted-foreground mb-1">Total Beneficiaries</p>
+                                        <p className="text-2xl font-bold">{liquidation.beneficiaries.length}</p>
+                                    </div>
+                                    <div className="p-4 border rounded-lg">
+                                        <p className="text-xs text-muted-foreground mb-1">Total Documents</p>
+                                        <p className="text-2xl font-bold">{liquidation.documents?.length || 0}</p>
+                                    </div>
+                                    <div className="p-4 border rounded-lg">
+                                        <p className="text-xs text-muted-foreground mb-1">Average per Student</p>
+                                        <p className="text-2xl font-bold">
+                                            ₱{liquidation.beneficiaries.length > 0
+                                                ? (liquidation.total_disbursed / liquidation.beneficiaries.length).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                                : '0.00'
+                                            }
+                                        </p>
+                                    </div>
+                                    <div className="p-4 border rounded-lg">
+                                        <p className="text-xs text-muted-foreground mb-1">Refund Amount</p>
+                                        <p className="text-2xl font-bold text-orange-600">
+                                            ₱{Number(liquidation.remaining_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Breakdown */}
+                                <div>
+                                    <h4 className="font-semibold mb-3">Fund Breakdown</h4>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center p-2 bg-blue-50 dark:bg-blue-950/20 rounded">
+                                            <span className="text-sm">Disbursed to Students</span>
+                                            <span className="text-sm font-semibold">
+                                                ₱{Number(liquidation.total_disbursed).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                <span className="text-xs text-muted-foreground ml-2">({percentLiquidated.toFixed(2)}%)</span>
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center p-2 bg-orange-50 dark:bg-orange-950/20 rounded">
+                                            <span className="text-sm">Remaining/Refund</span>
+                                            <span className="text-sm font-semibold">
+                                                ₱{Number(liquidation.remaining_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                <span className="text-xs text-muted-foreground ml-2">({(100 - percentLiquidated).toFixed(2)}%)</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
                             </CardContent>
                         </Card>
-                    )}
-
-                </div>
+                    </TabsContent>
+                </Tabs>
 
                 {/* Sticky Footer */}
                 {(
@@ -897,7 +1006,7 @@ export function ViewLiquidationModal({
                             </div>
                         )}
 
-                        {/* Resubmit to RC Button - After addressing compliance issues */}
+                        {/* Resubmit to RC Button */}
                         {canSubmit && liquidation.status === 'returned_to_hei' && (
                             <div className="flex justify-end gap-2">
                                 <Button
@@ -1023,7 +1132,6 @@ export function ViewLiquidationModal({
                     </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
-                    {/* Document Tracking */}
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="receiver">Receiver (Accountant)</Label>
@@ -1058,7 +1166,6 @@ export function ViewLiquidationModal({
                         </div>
                     </div>
 
-                    {/* Transmittal Information */}
                     <div className="space-y-2">
                         <Label htmlFor="transmittal-ref">Transmittal Reference Number *</Label>
                         <Input
@@ -1152,7 +1259,6 @@ export function ViewLiquidationModal({
                     </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
-                    {/* Receiver Selection */}
                     <div className="space-y-2">
                         <Label htmlFor="return-receiver">Receiver (Regional Coordinator)</Label>
                         <Select value={receiverName} onValueChange={setReceiverName}>
