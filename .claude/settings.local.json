@@ -17,7 +17,8 @@
       "Bash(pip install:*)",
       "Bash(done)",
       "Bash(php:*)",
-      "Bash(php -l:*)"
+      "Bash(php -l:*)",
+      "Bash(npm install:*)"
     ]
   }
 }
