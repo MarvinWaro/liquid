@@ -150,7 +150,7 @@ export default function Register({ heis }: Props) {
                                         <div className="text-center text-xs mt-4 text-gray-500">
                                             Already have an account?{' '}
                                             <TextLink href={login()} className="font-bold text-gray-900 hover:underline">
-                                                Log inssssssssssssss
+                                                Log in
                                             </TextLink>
                                         </div>
                                     </>

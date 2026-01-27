@@ -128,7 +128,7 @@ export default function Index({ auth, roles, permissions, canCreate, canEdit, ca
                     <Card className="shadow-sm border-border/50">
                         <CardContent className="p-0">
                             <Table>
-                                <TableHeader className="bg-muted/50">
+                                <TableHeader>
                                     <TableRow>
                                         <TableHead className="pl-6 h-12">Role Name</TableHead>
                                         <TableHead>Description</TableHead>
