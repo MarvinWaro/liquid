@@ -156,6 +156,7 @@ export default function Edit({ auth, liquidation, heis, can }: Props) {
         };
 
         const payload: any = {};
+        if (actionType === 'submit') payload.remarks = actionRemarks;
         if (actionType === 'endorse') payload.review_remarks = actionRemarks;
         if (actionType === 'return_hei') payload.review_remarks = actionRemarks;
         if (actionType === 'endorse_coa') payload.accountant_remarks = actionRemarks;
@@ -180,9 +181,9 @@ export default function Edit({ auth, liquidation, heis, can }: Props) {
         const content: Record<string, { title: string; description: string; requireRemarks: boolean; showRemarks: boolean }> = {
             'submit': {
                 title: 'Submit for Initial Review',
-                description: 'This liquidation will be submitted to the Regional Coordinator for initial review. You will not be able to edit it until it is returned to you.',
+                description: 'This liquidation will be submitted to the Regional Coordinator for initial review. You may add optional remarks to provide context about this submission.',
                 requireRemarks: false,
-                showRemarks: false, // HEI doesn't need remarks here, they use the form remarks field
+                showRemarks: true, // HEI can add optional remarks when submitting
             },
             'endorse': {
                 title: 'Endorse to Accounting',
@@ -327,6 +328,17 @@ export default function Edit({ auth, liquidation, heis, can }: Props) {
                     </div>
 
                     {/* Remarks from reviewers */}
+                    {liquidation.remarks && (
+                        <Card className="mb-6 border-green-200 bg-green-50 dark:bg-green-950/20">
+                            <CardHeader>
+                                <CardTitle className="text-base">HEI Remarks</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-sm">{liquidation.remarks}</p>
+                            </CardContent>
+                        </Card>
+                    )}
+
                     {liquidation.review_remarks && (
                         <Card className="mb-6 border-orange-200 bg-orange-50 dark:bg-orange-950/20">
                             <CardHeader>

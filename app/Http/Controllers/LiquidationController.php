@@ -316,6 +316,27 @@ class LiquidationController extends Controller
             abort(403, 'This liquidation cannot be submitted in its current status.');
         }
 
+        // Validate HEI remarks
+        $validated = $request->validate([
+            'remarks' => 'nullable|string',
+        ]);
+
+        // Check if this is a resubmission (after being returned to HEI)
+        $isResubmission = $liquidation->status === 'returned_to_hei';
+
+        // If resubmitting and remarks provided, add to review history
+        if ($isResubmission && !empty($validated['remarks'])) {
+            $reviewHistory = $liquidation->review_history ?? [];
+            $reviewHistory[] = [
+                'resubmitted_at' => now()->toIso8601String(),
+                'resubmitted_by' => $user->name,
+                'resubmitted_by_id' => $user->id,
+                'hei_remarks' => $validated['remarks'],
+                'type' => 'hei_resubmission',
+            ];
+            $liquidation->review_history = $reviewHistory;
+        }
+
         // Determine document status based on beneficiaries and documents
         $hasBeneficiaries = $liquidation->beneficiaries()->count() > 0;
         $hasDocuments = $liquidation->documents()->count() > 0;
@@ -327,11 +348,23 @@ class LiquidationController extends Controller
             $documentStatus = 'Partial Submission';
         }
 
-        $liquidation->update([
+        $updateData = [
             'status' => 'for_initial_review',
             'date_submitted' => now(),
             'document_status' => $documentStatus,
-        ]);
+        ];
+
+        // Only update remarks field for initial submission, not resubmission
+        if (!$isResubmission) {
+            $updateData['remarks'] = $validated['remarks'] ?? $liquidation->remarks;
+        }
+
+        // Add review_history if it was updated
+        if (isset($liquidation->review_history)) {
+            $updateData['review_history'] = $liquidation->review_history;
+        }
+
+        $liquidation->update($updateData);
 
         return redirect()->route('liquidation.index')
             ->with('success', 'Liquidation submitted for initial review by Regional Coordinator.');
@@ -842,6 +875,7 @@ class LiquidationController extends Controller
             'remaining_amount' => $remaining,
             'status' => $liquidation->status,
             'status_label' => $liquidation->getStatusLabel(),
+            'remarks' => $liquidation->remarks,
             'review_remarks' => $liquidation->review_remarks,
             'documents_for_compliance' => $liquidation->documents_for_compliance,
             'compliance_status' => $liquidation->compliance_status,
