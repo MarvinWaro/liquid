@@ -171,7 +171,7 @@ export default function Index({ auth, liquidations, nextSequence, currentYear, p
                     <Card className="shadow-sm border-border/50">
                         <CardContent className="p-0">
                             <Table>
-                                <TableHeader className="bg-muted/50">
+                                <TableHeader>
                                     <TableRow>
                                         <TableHead className="pl-6 h-12">Control No.</TableHead>
                                         <TableHead>HEI / Institution</TableHead>
