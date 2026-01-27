@@ -2,6 +2,10 @@
 
 @import 'tw-animate-css';
 
+/* Import Geist fonts */
+@import 'geist/font/sans';
+@import 'geist/font/mono';
+
 @source '../views';
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 
@@ -9,9 +13,13 @@
 
 @theme {
     --font-sans:
-        'Instrument Sans', ui-sans-serif, system-ui, sans-serif,
+        'Geist', ui-sans-serif, system-ui, sans-serif,
         'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
         'Noto Color Emoji';
+
+    --font-mono:
+        'Geist Mono', ui-monospace, 'Cascadia Code', 'Source Code Pro',
+        Menlo, Consolas, 'DejaVu Sans Mono', monospace;
 
     --radius-lg: var(--radius);
     --radius-md: calc(var(--radius) - 2px);
@@ -139,5 +147,34 @@
 
     body {
         @apply bg-background text-foreground;
+        /* Enable slashed zero globally using OpenType features */
+        font-feature-settings: "zero" 1;
+        font-variant-numeric: slashed-zero tabular-nums;
+    }
+
+    /* Apply slashed zero to all text, numbers, and inputs */
+    *, input, textarea, select, button {
+        font-feature-settings: "zero" 1;
+    }
+}
+
+@layer utilities {
+    /* Utility for tabular numbers (aligned numbers for tables/financial data) */
+    .tabular-nums {
+        font-feature-settings: "zero" 1, "tnum" 1;
+        font-variant-numeric: tabular-nums slashed-zero;
+    }
+
+    /* Utility for monospaced numbers with slashed zero */
+    .font-mono-nums {
+        font-family: var(--font-mono);
+        font-feature-settings: "zero" 1, "tnum" 1;
+        font-variant-numeric: tabular-nums slashed-zero;
+    }
+
+    /* Standard slashed zero */
+    .slashed-zero {
+        font-feature-settings: "zero" 1;
+        font-variant-numeric: slashed-zero;
     }
 }
