@@ -213,6 +213,7 @@ export function ViewLiquidationModal({
     };
 
     const currentStep = getCurrentStep(liquidation.status);
+    const isFullyCompleted = liquidation.status === 'endorsed_to_coa';
 
     const filteredBeneficiaries = liquidation.beneficiaries.filter(beneficiary =>
         beneficiary.student_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -429,8 +430,8 @@ export function ViewLiquidationModal({
                 </DialogHeader>
 
                 {/* Workflow Stepper */}
-                <div className="flex-shrink-0 px-6 py-4 border-y bg-muted/20">
-                    <Stepper steps={workflowSteps} currentStep={currentStep} />
+                <div className={`flex-shrink-0 px-6 py-4 border-y ${isFullyCompleted ? 'bg-green-50/50 dark:bg-green-950/10' : 'bg-muted/20'}`}>
+                    <Stepper steps={workflowSteps} currentStep={currentStep} isFullyCompleted={isFullyCompleted} />
                 </div>
 
                 <Tabs defaultValue="overview" className="flex-1 flex flex-col overflow-hidden">

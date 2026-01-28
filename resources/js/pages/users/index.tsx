@@ -60,6 +60,7 @@ interface User {
     role: Role;
     role_id: number;
     hei?: HEI;
+    region?: string | null;
     created_at: string;
 }
 
@@ -79,6 +80,12 @@ export default function Index({ auth, users, roles, canCreate, canEdit, canDelet
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+
+    // Format region label for display
+    const getRegionLabel = (region?: string | null) => {
+        if (!region) return null;
+        return region === 'region_12' ? 'Region 12' : 'BARMM-B';
+    };
 
     // Filter users based on search
     const filteredUsers = users.filter(user =>
@@ -160,6 +167,7 @@ export default function Index({ auth, users, roles, canCreate, canEdit, canDelet
                                     <TableRow>
                                         <TableHead className="pl-6 h-12">User</TableHead>
                                         <TableHead>Role</TableHead>
+                                        <TableHead>Region</TableHead>
                                         <TableHead>Institution</TableHead>
                                         <TableHead>Status</TableHead>
                                         <TableHead>Joined Date</TableHead>
@@ -169,7 +177,7 @@ export default function Index({ auth, users, roles, canCreate, canEdit, canDelet
                                 <TableBody>
                                     {filteredUsers.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                                            <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                                                  <div className="flex flex-col items-center gap-2">
                                                     <UserIcon className="h-8 w-8 text-muted-foreground/50" />
                                                     <p>No users found matching your search.</p>
@@ -208,6 +216,22 @@ export default function Index({ auth, users, roles, canCreate, canEdit, canDelet
                                                     <Badge variant="outline" className="border-border bg-background">
                                                         {user.role?.name || 'No Role'}
                                                     </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {user.role?.name === 'Regional Coordinator' && user.region ? (
+                                                        <Badge
+                                                            variant="outline"
+                                                            className={`${
+                                                                user.region === 'region_12'
+                                                                    ? 'border-blue-200 bg-blue-50 text-blue-900'
+                                                                    : 'border-purple-200 bg-purple-50 text-purple-900'
+                                                            } font-medium`}
+                                                        >
+                                                            {getRegionLabel(user.region)}
+                                                        </Badge>
+                                                    ) : (
+                                                        <span className="text-sm text-muted-foreground">-</span>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell>
                                                     {user.hei ? (
