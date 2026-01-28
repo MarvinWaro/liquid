@@ -10,18 +10,19 @@ interface Step {
 interface StepperProps {
   steps: Step[]
   currentStep: number
+  isFullyCompleted?: boolean
   className?: string
 }
 
-export function Stepper({ steps, currentStep, className }: StepperProps) {
+export function Stepper({ steps, currentStep, isFullyCompleted = false, className }: StepperProps) {
   return (
     <div className={cn("w-full", className)}>
       <div className="flex items-center justify-between">
         {steps.map((step, index) => {
           const stepNumber = index + 1
-          const isCompleted = stepNumber < currentStep
-          const isCurrent = stepNumber === currentStep
-          const isUpcoming = stepNumber > currentStep
+          const isCompleted = isFullyCompleted || stepNumber < currentStep
+          const isCurrent = !isFullyCompleted && stepNumber === currentStep
+          const isUpcoming = !isFullyCompleted && stepNumber > currentStep
 
           return (
             <React.Fragment key={index}>
@@ -31,12 +32,13 @@ export function Stepper({ steps, currentStep, className }: StepperProps) {
                 <div
                   className={cn(
                     "w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm transition-all z-10 border-2",
-                    isCompleted && "bg-blue-600 border-blue-600 text-white",
-                    isCurrent && "bg-blue-600 border-blue-600 text-white ring-4 ring-blue-100",
+                    isFullyCompleted && "bg-green-600 border-green-600 text-white",
+                    !isFullyCompleted && isCompleted && "bg-blue-600 border-blue-600 text-white",
+                    !isFullyCompleted && isCurrent && "bg-blue-600 border-blue-600 text-white ring-4 ring-blue-100",
                     isUpcoming && "bg-background border-gray-300 text-gray-400"
                   )}
                 >
-                  {isCompleted ? (
+                  {(isCompleted || isFullyCompleted) ? (
                     <Check className="h-5 w-5" />
                   ) : (
                     stepNumber
@@ -48,7 +50,8 @@ export function Stepper({ steps, currentStep, className }: StepperProps) {
                   <p
                     className={cn(
                       "text-xs font-medium whitespace-normal",
-                      (isCompleted || isCurrent) && "text-blue-900 dark:text-blue-100",
+                      isFullyCompleted && "text-green-900 dark:text-green-100",
+                      !isFullyCompleted && (isCompleted || isCurrent) && "text-blue-900 dark:text-blue-100",
                       isUpcoming && "text-gray-400"
                     )}
                   >
@@ -68,7 +71,7 @@ export function Stepper({ steps, currentStep, className }: StepperProps) {
                   <div
                     className={cn(
                       "h-full transition-all",
-                      stepNumber < currentStep ? "bg-blue-600" : "bg-gray-300"
+                      isFullyCompleted ? "bg-green-600" : (stepNumber < currentStep ? "bg-blue-600" : "bg-gray-300")
                     )}
                   />
                 </div>

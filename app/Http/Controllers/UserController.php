@@ -45,11 +45,16 @@ class UserController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
+        // Check if the selected role is Regional Coordinator
+        $role = Role::find($request->role_id);
+        $isRegionalCoordinator = $role && $role->name === 'Regional Coordinator';
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8|confirmed',
             'role_id' => 'required|exists:roles,id',
+            'region' => $isRegionalCoordinator ? 'required|in:region_12,barmm_b' : 'nullable|in:region_12,barmm_b',
             'status' => 'required|in:active,inactive',
         ]);
 
@@ -58,6 +63,7 @@ class UserController extends Controller
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']),
             'role_id' => $validated['role_id'],
+            'region' => $validated['region'] ?? null,
             'status' => $validated['status'],
         ]);
 
@@ -74,11 +80,16 @@ class UserController extends Controller
             abort(403, 'You cannot modify the Super Admin.');
         }
 
+        // Check if the selected role is Regional Coordinator
+        $role = Role::find($request->role_id);
+        $isRegionalCoordinator = $role && $role->name === 'Regional Coordinator';
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => ['required', 'email', Rule::unique('users')->ignore($user->id)],
             'password' => 'nullable|string|min:8|confirmed',
             'role_id' => 'required|exists:roles,id',
+            'region' => $isRegionalCoordinator ? 'required|in:region_12,barmm_b' : 'nullable|in:region_12,barmm_b',
             'status' => 'required|in:active,inactive',
         ]);
 
@@ -86,6 +97,7 @@ class UserController extends Controller
             'name' => $validated['name'],
             'email' => $validated['email'],
             'role_id' => $validated['role_id'],
+            'region' => $validated['region'] ?? null,
             'status' => $validated['status'],
         ];
 

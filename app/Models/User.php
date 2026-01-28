@@ -26,6 +26,7 @@ class User extends Authenticatable
         'password',
         'role_id',
         'hei_id',
+        'region',
         'status',
     ];
 
@@ -123,5 +124,25 @@ class User extends Authenticatable
     public function isSuperAdmin(): bool
     {
         return $this->role && $this->role->name === 'Super Admin';
+    }
+
+    /**
+     * Check if user is regional coordinator.
+     */
+    public function isRegionalCoordinator(): bool
+    {
+        return $this->role && $this->role->name === 'Regional Coordinator';
+    }
+
+    /**
+     * Get the region label for display.
+     */
+    public function getRegionLabel(): ?string
+    {
+        return match($this->region) {
+            'region_12' => 'Region 12',
+            'barmm_b' => 'BARMM-B',
+            default => null,
+        };
     }
 }

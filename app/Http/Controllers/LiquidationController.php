@@ -291,14 +291,22 @@ class LiquidationController extends Controller
         }
 
         $validated = $request->validate([
-            'hei_id' => 'required|exists:heis,id',
-            'disbursed_amount' => 'required|numeric|min:0',
+            'hei_id' => 'sometimes|exists:heis,id',
+            'amount_received' => 'sometimes|numeric|min:0',
+            'disbursed_amount' => 'sometimes|numeric|min:0',
             'disbursement_date' => 'nullable|date',
             'fund_source' => 'nullable|string|max:255',
             'liquidated_amount' => 'nullable|numeric|min:0',
             'purpose' => 'nullable|string',
             'remarks' => 'nullable|string',
         ]);
+
+        // If amount_received is being updated, also update disbursed_amount and amount_disbursed
+        // These fields represent the total CHED disbursement
+        if (isset($validated['amount_received'])) {
+            $validated['disbursed_amount'] = $validated['amount_received'];
+            $validated['amount_disbursed'] = $validated['amount_received'];
+        }
 
         $liquidation->update($validated);
 

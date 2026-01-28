@@ -31,6 +31,7 @@ interface User {
     email: string;
     role_id: number;
     status: string;
+    region?: string | null;
 }
 
 interface UserModalProps {
@@ -46,6 +47,7 @@ interface FormData {
     password: string;
     password_confirmation: string;
     role_id: string;
+    region: string;
     status: string;
 }
 
@@ -58,6 +60,7 @@ export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
         password: '',
         password_confirmation: '',
         role_id: '',
+        region: '',
         status: 'active',
     });
 
@@ -71,12 +74,21 @@ export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
                     password: '',
                     password_confirmation: '',
                     role_id: user.role_id.toString(),
+                    region: user.region || '',
                     status: user.status,
                 });
             } else {
-                // Create Mode: Reset form
+                // Create Mode: Reset form with default password
                 reset();
-                setData('status', 'active');
+                setData({
+                    name: '',
+                    email: '',
+                    password: '12345678',
+                    password_confirmation: '12345678',
+                    role_id: '',
+                    region: '',
+                    status: 'active',
+                });
             }
             clearErrors();
         }
@@ -182,6 +194,28 @@ export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
                         </div>
                     </div>
 
+                    {/* Region Selection - Applicable for Regional Coordinators */}
+                    <div className="space-y-2">
+                        <Label htmlFor="region">
+                            Region <span className="text-xs text-muted-foreground">(Applicable for Regional Coordinators)</span>
+                        </Label>
+                        <Select
+                            value={data.region || undefined}
+                            onValueChange={(value) => setData('region', value)}
+                        >
+                            <SelectTrigger className={errors.region ? 'border-destructive' : ''}>
+                                <SelectValue placeholder="Select region (Optional)" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="region_12">Region 12</SelectItem>
+                                <SelectItem value="barmm_b">BARMM-B</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        {errors.region && (
+                            <p className="text-sm text-destructive">{errors.region}</p>
+                        )}
+                    </div>
+
                     <div className="space-y-2">
                         <Label htmlFor="password">
                             Password {isEdit ? '(Leave blank to keep current)' : '*'}
@@ -194,6 +228,11 @@ export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
                             placeholder="••••••••"
                             className={errors.password ? 'border-destructive' : ''}
                         />
+                        {!isEdit && (
+                            <p className="text-xs text-muted-foreground">
+                                Default password: 12345678 (User should change after first login)
+                            </p>
+                        )}
                         {errors.password && (
                             <p className="text-sm text-destructive">{errors.password}</p>
                         )}

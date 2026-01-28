@@ -193,13 +193,18 @@ export default function Index({ auth, liquidations, nextSequence, currentYear, p
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        filteredLiquidations.map((liq) => (
+                                        filteredLiquidations.map((liq) => {
+                                            const isEndorsedToCOA = liq.status === 'endorsed_to_coa';
+                                            return (
                                             <TableRow
                                                 key={liq.id}
+                                                style={isEndorsedToCOA ? {
+                                                    backgroundColor: 'rgb(240 253 244)',
+                                                } : undefined}
                                                 className={`transition-colors ${
-                                                    liq.status === 'Endorsed to COA' || liq.status === 'endorsed_to_coa'
-                                                        ? '!bg-green-50 hover:!bg-green-100 dark:!bg-green-950/20 dark:hover:!bg-green-950/30'
-                                                        : 'hover:bg-muted/50'
+                                                    isEndorsedToCOA
+                                                        ? 'hover:!bg-green-100 dark:!bg-green-950/20 dark:hover:!bg-green-950/30'
+                                                        : ''
                                                 }`}
                                             >
                                                 <TableCell className="pl-6 py-4 font-medium">
@@ -275,7 +280,8 @@ export default function Index({ auth, liquidations, nextSequence, currentYear, p
                                                     </DropdownMenu>
                                                 </TableCell>
                                             </TableRow>
-                                        ))
+                                            );
+                                        })
                                     )}
                                 </TableBody>
                             </Table>
