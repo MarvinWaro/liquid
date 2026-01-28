@@ -18,14 +18,16 @@ class DashboardController extends Controller
         // Only show consolidated data for Admin roles
         if ($isAdmin) {
             // Summary per Academic Year (exclude drafts)
+            // Note: liquidated_amount = sum of beneficiary disbursements (actual amount given to students)
+            // unliquidated_amount = amount_received - liquidated_amount (remaining from CHED funds)
             $summaryPerAY = Liquidation::select('academic_year')
                 ->where('status', '!=', 'draft')
                 ->selectRaw('SUM(amount_received) as total_disbursements')
-                ->selectRaw('SUM(amount_disbursed) as liquidated_amount')
-                ->selectRaw('SUM(amount_received - amount_disbursed) as unliquidated_amount')
+                ->selectRaw('SUM(liquidated_amount) as liquidated_amount')
+                ->selectRaw('SUM(amount_received - liquidated_amount) as unliquidated_amount')
                 ->selectRaw('SUM(CASE WHEN status IN ("endorsed_to_accounting", "endorsed_to_coa") THEN amount_received ELSE 0 END) as for_endorsement')
                 ->selectRaw('SUM(CASE WHEN status IN ("returned_to_hei", "returned_to_rc") THEN amount_received ELSE 0 END) as for_compliance')
-                ->selectRaw('ROUND((SUM(amount_disbursed) / NULLIF(SUM(amount_received), 0)) * 100, 2) as percentage_liquidation')
+                ->selectRaw('ROUND((SUM(liquidated_amount) / NULLIF(SUM(amount_received), 0)) * 100, 2) as percentage_liquidation')
                 ->selectRaw('ROUND((SUM(CASE WHEN status IN ("returned_to_hei", "returned_to_rc") THEN amount_received ELSE 0 END) / NULLIF(SUM(amount_received), 0)) * 100, 2) as percentage_compliance')
                 ->selectRaw('ROUND((COUNT(*) / NULLIF(COUNT(*), 0)) * 100, 2) as percentage_submission')
                 ->groupBy('academic_year')
@@ -37,11 +39,11 @@ class DashboardController extends Controller
                 ->where('status', '!=', 'draft')
                 ->select('hei_id')
                 ->selectRaw('SUM(amount_received) as total_disbursements')
-                ->selectRaw('SUM(amount_disbursed) as total_amount_liquidated')
+                ->selectRaw('SUM(liquidated_amount) as total_amount_liquidated')
                 ->selectRaw('SUM(CASE WHEN status IN ("endorsed_to_accounting", "endorsed_to_coa") THEN amount_received ELSE 0 END) as for_endorsement')
-                ->selectRaw('SUM(amount_received - amount_disbursed) as unliquidated_amount')
+                ->selectRaw('SUM(amount_received - liquidated_amount) as unliquidated_amount')
                 ->selectRaw('SUM(CASE WHEN status IN ("returned_to_hei", "returned_to_rc") THEN amount_received ELSE 0 END) as for_compliance')
-                ->selectRaw('ROUND((SUM(amount_disbursed) / NULLIF(SUM(amount_received), 0)) * 100, 2) as percentage_liquidation')
+                ->selectRaw('ROUND((SUM(liquidated_amount) / NULLIF(SUM(amount_received), 0)) * 100, 2) as percentage_liquidation')
                 ->selectRaw('ROUND((COUNT(*) / NULLIF(COUNT(*), 0)) * 100, 2) as percentage_submission')
                 ->groupBy('hei_id')
                 ->get();
@@ -57,7 +59,8 @@ class DashboardController extends Controller
             $totalStats = [
                 'total_liquidations' => Liquidation::where('status', '!=', 'draft')->count(),
                 'total_disbursed' => Liquidation::where('status', '!=', 'draft')->sum('amount_received'),
-                'total_liquidated' => Liquidation::where('status', '!=', 'draft')->sum('amount_disbursed'),
+                'total_liquidated' => Liquidation::where('status', '!=', 'draft')->sum('liquidated_amount'),
+                'total_unliquidated' => Liquidation::where('status', '!=', 'draft')->selectRaw('SUM(amount_received - liquidated_amount) as total')->value('total') ?? 0,
                 'pending_review' => Liquidation::whereIn('status', ['for_initial_review', 'endorsed_to_accounting'])->count(),
             ];
 
@@ -104,6 +107,10 @@ class DashboardController extends Controller
                     ->where('status', 'endorsed_to_coa')->count();
                 $userStats['total_amount'] = Liquidation::where('hei_id', $user->hei_id)
                     ->where('status', '!=', 'draft')->sum('amount_received');
+                // Add unliquidated amount: total received from CHED minus total disbursed to students
+                $userStats['total_liquidated'] = Liquidation::where('hei_id', $user->hei_id)
+                    ->where('status', '!=', 'draft')->sum('liquidated_amount');
+                $userStats['total_unliquidated'] = $userStats['total_amount'] - $userStats['total_liquidated'];
             }
         }
 

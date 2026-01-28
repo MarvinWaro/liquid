@@ -17,7 +17,7 @@ import {
     CardTitle,
 } from '@/components/ui/card';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
-import { DollarSign, FileText, CheckCircle, Clock } from 'lucide-react';
+import { DollarSign, FileText, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -62,6 +62,7 @@ interface TotalStats {
     total_liquidations: number;
     total_disbursed: number;
     total_liquidated: number;
+    total_unliquidated: number;
     pending_review: number;
 }
 
@@ -70,6 +71,8 @@ interface UserStats {
     pending_action: number;
     completed: number;
     total_amount: number;
+    total_liquidated?: number;
+    total_unliquidated?: number;
 }
 
 interface RecentLiquidation {
@@ -137,7 +140,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                     {isAdmin && totalStats && (
                         <>
                             {/* Stats Cards */}
-                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
                                 <Card>
                                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                         <CardTitle className="text-sm font-medium">Total Liquidations</CardTitle>
@@ -164,8 +167,18 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                         <CheckCircle className="h-4 w-4 text-muted-foreground" />
                                     </CardHeader>
                                     <CardContent>
-                                        <div className="text-2xl font-bold">{formatCurrency(totalStats.total_liquidated)}</div>
+                                        <div className="text-2xl font-bold text-green-600">{formatCurrency(totalStats.total_liquidated)}</div>
                                         <p className="text-xs text-muted-foreground">Amount disbursed to students</p>
+                                    </CardContent>
+                                </Card>
+                                <Card>
+                                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <CardTitle className="text-sm font-medium">Total Unliquidated</CardTitle>
+                                        <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="text-2xl font-bold text-orange-600">{formatCurrency(totalStats.total_unliquidated)}</div>
+                                        <p className="text-xs text-muted-foreground">Remaining from CHED funds</p>
                                     </CardContent>
                                 </Card>
                                 <Card>
@@ -217,7 +230,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                     {!isAdmin && userStats && (
                         <>
                             {/* User Stats Cards */}
-                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                            <div className={`grid gap-4 md:grid-cols-2 ${userRole === 'HEI' ? 'lg:grid-cols-6' : 'lg:grid-cols-4'}`}>
                                 <Card>
                                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                         <CardTitle className="text-sm font-medium">My Liquidations</CardTitle>
@@ -255,9 +268,34 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                     </CardHeader>
                                     <CardContent>
                                         <div className="text-2xl font-bold">{formatCurrency(userStats.total_amount)}</div>
-                                        <p className="text-xs text-muted-foreground">In {userRole || 'your'} queue</p>
+                                        <p className="text-xs text-muted-foreground">Received from CHED</p>
                                     </CardContent>
                                 </Card>
+                                {/* HEI-specific: Liquidated and Unliquidated amounts */}
+                                {userRole === 'HEI' && userStats.total_liquidated !== undefined && (
+                                    <>
+                                        <Card>
+                                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                                <CardTitle className="text-sm font-medium">Total Liquidated</CardTitle>
+                                                <CheckCircle className="h-4 w-4 text-muted-foreground" />
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="text-2xl font-bold text-green-600">{formatCurrency(userStats.total_liquidated)}</div>
+                                                <p className="text-xs text-muted-foreground">Disbursed to students</p>
+                                            </CardContent>
+                                        </Card>
+                                        <Card>
+                                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                                <CardTitle className="text-sm font-medium">Total Unliquidated</CardTitle>
+                                                <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="text-2xl font-bold text-orange-600">{formatCurrency(userStats.total_unliquidated || 0)}</div>
+                                                <p className="text-xs text-muted-foreground">Remaining from CHED</p>
+                                            </CardContent>
+                                        </Card>
+                                    </>
+                                )}
                             </div>
 
                             {/* Recent Liquidations */}

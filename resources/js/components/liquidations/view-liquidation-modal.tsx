@@ -22,7 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Download, Upload, Search, FileText, Send, File, X, Loader2, BarChart3 } from 'lucide-react';
+import { Download, Upload, Search, FileText, Send, File, X, Loader2, BarChart3, Pencil } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -173,6 +173,11 @@ export function ViewLiquidationModal({
     const [isEndorseToCOAModalOpen, setIsEndorseToCOAModalOpen] = useState(false);
     const [isReturnToRCModalOpen, setIsReturnToRCModalOpen] = useState(false);
     const [accountantRemarks, setAccountantRemarks] = useState('');
+
+    // Edit modal state
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editAmountReceived, setEditAmountReceived] = useState('');
+    const [isUpdating, setIsUpdating] = useState(false);
 
     // Helper function to get user initials
     const getInitials = (name: string) => {
@@ -409,12 +414,56 @@ export function ViewLiquidationModal({
         });
     };
 
+    const handleOpenEditModal = () => {
+        setEditAmountReceived(liquidation.amount_received.toString());
+        setIsEditModalOpen(true);
+    };
+
+    const handleUpdateLiquidation = () => {
+        setIsUpdating(true);
+        router.put(route('liquidation.update', liquidation.id), {
+            amount_received: parseFloat(editAmountReceived),
+        }, {
+            onSuccess: async () => {
+                try {
+                    const response = await axios.get(route('liquidation.show', liquidation.id));
+                    if (onDataChange) {
+                        onDataChange(response.data);
+                    }
+                } catch (error) {
+                    console.error('Error reloading liquidation:', error);
+                }
+                setIsUpdating(false);
+                setIsEditModalOpen(false);
+            },
+            onError: () => {
+                setIsUpdating(false);
+            },
+        });
+    };
+
+    // Check if HEI can edit (only in draft or returned_to_hei status)
+    const canEdit = canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status);
+
     return (
         <>
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="w-[80vw] max-w-[1200px] max-h-[90vh] overflow-hidden flex flex-col">
                 <DialogHeader className="flex-shrink-0">
-                    <DialogTitle className="text-2xl">{liquidation.control_no}</DialogTitle>
+                    <div className="flex items-center justify-between">
+                        <DialogTitle className="text-2xl">{liquidation.control_no}</DialogTitle>
+                        {canEdit && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleOpenEditModal}
+                                className="ml-4"
+                            >
+                                <Pencil className="h-4 w-4 mr-2" />
+                                Edit
+                            </Button>
+                        )}
+                    </div>
                     <div className="flex items-center gap-2 mt-3 flex-wrap">
                         <Badge className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 text-sm font-semibold border-0 shadow-sm">
                             {liquidation.program_name}
@@ -1461,6 +1510,74 @@ export function ViewLiquidationModal({
                         disabled={isProcessing || !accountantRemarks.trim()}
                     >
                         {isProcessing ? 'Returning...' : 'Return to RC'}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+        {/* Edit Liquidation Modal */}
+        <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+            <DialogContent className="max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Edit Liquidation</DialogTitle>
+                    <DialogDescription>
+                        Update the amount received from CHED for this liquidation report
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="edit-amount">Amount Received from CHED *</Label>
+                        <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₱</span>
+                            <Input
+                                id="edit-amount"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder="0.00"
+                                value={editAmountReceived}
+                                onChange={(e) => setEditAmountReceived(e.target.value)}
+                                className="pl-8"
+                            />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                            Enter the total amount disbursed by CHED for this liquidation
+                        </p>
+                    </div>
+
+                    {/* Show current values for reference */}
+                    <div className="rounded-md border p-3 bg-muted/30 space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground">Current Values:</p>
+                        <div className="flex justify-between text-sm">
+                            <span>Disbursed to Students:</span>
+                            <span className="font-mono text-blue-600">
+                                ₱{Number(liquidation.total_disbursed).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                            <span>Remaining/Unliquidated:</span>
+                            <span className="font-mono text-orange-600">
+                                ₱{(parseFloat(editAmountReceived || '0') - liquidation.total_disbursed).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <DialogFooter>
+                    <Button
+                        variant="outline"
+                        onClick={() => {
+                            setIsEditModalOpen(false);
+                            setEditAmountReceived('');
+                        }}
+                        disabled={isUpdating}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={handleUpdateLiquidation}
+                        disabled={isUpdating || !editAmountReceived || parseFloat(editAmountReceived) < 0}
+                    >
+                        {isUpdating ? 'Saving...' : 'Save Changes'}
                     </Button>
                 </DialogFooter>
             </DialogContent>
