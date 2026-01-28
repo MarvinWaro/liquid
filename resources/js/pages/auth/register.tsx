@@ -29,7 +29,7 @@ interface Props {
 
 export default function Register({ heis }: Props) {
     return (
-        <div className="relative min-h-svh flex flex-col items-center justify-center p-6 md:p-10 overflow-hidden bg-white">
+        <div className="relative min-h-svh flex flex-col items-center justify-center p-6 md:p-10 overflow-hidden bg-background">
             <Head title="Register" />
 
             {/* BACKGROUND LAYER 1: Image Texture */}
@@ -37,12 +37,12 @@ export default function Register({ heis }: Props) {
                 <img
                     src="/assets/img/unifastbg.jpg"
                     alt=""
-                    className="h-full w-full object-cover opacity-20"
+                    className="h-full w-full object-cover opacity-20 dark:opacity-10"
                 />
             </div>
 
             {/* BACKGROUND LAYER 2: Gradient Overlay */}
-            <div className="absolute inset-0 z-10 bg-gradient-to-br from-blue-50/90 via-white/80 to-blue-100/50 mix-blend-overlay" />
+            <div className="absolute inset-0 z-10 bg-gradient-to-br from-blue-50/90 via-white/80 to-blue-100/50 dark:from-gray-900/90 dark:via-gray-950/80 dark:to-gray-900/50 mix-blend-overlay dark:mix-blend-normal" />
 
             {/* CONTENT LAYER */}
             <div className="relative z-20 w-full max-w-sm md:max-w-4xl">
@@ -50,7 +50,7 @@ export default function Register({ heis }: Props) {
                     <CardContent className="grid p-0 md:grid-cols-2 h-full">
 
                         {/* LEFT SIDE: REGISTER FORM */}
-                        <div className="flex flex-col justify-center p-8 md:p-12 bg-white">
+                        <div className="flex flex-col justify-center p-8 md:p-12 bg-background">
 
                             {/* LOGO HEADER */}
                             <div className="flex justify-center items-center gap-4 mb-8">
@@ -73,9 +73,9 @@ export default function Register({ heis }: Props) {
                                 {({ processing, errors }) => (
                                     <>
                                         <div className="grid gap-2">
-                                            <Label htmlFor="hei_id" className="text-xs uppercase font-medium text-gray-600">Institution *</Label>
+                                            <Label htmlFor="hei_id" className="text-xs uppercase font-medium text-muted-foreground">Institution *</Label>
                                             <Select name="hei_id" required>
-                                                <SelectTrigger id="hei_id" className="bg-gray-50 border-gray-200">
+                                                <SelectTrigger id="hei_id" className="bg-muted/50 border-border">
                                                     <SelectValue placeholder="Select your institution" />
                                                 </SelectTrigger>
                                                 <SelectContent>
@@ -90,49 +90,49 @@ export default function Register({ heis }: Props) {
                                         </div>
 
                                         <div className="grid gap-2">
-                                            <Label htmlFor="name" className="text-xs uppercase font-medium text-gray-600">Contact Person Name</Label>
+                                            <Label htmlFor="name" className="text-xs uppercase font-medium text-muted-foreground">Contact Person Name</Label>
                                             <Input
                                                 id="name"
                                                 name="name"
                                                 required
                                                 placeholder="Full name"
-                                                className="bg-gray-50 border-gray-200"
+                                                className="bg-muted/50 border-border"
                                             />
                                             <InputError message={errors.name} />
                                         </div>
 
                                         <div className="grid gap-2">
-                                            <Label htmlFor="email" className="text-xs uppercase font-medium text-gray-600">Institutional Email</Label>
+                                            <Label htmlFor="email" className="text-xs uppercase font-medium text-muted-foreground">Institutional Email</Label>
                                             <Input
                                                 id="email"
                                                 type="email"
                                                 name="email"
                                                 required
                                                 placeholder="email@institution.edu.ph"
-                                                className="bg-gray-50 border-gray-200"
+                                                className="bg-muted/50 border-border"
                                             />
                                             <InputError message={errors.email} />
                                         </div>
 
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="grid gap-2">
-                                                <Label htmlFor="password" title="Password" className="text-xs uppercase font-medium text-gray-600">Password</Label>
+                                                <Label htmlFor="password" title="Password" className="text-xs uppercase font-medium text-muted-foreground">Password</Label>
                                                 <Input
                                                     id="password"
                                                     type="password"
                                                     name="password"
                                                     required
-                                                    className="bg-gray-50 border-gray-200"
+                                                    className="bg-muted/50 border-border"
                                                 />
                                             </div>
                                             <div className="grid gap-2">
-                                                <Label htmlFor="password_confirmation" className="text-xs uppercase font-medium text-gray-600">Confirm</Label>
+                                                <Label htmlFor="password_confirmation" className="text-xs uppercase font-medium text-muted-foreground">Confirm</Label>
                                                 <Input
                                                     id="password_confirmation"
                                                     type="password"
                                                     name="password_confirmation"
                                                     required
-                                                    className="bg-gray-50 border-gray-200"
+                                                    className="bg-muted/50 border-border"
                                                 />
                                             </div>
                                         </div>
@@ -147,9 +147,9 @@ export default function Register({ heis }: Props) {
                                             Create account
                                         </Button>
 
-                                        <div className="text-center text-xs mt-4 text-gray-500">
+                                        <div className="text-center text-xs mt-4 text-muted-foreground">
                                             Already have an account?{' '}
-                                            <TextLink href={login()} className="font-bold text-gray-900 hover:underline">
+                                            <TextLink href={login()} className="font-bold text-foreground hover:underline">
                                                 Log in
                                             </TextLink>
                                         </div>

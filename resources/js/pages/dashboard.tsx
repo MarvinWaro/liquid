@@ -142,24 +142,9 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
             'For Compliance': item.for_compliance,
         }));
 
-    // Format large numbers for Y-axis (in millions/billions)
+    // Format Y-axis with full numbers and commas
     const formatYAxis = (value: number) => {
-        if (value >= 1000000000) {
-            return `${(value / 1000000000).toFixed(1)}B`;
-        }
-        if (value >= 1000000) {
-            return `${(value / 1000000).toFixed(1)}M`;
-        }
-        if (value >= 1000) {
-            return `${(value / 1000).toFixed(0)}K`;
-        }
-        return value.toString();
-    };
-
-    // Custom tooltip formatter for bar chart
-    const formatBarTooltip = (value: number | undefined) => {
-        if (value === undefined) return '₱0.00';
-        return `₱${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        return value.toLocaleString('en-US');
     };
 
     return (
@@ -233,24 +218,23 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                 </Card>
                             </div>
 
-                            {/* Charts Row - Status Distribution and Liquidation Progress */}
-                            <div className="grid gap-4 lg:grid-cols-2">
-                                {/* Status Distribution Pie Chart */}
+                            {/* Charts Row - Status Distribution (4 cols) and Liquidation Progress (8 cols) */}
+                            <div className="grid gap-4 lg:grid-cols-12">
+                                {/* Status Distribution Pie Chart - 4 columns */}
                                 {chartData.length > 0 && (
-                                    <Card className="shadow-sm border-border/50">
-                                        <CardHeader>
-                                            <CardTitle>Status Distribution</CardTitle>
+                                    <Card className="shadow-sm border-border/50 lg:col-span-4">
+                                        <CardHeader className="pb-2">
+                                            <CardTitle className="text-base">Status Distribution</CardTitle>
                                         </CardHeader>
                                         <CardContent>
-                                            <ResponsiveContainer width="100%" height={350}>
+                                            <ResponsiveContainer width="100%" height={300}>
                                                 <PieChart>
                                                     <Pie
                                                         data={chartData}
                                                         cx="50%"
                                                         cy="50%"
                                                         labelLine={false}
-                                                        label={({ name, percent }) => `${name}: ${percent ? (percent * 100).toFixed(0) : 0}%`}
-                                                        outerRadius={100}
+                                                        outerRadius={80}
                                                         fill="#8884d8"
                                                         dataKey="value"
                                                     >
@@ -258,48 +242,92 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                                         ))}
                                                     </Pie>
-                                                    <Tooltip />
-                                                    <Legend />
+                                                    <Tooltip
+                                                        content={({ active, payload }) => {
+                                                            if (active && payload && payload.length) {
+                                                                return (
+                                                                    <div className="bg-background text-foreground border border-border rounded-lg shadow-xl p-3 min-w-[150px]">
+                                                                        <p className="font-semibold text-sm mb-1">{payload[0].name}</p>
+                                                                        <p className="text-sm">
+                                                                            Count: <span className="font-mono font-medium">{payload[0].value}</span>
+                                                                        </p>
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            return null;
+                                                        }}
+                                                    />
+                                                    <Legend
+                                                        wrapperStyle={{ fontSize: '12px' }}
+                                                        formatter={(value) => <span className="text-foreground text-xs">{value}</span>}
+                                                    />
                                                 </PieChart>
                                             </ResponsiveContainer>
                                         </CardContent>
                                     </Card>
                                 )}
 
-                                {/* Liquidation Progress Bar Chart */}
+                                {/* Liquidation Progress Bar Chart - 8 columns */}
                                 {barChartData.length > 0 && (
-                                    <Card className="shadow-sm border-border/50">
-                                        <CardHeader>
-                                            <CardTitle>Liquidation Progress per Academic Year</CardTitle>
+                                    <Card className="shadow-sm border-border/50 lg:col-span-8">
+                                        <CardHeader className="pb-2">
+                                            <CardTitle className="text-base">Liquidation Progress per Academic Year</CardTitle>
                                         </CardHeader>
                                         <CardContent>
-                                            <ResponsiveContainer width="100%" height={350}>
+                                            <ResponsiveContainer width="100%" height={300}>
                                                 <BarChart
                                                     data={barChartData}
-                                                    margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                                                    margin={{ top: 10, right: 20, left: 10, bottom: 5 }}
                                                 >
-                                                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
                                                     <XAxis
                                                         dataKey="name"
-                                                        tick={{ fontSize: 12 }}
+                                                        tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
                                                         tickLine={false}
                                                         axisLine={false}
                                                     />
                                                     <YAxis
                                                         tickFormatter={formatYAxis}
-                                                        tick={{ fontSize: 12 }}
+                                                        tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
                                                         tickLine={false}
                                                         axisLine={false}
+                                                        width={50}
                                                     />
                                                     <Tooltip
-                                                        formatter={formatBarTooltip}
-                                                        contentStyle={{
-                                                            backgroundColor: 'hsl(var(--background))',
-                                                            border: '1px solid hsl(var(--border))',
-                                                            borderRadius: '6px',
+                                                        content={({ active, payload, label }) => {
+                                                            if (active && payload && payload.length) {
+                                                                return (
+                                                                    <div className="bg-background text-foreground border border-border rounded-lg shadow-xl p-3 min-w-[220px]">
+                                                                        <p className="font-semibold text-sm mb-2 pb-2 border-b border-border">{label}</p>
+                                                                        <div className="space-y-1.5">
+                                                                            {payload.map((entry, index) => {
+                                                                                const value = typeof entry.value === 'number' ? entry.value : Number(entry.value) || 0;
+                                                                                return (
+                                                                                    <div key={index} className="flex items-center justify-between gap-4">
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <div
+                                                                                                className="w-3 h-3 rounded-sm flex-shrink-0"
+                                                                                                style={{ backgroundColor: entry.color }}
+                                                                                            />
+                                                                                            <span className="text-xs text-muted-foreground">{entry.name}:</span>
+                                                                                        </div>
+                                                                                        <span className="font-mono text-xs font-medium text-foreground">
+                                                                                            ₱{value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            return null;
                                                         }}
                                                     />
-                                                    <Legend />
+                                                    <Legend
+                                                        wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }}
+                                                        formatter={(value) => <span className="text-foreground text-xs">{value}</span>}
+                                                    />
                                                     <Bar
                                                         dataKey="Total Disbursements"
                                                         fill={BAR_COLORS.totalDisbursements}
