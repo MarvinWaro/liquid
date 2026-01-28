@@ -51,6 +51,7 @@ import {
     TabsTrigger,
     TabsContent,
 } from '@/components/ui/tabs';
+import { Stepper } from '@/components/ui/stepper';
 
 interface Beneficiary {
     id: number;
@@ -184,6 +185,34 @@ export function ViewLiquidationModal({
     };
 
     if (!liquidation) return null;
+
+    // Define workflow steps
+    const workflowSteps = [
+        { label: 'HEI Submission', description: 'Draft & Submit' },
+        { label: 'RC Review', description: 'Regional Coordinator' },
+        { label: 'Accounting Review', description: 'Financial Verification' },
+        { label: 'COA Endorsement', description: 'Final Approval' },
+    ];
+
+    // Map status to current step
+    const getCurrentStep = (status: string): number => {
+        switch (status) {
+            case 'draft':
+            case 'returned_to_hei':
+                return 1; // HEI Submission
+            case 'for_initial_review':
+            case 'returned_to_rc':
+                return 2; // RC Review
+            case 'endorsed_to_accounting':
+                return 3; // Accounting Review
+            case 'endorsed_to_coa':
+                return 4; // COA Endorsement
+            default:
+                return 1;
+        }
+    };
+
+    const currentStep = getCurrentStep(liquidation.status);
 
     const filteredBeneficiaries = liquidation.beneficiaries.filter(beneficiary =>
         beneficiary.student_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -385,10 +414,24 @@ export function ViewLiquidationModal({
             <DialogContent className="w-[80vw] max-w-[1200px] max-h-[90vh] overflow-hidden flex flex-col">
                 <DialogHeader className="flex-shrink-0">
                     <DialogTitle className="text-2xl">{liquidation.control_no}</DialogTitle>
-                    <DialogDescription>
-                        {liquidation.program_name} · AY {liquidation.academic_year}, {liquidation.semester}
-                    </DialogDescription>
+                    <div className="flex items-center gap-2 mt-3 flex-wrap">
+                        <Badge className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 text-sm font-semibold border-0 shadow-sm">
+                            {liquidation.program_name}
+                        </Badge>
+                        <span className="text-muted-foreground">·</span>
+                        <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-900 px-3 py-1 text-sm font-medium">
+                            AY {liquidation.academic_year}
+                        </Badge>
+                        <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-900 px-3 py-1 text-sm font-medium">
+                            {liquidation.semester}
+                        </Badge>
+                    </div>
                 </DialogHeader>
+
+                {/* Workflow Stepper */}
+                <div className="flex-shrink-0 px-6 py-4 border-y bg-muted/20">
+                    <Stepper steps={workflowSteps} currentStep={currentStep} />
+                </div>
 
                 <Tabs defaultValue="overview" className="flex-1 flex flex-col overflow-hidden">
                     <TabsList variant="line" className="flex-shrink-0">

@@ -164,17 +164,21 @@ class LiquidationController extends Controller
         // Get program to generate control number
         $program = Program::findOrFail($validated['program_id']);
 
-        // Generate control number based on program: TES-YYYY-XXXXX or TDP-YYYY-XXXXX
+        // Generate control number with database locking to prevent duplicates
         $year = date('Y');
-        $lastLiquidation = Liquidation::where('program_id', $program->id)
-            ->whereYear('created_at', $year)
-            ->latest('id')
-            ->first();
 
-        $nextNumber = $lastLiquidation ? ((int) substr($lastLiquidation->control_no, -5) + 1) : 1;
-        $controlNo = $program->code . '-' . $year . '-' . str_pad($nextNumber, 5, '0', STR_PAD_LEFT);
+        // Use database transaction with row locking to ensure unique control numbers
+        $liquidation = \DB::transaction(function () use ($validated, $program, $year, $request) {
+            $lastLiquidation = Liquidation::where('program_id', $program->id)
+                ->whereYear('created_at', $year)
+                ->orderBy('control_no', 'desc')
+                ->lockForUpdate() // Lock rows to prevent race conditions
+                ->first();
 
-        $liquidation = Liquidation::create([
+            $nextNumber = $lastLiquidation ? ((int) substr($lastLiquidation->control_no, -5) + 1) : 1;
+            $controlNo = $program->code . '-' . $year . '-' . str_pad($nextNumber, 5, '0', STR_PAD_LEFT);
+
+            return Liquidation::create([
             'hei_id' => $validated['hei_id'],
             'program_id' => $validated['program_id'],
             'academic_year' => $validated['academic_year'],
@@ -189,12 +193,13 @@ class LiquidationController extends Controller
             'amount_disbursed' => $validated['amount_received'],
             'amount_received' => $validated['amount_received'],
             'amount_refunded' => 0,
-            'liquidated_amount' => 0,
-            'document_status' => 'No Submission',
-        ]);
+                'liquidated_amount' => 0,
+                'document_status' => 'No Submission',
+            ]);
+        });
 
         return redirect()->route('liquidation.index')
-            ->with('success', 'Liquidation report created successfully with Control No: ' . $controlNo);
+            ->with('success', 'Liquidation report created successfully with Control No: ' . $liquidation->control_no);
     }
 
     /**
