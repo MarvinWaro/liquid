@@ -54,7 +54,7 @@ interface Liquidation {
     amount_received: number;
     amount_disbursed: number;
     amount_refunded: number;
-    status: 'Draft' | 'Submitted' | 'Verified' | 'Returned' | 'Cleared' | 'Endorsed to COA';
+    status: 'Draft' | 'Submitted' | 'Verified' | 'Returned' | 'Cleared' | 'Endorsed to COA' | 'endorsed_to_coa';
     created_at: string;
 }
 
@@ -194,7 +194,14 @@ export default function Index({ auth, liquidations, nextSequence, currentYear, p
                                         </TableRow>
                                     ) : (
                                         filteredLiquidations.map((liq) => (
-                                            <TableRow key={liq.id} className="hover:bg-muted/50 transition-colors">
+                                            <TableRow
+                                                key={liq.id}
+                                                className={`transition-colors ${
+                                                    liq.status === 'Endorsed to COA' || liq.status === 'endorsed_to_coa'
+                                                        ? '!bg-green-50 hover:!bg-green-100 dark:!bg-green-950/20 dark:hover:!bg-green-950/30'
+                                                        : 'hover:bg-muted/50'
+                                                }`}
+                                            >
                                                 <TableCell className="pl-6 py-4 font-medium">
                                                     <div className="flex flex-col gap-1">
                                                         <div className="flex items-center gap-2">
