@@ -17,44 +17,47 @@ class DashboardController extends Controller
 
         // Only show consolidated data for Admin roles
         if ($isAdmin) {
-            // Summary per Academic Year
+            // Summary per Academic Year (exclude drafts)
             $summaryPerAY = Liquidation::select('academic_year')
+                ->where('status', '!=', 'draft')
                 ->selectRaw('SUM(amount_received) as total_disbursements')
                 ->selectRaw('SUM(amount_disbursed) as liquidated_amount')
                 ->selectRaw('SUM(amount_received - amount_disbursed) as unliquidated_amount')
                 ->selectRaw('SUM(CASE WHEN status IN ("endorsed_to_accounting", "endorsed_to_coa") THEN amount_received ELSE 0 END) as for_endorsement')
                 ->selectRaw('SUM(CASE WHEN status IN ("returned_to_hei", "returned_to_rc") THEN amount_received ELSE 0 END) as for_compliance')
-                ->selectRaw('ROUND((SUM(amount_disbursed) / SUM(amount_received)) * 100, 2) as percentage_liquidation')
-                ->selectRaw('ROUND((SUM(CASE WHEN status IN ("returned_to_hei", "returned_to_rc") THEN amount_received ELSE 0 END) / SUM(amount_received)) * 100, 2) as percentage_compliance')
-                ->selectRaw('ROUND((SUM(CASE WHEN status NOT IN ("draft") THEN amount_received ELSE 0 END) / SUM(amount_received)) * 100, 2) as percentage_submission')
+                ->selectRaw('ROUND((SUM(amount_disbursed) / NULLIF(SUM(amount_received), 0)) * 100, 2) as percentage_liquidation')
+                ->selectRaw('ROUND((SUM(CASE WHEN status IN ("returned_to_hei", "returned_to_rc") THEN amount_received ELSE 0 END) / NULLIF(SUM(amount_received), 0)) * 100, 2) as percentage_compliance')
+                ->selectRaw('ROUND((COUNT(*) / NULLIF(COUNT(*), 0)) * 100, 2) as percentage_submission')
                 ->groupBy('academic_year')
                 ->orderBy('academic_year', 'desc')
                 ->get();
 
-            // Summary per HEI
+            // Summary per HEI (exclude drafts)
             $summaryPerHEI = Liquidation::with('hei:id,name')
+                ->where('status', '!=', 'draft')
                 ->select('hei_id')
                 ->selectRaw('SUM(amount_received) as total_disbursements')
                 ->selectRaw('SUM(amount_disbursed) as total_amount_liquidated')
                 ->selectRaw('SUM(CASE WHEN status IN ("endorsed_to_accounting", "endorsed_to_coa") THEN amount_received ELSE 0 END) as for_endorsement')
                 ->selectRaw('SUM(amount_received - amount_disbursed) as unliquidated_amount')
                 ->selectRaw('SUM(CASE WHEN status IN ("returned_to_hei", "returned_to_rc") THEN amount_received ELSE 0 END) as for_compliance')
-                ->selectRaw('ROUND((SUM(amount_disbursed) / SUM(amount_received)) * 100, 2) as percentage_liquidation')
-                ->selectRaw('ROUND((SUM(CASE WHEN status NOT IN ("draft") THEN amount_received ELSE 0 END) / SUM(amount_received)) * 100, 2) as percentage_submission')
+                ->selectRaw('ROUND((SUM(amount_disbursed) / NULLIF(SUM(amount_received), 0)) * 100, 2) as percentage_liquidation')
+                ->selectRaw('ROUND((COUNT(*) / NULLIF(COUNT(*), 0)) * 100, 2) as percentage_submission')
                 ->groupBy('hei_id')
                 ->get();
 
-            // Status distribution for chart
+            // Status distribution for chart (exclude drafts)
             $statusDistribution = Liquidation::select('status')
+                ->where('status', '!=', 'draft')
                 ->selectRaw('COUNT(*) as count')
                 ->groupBy('status')
                 ->get();
 
-            // Total statistics for cards
+            // Total statistics for cards (exclude drafts)
             $totalStats = [
-                'total_liquidations' => Liquidation::count(),
-                'total_disbursed' => Liquidation::sum('amount_received'),
-                'total_liquidated' => Liquidation::sum('amount_disbursed'),
+                'total_liquidations' => Liquidation::where('status', '!=', 'draft')->count(),
+                'total_disbursed' => Liquidation::where('status', '!=', 'draft')->sum('amount_received'),
+                'total_liquidated' => Liquidation::where('status', '!=', 'draft')->sum('amount_disbursed'),
                 'pending_review' => Liquidation::whereIn('status', ['for_initial_review', 'endorsed_to_accounting'])->count(),
             ];
 
@@ -81,25 +84,26 @@ class DashboardController extends Controller
 
         // Role-specific queries
         if ($userRole === 'Regional Coordinator') {
-            // RC can see all liquidations (or filter by region if needed)
+            // RC can see all submitted liquidations (exclude drafts)
             $userStats['my_liquidations'] = Liquidation::whereIn('status', ['for_initial_review', 'returned_to_hei'])->count();
             $userStats['pending_action'] = Liquidation::where('status', 'for_initial_review')->count();
             $userStats['completed'] = Liquidation::where('status', 'endorsed_to_accounting')->count();
-            $userStats['total_amount'] = Liquidation::whereIn('status', ['for_initial_review', 'endorsed_to_accounting'])->sum('amount_received');
+            $userStats['total_amount'] = Liquidation::whereIn('status', ['for_initial_review', 'endorsed_to_accounting', 'returned_to_hei'])->sum('amount_received');
         } elseif ($userRole === 'Accountant') {
             $userStats['my_liquidations'] = Liquidation::whereIn('status', ['endorsed_to_accounting', 'returned_to_rc'])->count();
             $userStats['pending_action'] = Liquidation::where('status', 'endorsed_to_accounting')->count();
             $userStats['completed'] = Liquidation::where('status', 'endorsed_to_coa')->count();
-            $userStats['total_amount'] = Liquidation::whereIn('status', ['endorsed_to_accounting', 'endorsed_to_coa'])->sum('amount_received');
+            $userStats['total_amount'] = Liquidation::whereIn('status', ['endorsed_to_accounting', 'endorsed_to_coa', 'returned_to_rc'])->sum('amount_received');
         } elseif ($userRole === 'HEI') {
-            // HEI users see their own liquidations
+            // HEI users see their own liquidations including drafts
             if ($user->hei_id) {
                 $userStats['my_liquidations'] = Liquidation::where('hei_id', $user->hei_id)->count();
                 $userStats['pending_action'] = Liquidation::where('hei_id', $user->hei_id)
                     ->whereIn('status', ['draft', 'returned_to_hei'])->count();
                 $userStats['completed'] = Liquidation::where('hei_id', $user->hei_id)
                     ->where('status', 'endorsed_to_coa')->count();
-                $userStats['total_amount'] = Liquidation::where('hei_id', $user->hei_id)->sum('amount_received');
+                $userStats['total_amount'] = Liquidation::where('hei_id', $user->hei_id)
+                    ->where('status', '!=', 'draft')->sum('amount_received');
             }
         }
 
@@ -118,6 +122,7 @@ class DashboardController extends Controller
                 ->limit(10)
                 ->get();
         } elseif ($userRole === 'HEI' && $user->hei_id) {
+            // HEI users see their own liquidations including drafts
             $recentLiquidations = Liquidation::with('hei:id,name')
                 ->where('hei_id', $user->hei_id)
                 ->orderBy('created_at', 'desc')

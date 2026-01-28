@@ -78,9 +78,17 @@ export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
                     status: user.status,
                 });
             } else {
-                // Create Mode: Reset form
+                // Create Mode: Reset form with default password
                 reset();
-                setData('status', 'active');
+                setData({
+                    name: '',
+                    email: '',
+                    password: '12345678',
+                    password_confirmation: '12345678',
+                    role_id: '',
+                    region: '',
+                    status: 'active',
+                });
             }
             clearErrors();
         }
@@ -220,6 +228,11 @@ export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
                             placeholder="••••••••"
                             className={errors.password ? 'border-destructive' : ''}
                         />
+                        {!isEdit && (
+                            <p className="text-xs text-muted-foreground">
+                                Default password: 12345678 (User should change after first login)
+                            </p>
+                        )}
                         {errors.password && (
                             <p className="text-sm text-destructive">{errors.password}</p>
                         )}
