@@ -16,7 +16,7 @@ import {
     CardHeader,
     CardTitle,
 } from '@/components/ui/card';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { DollarSign, FileText, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -116,11 +116,51 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
     // Colors for pie chart
     const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
+    // Colors for bar chart (matching Excel: green, blue, red/orange, yellow)
+    const BAR_COLORS = {
+        totalDisbursements: '#22c55e', // Green
+        liquidatedAmount: '#3b82f6',   // Blue
+        unliquidatedAmount: '#ef4444', // Red
+        forCompliance: '#eab308',      // Yellow
+    };
+
     // Prepare data for pie chart
     const chartData = statusDistribution?.map(item => ({
         name: item.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
         value: item.count
     })) || [];
+
+    // Prepare data for bar chart (Liquidation Progress by Academic Year)
+    const barChartData = summaryPerAY
+        .slice() // Create a copy to avoid mutating original
+        .sort((a, b) => a.academic_year.localeCompare(b.academic_year)) // Sort by year ascending
+        .map(item => ({
+            name: item.academic_year,
+            'Total Disbursements': item.total_disbursements,
+            'Amount Liquidated': item.liquidated_amount,
+            'Unliquidated Amount': item.unliquidated_amount,
+            'For Compliance': item.for_compliance,
+        }));
+
+    // Format large numbers for Y-axis (in millions/billions)
+    const formatYAxis = (value: number) => {
+        if (value >= 1000000000) {
+            return `${(value / 1000000000).toFixed(1)}B`;
+        }
+        if (value >= 1000000) {
+            return `${(value / 1000000).toFixed(1)}M`;
+        }
+        if (value >= 1000) {
+            return `${(value / 1000).toFixed(0)}K`;
+        }
+        return value.toString();
+    };
+
+    // Custom tooltip formatter for bar chart
+    const formatBarTooltip = (value: number | undefined) => {
+        if (value === undefined) return '₱0.00';
+        return `₱${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -193,36 +233,99 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                 </Card>
                             </div>
 
-                            {/* Status Distribution Chart */}
-                            {chartData.length > 0 && (
-                                <Card className="shadow-sm border-border/50">
-                                    <CardHeader>
-                                        <CardTitle>Status Distribution</CardTitle>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <ResponsiveContainer width="100%" height={350}>
-                                            <PieChart>
-                                                <Pie
-                                                    data={chartData}
-                                                    cx="50%"
-                                                    cy="50%"
-                                                    labelLine={false}
-                                                    label={({ name, percent }) => `${name}: ${percent ? (percent * 100).toFixed(0) : 0}%`}
-                                                    outerRadius={100}
-                                                    fill="#8884d8"
-                                                    dataKey="value"
+                            {/* Charts Row - Status Distribution and Liquidation Progress */}
+                            <div className="grid gap-4 lg:grid-cols-2">
+                                {/* Status Distribution Pie Chart */}
+                                {chartData.length > 0 && (
+                                    <Card className="shadow-sm border-border/50">
+                                        <CardHeader>
+                                            <CardTitle>Status Distribution</CardTitle>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <ResponsiveContainer width="100%" height={350}>
+                                                <PieChart>
+                                                    <Pie
+                                                        data={chartData}
+                                                        cx="50%"
+                                                        cy="50%"
+                                                        labelLine={false}
+                                                        label={({ name, percent }) => `${name}: ${percent ? (percent * 100).toFixed(0) : 0}%`}
+                                                        outerRadius={100}
+                                                        fill="#8884d8"
+                                                        dataKey="value"
+                                                    >
+                                                        {chartData.map((_, index) => (
+                                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                        ))}
+                                                    </Pie>
+                                                    <Tooltip />
+                                                    <Legend />
+                                                </PieChart>
+                                            </ResponsiveContainer>
+                                        </CardContent>
+                                    </Card>
+                                )}
+
+                                {/* Liquidation Progress Bar Chart */}
+                                {barChartData.length > 0 && (
+                                    <Card className="shadow-sm border-border/50">
+                                        <CardHeader>
+                                            <CardTitle>Liquidation Progress per Academic Year</CardTitle>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <ResponsiveContainer width="100%" height={350}>
+                                                <BarChart
+                                                    data={barChartData}
+                                                    margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
                                                 >
-                                                    {chartData.map((_, index) => (
-                                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                                    ))}
-                                                </Pie>
-                                                <Tooltip />
-                                                <Legend />
-                                            </PieChart>
-                                        </ResponsiveContainer>
-                                    </CardContent>
-                                </Card>
-                            )}
+                                                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                                                    <XAxis
+                                                        dataKey="name"
+                                                        tick={{ fontSize: 12 }}
+                                                        tickLine={false}
+                                                        axisLine={false}
+                                                    />
+                                                    <YAxis
+                                                        tickFormatter={formatYAxis}
+                                                        tick={{ fontSize: 12 }}
+                                                        tickLine={false}
+                                                        axisLine={false}
+                                                    />
+                                                    <Tooltip
+                                                        formatter={formatBarTooltip}
+                                                        contentStyle={{
+                                                            backgroundColor: 'hsl(var(--background))',
+                                                            border: '1px solid hsl(var(--border))',
+                                                            borderRadius: '6px',
+                                                        }}
+                                                    />
+                                                    <Legend />
+                                                    <Bar
+                                                        dataKey="Total Disbursements"
+                                                        fill={BAR_COLORS.totalDisbursements}
+                                                        radius={[4, 4, 0, 0]}
+                                                    />
+                                                    <Bar
+                                                        dataKey="Amount Liquidated"
+                                                        fill={BAR_COLORS.liquidatedAmount}
+                                                        radius={[4, 4, 0, 0]}
+                                                    />
+                                                    <Bar
+                                                        dataKey="Unliquidated Amount"
+                                                        fill={BAR_COLORS.unliquidatedAmount}
+                                                        radius={[4, 4, 0, 0]}
+                                                    />
+                                                    <Bar
+                                                        dataKey="For Compliance"
+                                                        fill={BAR_COLORS.forCompliance}
+                                                        radius={[4, 4, 0, 0]}
+                                                    />
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </CardContent>
+                                    </Card>
+                                )}
+                            </div>
                         </>
                     )}
 
