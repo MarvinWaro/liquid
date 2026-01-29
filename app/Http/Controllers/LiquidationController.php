@@ -559,10 +559,21 @@ class LiquidationController extends Controller
      */
     public function uploadDocument(Request $request, Liquidation $liquidation)
     {
+        // Check file limit (max 3 documents)
+        $currentDocCount = $liquidation->documents()->where('is_gdrive', false)->count();
+        if ($currentDocCount >= 3) {
+            return response()->json([
+                'message' => 'Maximum of 3 PDF files allowed. Please delete an existing file first.',
+            ], 422);
+        }
+
         $validated = $request->validate([
             'document_type' => 'required|string|max:255',
-            'file' => 'required|file|max:10240', // 10MB max
+            'file' => 'required|file|mimes:pdf|max:20480', // PDF only, 20MB max
             'description' => 'nullable|string',
+        ], [
+            'file.mimes' => 'Only PDF files are allowed.',
+            'file.max' => 'The file size must not exceed 20MB.',
         ]);
 
         $file = $request->file('file');
@@ -576,11 +587,47 @@ class LiquidationController extends Controller
             'file_path' => $filePath,
             'file_type' => $file->getMimeType(),
             'file_size' => $file->getSize(),
+            'is_gdrive' => false,
             'description' => $validated['description'] ?? null,
             'uploaded_by' => $request->user()->id,
         ]);
 
-        return redirect()->back()->with('success', 'Document uploaded successfully.');
+        return response()->json([
+            'message' => 'Document uploaded successfully.',
+            'success' => true,
+        ]);
+    }
+
+    /**
+     * Store Google Drive link for liquidation.
+     */
+    public function storeGdriveLink(Request $request, Liquidation $liquidation)
+    {
+        $validated = $request->validate([
+            'gdrive_link' => ['required', 'url', 'regex:/^https:\/\/(drive\.google\.com|docs\.google\.com)/i'],
+            'document_type' => 'required|string|max:255',
+            'description' => 'nullable|string',
+        ], [
+            'gdrive_link.regex' => 'Please enter a valid Google Drive link.',
+        ]);
+
+        LiquidationDocument::create([
+            'liquidation_id' => $liquidation->id,
+            'document_type' => $validated['document_type'],
+            'file_name' => 'Google Drive Link',
+            'file_path' => '',
+            'file_type' => 'gdrive',
+            'file_size' => 0,
+            'gdrive_link' => $validated['gdrive_link'],
+            'is_gdrive' => true,
+            'description' => $validated['description'] ?? null,
+            'uploaded_by' => $request->user()->id,
+        ]);
+
+        return response()->json([
+            'message' => 'Google Drive link added successfully.',
+            'success' => true,
+        ]);
     }
 
     /**
@@ -629,8 +676,10 @@ class LiquidationController extends Controller
             }
         }
 
-        // Delete file from storage
-        Storage::disk('public')->delete($document->file_path);
+        // Delete file from storage if it's not a Google Drive link
+        if (!$document->is_gdrive && $document->file_path) {
+            Storage::disk('public')->delete($document->file_path);
+        }
 
         $document->delete();
 
@@ -915,6 +964,8 @@ class LiquidationController extends Controller
                     'file_name' => $doc->file_name,
                     'file_path' => $doc->file_path,
                     'uploaded_at' => $doc->created_at->format('Y-m-d H:i:s'),
+                    'is_gdrive' => $doc->is_gdrive ?? false,
+                    'gdrive_link' => $doc->gdrive_link,
                 ];
             }),
         ]);

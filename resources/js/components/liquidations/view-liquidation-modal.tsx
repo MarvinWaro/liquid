@@ -22,7 +22,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Download, Upload, Search, FileText, Send, File, X, Loader2, BarChart3, Pencil } from 'lucide-react';
+import { Download, Upload, Search, FileText, Send, File, X, Loader2, BarChart3, Pencil, Link2, ExternalLink } from 'lucide-react';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -71,6 +72,8 @@ interface Document {
     file_name: string;
     file_path: string;
     uploaded_at: string;
+    is_gdrive?: boolean;
+    gdrive_link?: string;
 }
 
 interface ReviewHistoryEntry {
@@ -178,6 +181,11 @@ export function ViewLiquidationModal({
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editAmountReceived, setEditAmountReceived] = useState('');
     const [isUpdating, setIsUpdating] = useState(false);
+
+    // Google Drive link state
+    const [showGdriveInput, setShowGdriveInput] = useState(false);
+    const [gdriveLink, setGdriveLink] = useState('');
+    const [isAddingGdriveLink, setIsAddingGdriveLink] = useState(false);
 
     // Helper function to get user initials
     const getInitials = (name: string) => {
@@ -306,54 +314,132 @@ export function ViewLiquidationModal({
         const files = e.target.files;
         if (!files || files.length === 0) return;
 
+        // Get current PDF document count (exclude gdrive links)
+        const currentPdfCount = liquidation.documents?.filter(doc => !doc.is_gdrive).length || 0;
+        const filesToUpload = Array.from(files);
+
+        // Validation: Check file limit (max 3 PDFs)
+        if (currentPdfCount + filesToUpload.length > 3) {
+            toast.error(`Maximum of 3 PDF files allowed. You currently have ${currentPdfCount} file(s).`);
+            e.target.value = '';
+            return;
+        }
+
+        // Validation: Check each file
+        for (const file of filesToUpload) {
+            // Check file type (PDF only)
+            if (file.type !== 'application/pdf') {
+                toast.error(`"${file.name}" is not a PDF file. Only PDF files are allowed.`);
+                e.target.value = '';
+                return;
+            }
+
+            // Check file size (max 20MB)
+            const maxSize = 20 * 1024 * 1024; // 20MB in bytes
+            if (file.size > maxSize) {
+                toast.error(`"${file.name}" exceeds the 20MB size limit.`);
+                e.target.value = '';
+                return;
+            }
+        }
+
         setIsUploadingDoc(true);
 
-        // Upload files one by one
-        const uploadPromises = Array.from(files).map(async (file) => {
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('document_type', 'Supporting Document');
+        let successCount = 0;
+        let errorCount = 0;
 
-            return new Promise((resolve, reject) => {
-                router.post(route('liquidation.upload-document', liquidation.id), formData, {
-                    onSuccess: () => resolve(true),
-                    onError: () => reject(false),
-                    preserveState: true,
-                    preserveScroll: true,
+        // Upload files sequentially using axios
+        for (const file of filesToUpload) {
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('document_type', 'Supporting Document');
+
+                await axios.post(route('liquidation.upload-document', liquidation.id), formData, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
                 });
-            });
-        });
+                successCount++;
+            } catch (error: any) {
+                errorCount++;
+                const errorMessage = error.response?.data?.message || `Failed to upload "${file.name}"`;
+                toast.error(errorMessage);
+            }
+        }
 
+        // Reload liquidation data after all uploads complete
         try {
-            await Promise.all(uploadPromises);
-            // Reload liquidation data after all uploads complete
             const response = await axios.get(route('liquidation.show', liquidation.id));
             if (onDataChange) {
                 onDataChange(response.data);
             }
         } catch (error) {
-            console.error('Error uploading documents:', error);
+            console.error('Error reloading liquidation:', error);
+        }
+
+        setIsUploadingDoc(false);
+        e.target.value = '';
+
+        // Show success message
+        if (successCount > 0) {
+            toast.success(`${successCount} document(s) uploaded successfully.`);
+        }
+    };
+
+    const handleAddGdriveLink = async () => {
+        if (!gdriveLink.trim()) {
+            toast.error('Please enter a Google Drive link.');
+            return;
+        }
+
+        // Validate Google Drive link format
+        const gdrivePattern = /^https:\/\/(drive\.google\.com|docs\.google\.com)/i;
+        if (!gdrivePattern.test(gdriveLink)) {
+            toast.error('Please enter a valid Google Drive link.');
+            return;
+        }
+
+        setIsAddingGdriveLink(true);
+
+        try {
+            await axios.post(route('liquidation.store-gdrive-link', liquidation.id), {
+                gdrive_link: gdriveLink,
+                document_type: 'Supporting Document (Google Drive)',
+            });
+
+            // Reload liquidation data
+            const response = await axios.get(route('liquidation.show', liquidation.id));
+            if (onDataChange) {
+                onDataChange(response.data);
+            }
+
+            toast.success('Google Drive link added successfully.');
+            setGdriveLink('');
+            setShowGdriveInput(false);
+        } catch (error: any) {
+            const errorMessage = error.response?.data?.message || 'Failed to add Google Drive link.';
+            toast.error(errorMessage);
         } finally {
-            setIsUploadingDoc(false);
-            e.target.value = '';
+            setIsAddingGdriveLink(false);
         }
     };
 
     const handleDeleteDocument = (documentId: number) => {
-        if (confirm('Are you sure you want to delete this document?')) {
-            router.delete(route('liquidation.delete-document', documentId), {
-                onSuccess: async () => {
-                    try {
-                        const response = await axios.get(route('liquidation.show', liquidation.id));
-                        if (onDataChange) {
-                            onDataChange(response.data);
-                        }
-                    } catch (error) {
-                        console.error('Error reloading liquidation:', error);
+        router.delete(route('liquidation.delete-document', documentId), {
+            onSuccess: async () => {
+                try {
+                    const response = await axios.get(route('liquidation.show', liquidation.id));
+                    if (onDataChange) {
+                        onDataChange(response.data);
                     }
-                },
-            });
-        }
+                    toast.success('Document deleted successfully.');
+                } catch (error) {
+                    console.error('Error reloading liquidation:', error);
+                }
+            },
+            onError: () => {
+                toast.error('Failed to delete document.');
+            },
+        });
     };
 
     const handleSubmitForReview = () => {
@@ -788,23 +874,36 @@ export function ViewLiquidationModal({
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <CardTitle className="text-base">Supporting Documents</CardTitle>
-                                        <CardDescription className="text-xs">Upload liquidation reports and supporting files (you can select multiple files)</CardDescription>
+                                        <CardDescription className="text-xs">
+                                            PDF only, max 20MB each, up to 3 files. Or add a Google Drive link.
+                                        </CardDescription>
                                     </div>
                                     {canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status) && (
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => document.getElementById('document-upload')?.click()}
-                                            disabled={isUploadingDoc}
-                                        >
-                                            <Upload className="h-4 w-4 mr-2" />
-                                            {isUploadingDoc ? 'Uploading...' : 'Upload Files'}
-                                        </Button>
+                                        <div className="flex items-center gap-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setShowGdriveInput(!showGdriveInput)}
+                                                disabled={isAddingGdriveLink}
+                                            >
+                                                <Link2 className="h-4 w-4 mr-2" />
+                                                Google Drive
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => document.getElementById('document-upload')?.click()}
+                                                disabled={isUploadingDoc || (liquidation.documents?.filter(d => !d.is_gdrive).length || 0) >= 3}
+                                            >
+                                                <Upload className="h-4 w-4 mr-2" />
+                                                {isUploadingDoc ? 'Uploading...' : 'Upload PDF'}
+                                            </Button>
+                                        </div>
                                     )}
                                     <input
                                         id="document-upload"
                                         type="file"
-                                        accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+                                        accept=".pdf,application/pdf"
                                         className="hidden"
                                         multiple
                                         onChange={handleUploadDocument}
@@ -812,28 +911,99 @@ export function ViewLiquidationModal({
                                 </div>
                             </CardHeader>
                             <CardContent className="pt-0">
+                                {/* Google Drive Link Input */}
+                                {showGdriveInput && canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status) && (
+                                    <div className="mb-4 p-3 border rounded-md bg-muted/30">
+                                        <Label className="text-sm font-medium mb-2 block">Google Drive Link</Label>
+                                        <div className="flex items-center gap-2">
+                                            <Input
+                                                type="url"
+                                                placeholder="https://drive.google.com/..."
+                                                value={gdriveLink}
+                                                onChange={(e) => setGdriveLink(e.target.value)}
+                                                className="flex-1"
+                                            />
+                                            <Button
+                                                size="sm"
+                                                onClick={handleAddGdriveLink}
+                                                disabled={isAddingGdriveLink || !gdriveLink.trim()}
+                                            >
+                                                {isAddingGdriveLink ? (
+                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                ) : (
+                                                    'Add'
+                                                )}
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => {
+                                                    setShowGdriveInput(false);
+                                                    setGdriveLink('');
+                                                }}
+                                            >
+                                                <X className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            Enter a valid Google Drive or Google Docs link
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* File Count Indicator */}
+                                {liquidation.documents && liquidation.documents.length > 0 && (
+                                    <div className="mb-3 text-xs text-muted-foreground">
+                                        PDF files: {liquidation.documents.filter(d => !d.is_gdrive).length}/3
+                                        {liquidation.documents.filter(d => d.is_gdrive).length > 0 && (
+                                            <span> | Google Drive links: {liquidation.documents.filter(d => d.is_gdrive).length}</span>
+                                        )}
+                                    </div>
+                                )}
+
                                 {liquidation.documents && liquidation.documents.length > 0 ? (
                                     <div className="space-y-1.5">
                                         {liquidation.documents.map((doc) => (
                                             <div key={doc.id} className="flex items-center justify-between p-2 border rounded-md hover:bg-muted/50 transition-colors">
                                                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                    <File className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                                                    {doc.is_gdrive ? (
+                                                        <Link2 className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                                                    ) : (
+                                                        <File className="h-4 w-4 text-red-500 flex-shrink-0" />
+                                                    )}
                                                     <div className="min-w-0 flex-1">
-                                                        <p className="text-sm font-medium truncate">{doc.file_name}</p>
+                                                        <p className="text-sm font-medium truncate">
+                                                            {doc.is_gdrive ? 'Google Drive Link' : doc.file_name}
+                                                        </p>
                                                         <p className="text-xs text-muted-foreground">
-                                                            {new Date(doc.uploaded_at).toLocaleDateString()}
+                                                            {doc.is_gdrive ? (
+                                                                <span className="text-blue-500 truncate block max-w-[200px]">{doc.gdrive_link}</span>
+                                                            ) : (
+                                                                new Date(doc.uploaded_at).toLocaleDateString()
+                                                            )}
                                                         </p>
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center gap-1">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-8 w-8 p-0"
-                                                        onClick={() => window.open(route('liquidation.download-document', doc.id), '_blank')}
-                                                    >
-                                                        <Download className="h-3.5 w-3.5" />
-                                                    </Button>
+                                                    {doc.is_gdrive ? (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-8 w-8 p-0"
+                                                            onClick={() => window.open(doc.gdrive_link, '_blank')}
+                                                        >
+                                                            <ExternalLink className="h-3.5 w-3.5" />
+                                                        </Button>
+                                                    ) : (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-8 w-8 p-0"
+                                                            onClick={() => window.open(route('liquidation.download-document', doc.id), '_blank')}
+                                                        >
+                                                            <Download className="h-3.5 w-3.5" />
+                                                        </Button>
+                                                    )}
                                                     {canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status) && (
                                                         <Button
                                                             variant="ghost"
