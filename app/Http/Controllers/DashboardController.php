@@ -173,6 +173,30 @@ class DashboardController extends Controller
                 $userStats['total_liquidated'] = Liquidation::where('hei_id', $user->hei_id)
                     ->where('status', '!=', 'draft')->sum('liquidated_amount');
                 $userStats['total_unliquidated'] = $userStats['total_amount'] - $userStats['total_liquidated'];
+
+                // HEI Status Distribution for pie chart (their own liquidations, exclude drafts)
+                $rcStatusDistribution = Liquidation::select('status')
+                    ->where('hei_id', $user->hei_id)
+                    ->where('status', '!=', 'draft')
+                    ->selectRaw('COUNT(*) as count')
+                    ->groupBy('status')
+                    ->get();
+
+                // HEI Summary per Academic Year (their own liquidations)
+                $rcSummaryPerAY = Liquidation::select('academic_year')
+                    ->where('hei_id', $user->hei_id)
+                    ->where('status', '!=', 'draft')
+                    ->selectRaw('SUM(amount_received) as total_disbursements')
+                    ->selectRaw('SUM(liquidated_amount) as liquidated_amount')
+                    ->selectRaw('SUM(amount_received - liquidated_amount) as unliquidated_amount')
+                    ->selectRaw('SUM(CASE WHEN status = "endorsed_to_accounting" THEN (amount_received - liquidated_amount) ELSE 0 END) as for_endorsement')
+                    ->selectRaw('SUM(CASE WHEN status IN ("returned_to_hei", "returned_to_rc") THEN (amount_received - liquidated_amount) ELSE 0 END) as for_compliance')
+                    ->selectRaw('ROUND((SUM(CASE WHEN status = "endorsed_to_accounting" THEN (amount_received - liquidated_amount) ELSE 0 END) + SUM(liquidated_amount)) / NULLIF(SUM(amount_received), 0) * 100, 2) as percentage_liquidation')
+                    ->selectRaw('ROUND(SUM(CASE WHEN status IN ("returned_to_hei", "returned_to_rc") THEN (amount_received - liquidated_amount) ELSE 0 END) / NULLIF(SUM(amount_received), 0) * 100, 2) as percentage_compliance')
+                    ->selectRaw('ROUND((COUNT(*) / NULLIF(COUNT(*), 0)) * 100, 2) as percentage_submission')
+                    ->groupBy('academic_year')
+                    ->orderBy('academic_year', 'desc')
+                    ->get();
             }
         }
 
