@@ -51,6 +51,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Liquidation Document Routes
     Route::post('liquidation/{liquidation}/upload-document', [LiquidationController::class, 'uploadDocument'])->name('liquidation.upload-document');
+    Route::post('liquidation/{liquidation}/store-gdrive-link', [LiquidationController::class, 'storeGdriveLink'])->name('liquidation.store-gdrive-link');
     Route::get('liquidation-documents/{document}/download', [LiquidationController::class, 'downloadDocument'])->name('liquidation.download-document');
     Route::delete('liquidation-documents/{document}', [LiquidationController::class, 'deleteDocument'])->name('liquidation.delete-document');
 

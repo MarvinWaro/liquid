@@ -18,7 +18,8 @@
       "Bash(done)",
       "Bash(php:*)",
       "Bash(php -l:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

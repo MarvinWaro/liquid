@@ -18,8 +18,14 @@ class LiquidationDocument extends Model
         'file_path',
         'file_type',
         'file_size',
+        'gdrive_link',
+        'is_gdrive',
         'description',
         'uploaded_by',
+    ];
+
+    protected $casts = [
+        'is_gdrive' => 'boolean',
     ];
 
     /**
