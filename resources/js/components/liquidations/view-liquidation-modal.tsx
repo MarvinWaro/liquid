@@ -189,6 +189,41 @@ export function ViewLiquidationModal({
             .slice(0, 2);
     };
 
+    const getStatusColor = (status: string) => {
+        switch (status) {
+            // Draft - gray
+            case 'draft':
+            case 'Draft':
+                return 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-200';
+
+            // For RC Review - black/dark gray
+            case 'for_initial_review':
+                return 'bg-gray-800 text-gray-100 hover:bg-gray-900 border-gray-800';
+
+            // Endorsed to Accounting - purple/violet
+            case 'endorsed_to_accounting':
+                return 'bg-purple-100 text-purple-700 hover:bg-purple-200 border-purple-200';
+
+            // Endorsed to COA - green (success)
+            case 'endorsed_to_coa':
+            case 'Endorsed to COA':
+                return 'bg-green-100 text-green-700 hover:bg-green-200 border-green-200';
+
+            // Returned to HEI or RC - red (destructive)
+            case 'returned_to_hei':
+            case 'returned_to_rc':
+            case 'Returned':
+                return 'bg-red-100 text-red-700 hover:bg-red-200 border-red-200';
+
+            // Old statuses for backward compatibility
+            case 'Submitted': return 'bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-200';
+            case 'Verified': return 'bg-amber-100 text-amber-700 hover:bg-amber-200 border-amber-200';
+            case 'Cleared': return 'bg-green-100 text-green-700 hover:bg-green-200 border-green-200';
+
+            default: return 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-200';
+        }
+    };
+
     if (!liquidation) return null;
 
     // Define workflow steps
@@ -268,32 +303,40 @@ export function ViewLiquidationModal({
     };
 
     const handleUploadDocument = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
 
         setIsUploadingDoc(true);
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('document_type', 'Supporting Document');
 
-        router.post(route('liquidation.upload-document', liquidation.id), formData, {
-            onSuccess: async () => {
-                try {
-                    const response = await axios.get(route('liquidation.show', liquidation.id));
-                    if (onDataChange) {
-                        onDataChange(response.data);
-                    }
-                } catch (error) {
-                    console.error('Error reloading liquidation:', error);
-                }
-                setIsUploadingDoc(false);
-                e.target.value = '';
-            },
-            onError: () => {
-                setIsUploadingDoc(false);
-                e.target.value = '';
-            },
+        // Upload files one by one
+        const uploadPromises = Array.from(files).map(async (file) => {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('document_type', 'Supporting Document');
+
+            return new Promise((resolve, reject) => {
+                router.post(route('liquidation.upload-document', liquidation.id), formData, {
+                    onSuccess: () => resolve(true),
+                    onError: () => reject(false),
+                    preserveState: true,
+                    preserveScroll: true,
+                });
+            });
         });
+
+        try {
+            await Promise.all(uploadPromises);
+            // Reload liquidation data after all uploads complete
+            const response = await axios.get(route('liquidation.show', liquidation.id));
+            if (onDataChange) {
+                onDataChange(response.data);
+            }
+        } catch (error) {
+            console.error('Error uploading documents:', error);
+        } finally {
+            setIsUploadingDoc(false);
+            e.target.value = '';
+        }
     };
 
     const handleDeleteDocument = (documentId: number) => {
@@ -474,6 +517,10 @@ export function ViewLiquidationModal({
                         </Badge>
                         <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-900 px-3 py-1 text-sm font-medium">
                             {liquidation.semester}
+                        </Badge>
+                        <span className="text-muted-foreground">·</span>
+                        <Badge className={`${getStatusColor(liquidation.status)} shadow-none border px-3 py-1 text-sm font-medium`}>
+                            {liquidation.status_label}
                         </Badge>
                     </div>
                 </DialogHeader>
@@ -741,7 +788,7 @@ export function ViewLiquidationModal({
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <CardTitle className="text-base">Supporting Documents</CardTitle>
-                                        <CardDescription className="text-xs">Upload liquidation reports and supporting files</CardDescription>
+                                        <CardDescription className="text-xs">Upload liquidation reports and supporting files (you can select multiple files)</CardDescription>
                                     </div>
                                     {canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status) && (
                                         <Button
@@ -751,7 +798,7 @@ export function ViewLiquidationModal({
                                             disabled={isUploadingDoc}
                                         >
                                             <Upload className="h-4 w-4 mr-2" />
-                                            {isUploadingDoc ? 'Uploading...' : 'Upload'}
+                                            {isUploadingDoc ? 'Uploading...' : 'Upload Files'}
                                         </Button>
                                     )}
                                     <input
@@ -759,6 +806,7 @@ export function ViewLiquidationModal({
                                         type="file"
                                         accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
                                         className="hidden"
+                                        multiple
                                         onChange={handleUploadDocument}
                                     />
                                 </div>

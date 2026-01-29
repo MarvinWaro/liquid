@@ -102,23 +102,22 @@ class Liquidation extends Model
     }
 
     /**
-     * Calculate days lapsed since submission.
+     * Calculate days lapsed based on the formula:
+     * Date Endorsed for Payment/TES Fund Released + 90 Days - Date of HEI's submission of Liquidation Report
      */
     public function getDaysLapsedAttribute(): ?int
     {
-        // Only calculate for submitted liquidations
-        if (!$this->date_submitted) {
+        // Need both date_fund_released and date_submitted to calculate
+        if (!$this->date_fund_released || !$this->date_submitted) {
             return null;
         }
 
-        // If already approved/endorsed to COA, calculate from submission to final endorsement
-        if (in_array($this->status, ['endorsed_to_coa', 'approved'])) {
-            $endDate = $this->coa_endorsed_at ?? $this->accountant_reviewed_at ?? now();
-            return $this->date_submitted->diffInDays($endDate);
-        }
+        // Formula: (date_fund_released + 90 days) - date_submitted
+        $deadlineDate = $this->date_fund_released->copy()->addDays(90);
 
-        // For ongoing reviews, calculate from submission to now
-        return $this->date_submitted->diffInDays(now());
+        // Return the difference in days (can be positive or negative)
+        // Positive = days remaining, Negative = days overdue
+        return $this->date_submitted->diffInDays($deadlineDate, false);
     }
 
     /**

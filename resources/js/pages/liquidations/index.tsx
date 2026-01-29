@@ -54,8 +54,9 @@ interface Liquidation {
     amount_received: number;
     amount_disbursed: number;
     amount_refunded: number;
-    status: 'Draft' | 'Submitted' | 'Verified' | 'Returned' | 'Cleared' | 'Endorsed to COA' | 'endorsed_to_coa';
+    status: 'Draft' | 'Submitted' | 'Verified' | 'Returned' | 'Cleared' | 'Endorsed to COA' | 'endorsed_to_coa' | 'for_initial_review' | 'endorsed_to_accounting' | 'returned_to_hei' | 'returned_to_rc' | 'draft';
     created_at: string;
+    days_lapsed?: number | null;
 }
 
 interface Program {
@@ -97,13 +98,36 @@ export default function Index({ auth, liquidations, nextSequence, currentYear, p
 
     const getStatusColor = (status: string) => {
         switch (status) {
-            case 'Draft': return 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-200';
+            // Draft - gray
+            case 'draft':
+            case 'Draft':
+                return 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-200';
+
+            // For RC Review - black/dark gray
+            case 'for_initial_review':
+                return 'bg-gray-800 text-gray-100 hover:bg-gray-900 border-gray-800';
+
+            // Endorsed to Accounting - purple/violet
+            case 'endorsed_to_accounting':
+                return 'bg-purple-100 text-purple-700 hover:bg-purple-200 border-purple-200';
+
+            // Endorsed to COA - green (success)
+            case 'endorsed_to_coa':
+            case 'Endorsed to COA':
+                return 'bg-green-100 text-green-700 hover:bg-green-200 border-green-200';
+
+            // Returned to HEI or RC - red (destructive)
+            case 'returned_to_hei':
+            case 'returned_to_rc':
+            case 'Returned':
+                return 'bg-red-100 text-red-700 hover:bg-red-200 border-red-200';
+
+            // Old statuses for backward compatibility
             case 'Submitted': return 'bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-200';
             case 'Verified': return 'bg-amber-100 text-amber-700 hover:bg-amber-200 border-amber-200';
-            case 'Returned': return 'bg-red-100 text-red-700 hover:bg-red-200 border-red-200';
             case 'Cleared': return 'bg-green-100 text-green-700 hover:bg-green-200 border-green-200';
-            case 'Endorsed to COA': return 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 border-indigo-200';
-            default: return 'bg-gray-100 text-gray-700';
+
+            default: return 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-200';
         }
     };
 
@@ -176,6 +200,7 @@ export default function Index({ auth, liquidations, nextSequence, currentYear, p
                                         <TableHead className="pl-6 h-12">Control No.</TableHead>
                                         <TableHead>HEI / Institution</TableHead>
                                         <TableHead>Program & Term</TableHead>
+                                        <TableHead>Days Lapsed</TableHead>
                                         <TableHead>Amount</TableHead>
                                         <TableHead>Status</TableHead>
                                         <TableHead className="text-right pr-6">Date Created</TableHead>
@@ -185,7 +210,7 @@ export default function Index({ auth, liquidations, nextSequence, currentYear, p
                                 <TableBody>
                                     {filteredLiquidations.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                                            <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                                                 <div className="flex flex-col items-center gap-2">
                                                     <FileText className="h-8 w-8 text-muted-foreground/50" />
                                                     <p>No liquidation reports found.</p>
@@ -234,6 +259,15 @@ export default function Index({ auth, liquidations, nextSequence, currentYear, p
                                                             {liq.semester}, AY {liq.academic_year}
                                                         </span>
                                                     </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {liq.days_lapsed !== null && liq.days_lapsed !== undefined ? (
+                                                        <div className={`text-sm font-medium ${liq.days_lapsed < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                                            {liq.days_lapsed} {liq.days_lapsed < 0 ? 'days overdue' : 'days remaining'}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-xs text-muted-foreground">-</span>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell>
                                                     <div className="font-mono font-medium text-sm">

@@ -156,6 +156,41 @@ export function ShowLiquidationModal({ isOpen, onClose, liquidation, permissions
 
     const getProgramName = (id: number) => id === 1 ? 'TES' : 'TDP';
 
+    const getStatusColor = (status: string) => {
+        switch (status) {
+            // Draft - gray
+            case 'draft':
+            case 'Draft':
+                return 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-200';
+
+            // For RC Review - black/dark gray
+            case 'for_initial_review':
+                return 'bg-gray-800 text-gray-100 hover:bg-gray-900 border-gray-800';
+
+            // Endorsed to Accounting - purple/violet
+            case 'endorsed_to_accounting':
+                return 'bg-purple-100 text-purple-700 hover:bg-purple-200 border-purple-200';
+
+            // Endorsed to COA - green (success)
+            case 'endorsed_to_coa':
+            case 'Endorsed to COA':
+                return 'bg-green-100 text-green-700 hover:bg-green-200 border-green-200';
+
+            // Returned to HEI or RC - red (destructive)
+            case 'returned_to_hei':
+            case 'returned_to_rc':
+            case 'Returned':
+                return 'bg-red-100 text-red-700 hover:bg-red-200 border-red-200';
+
+            // Old statuses for backward compatibility
+            case 'Submitted': return 'bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-200';
+            case 'Verified': return 'bg-amber-100 text-amber-700 hover:bg-amber-200 border-amber-200';
+            case 'Cleared': return 'bg-green-100 text-green-700 hover:bg-green-200 border-green-200';
+
+            default: return 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-200';
+        }
+    };
+
     const filteredItems = items.filter(item =>
         item.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.student_no && item.student_no.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -176,7 +211,7 @@ export function ShowLiquidationModal({ isOpen, onClose, liquidation, permissions
                             <DialogTitle className="text-xl font-bold tracking-tight">
                                 {liquidation.control_no}
                             </DialogTitle>
-                            <Badge variant="outline" className="font-normal text-xs px-2 h-5">
+                            <Badge className={`${getStatusColor(liquidation.status)} shadow-none border font-normal text-xs px-2 h-5`}>
                                 {liquidation.status}
                             </Badge>
                         </div>
