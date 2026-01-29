@@ -159,6 +159,53 @@ class DashboardController extends Controller
             $userStats['pending_action'] = Liquidation::where('status', 'endorsed_to_accounting')->count();
             $userStats['completed'] = Liquidation::where('status', 'endorsed_to_coa')->count();
             $userStats['total_amount'] = Liquidation::whereIn('status', ['endorsed_to_accounting', 'endorsed_to_coa', 'returned_to_rc'])->sum('amount_received');
+
+            // Accountant Total Stats (like admin)
+            $rcTotalStats = [
+                'total_liquidations' => Liquidation::where('status', '!=', 'draft')->count(),
+                'total_disbursed' => Liquidation::where('status', '!=', 'draft')->sum('amount_received'),
+                'total_liquidated' => Liquidation::where('status', '!=', 'draft')->sum('liquidated_amount'),
+                'total_unliquidated' => Liquidation::where('status', '!=', 'draft')
+                    ->selectRaw('SUM(amount_received - liquidated_amount) as total')->value('total') ?? 0,
+                'pending_review' => Liquidation::whereIn('status', ['for_initial_review', 'endorsed_to_accounting'])->count(),
+            ];
+
+            // Accountant Status Distribution for pie chart
+            $rcStatusDistribution = Liquidation::select('status')
+                ->where('status', '!=', 'draft')
+                ->selectRaw('COUNT(*) as count')
+                ->groupBy('status')
+                ->get();
+
+            // Accountant Summary per Academic Year (same formulas as Admin)
+            $rcSummaryPerAY = Liquidation::select('academic_year')
+                ->where('status', '!=', 'draft')
+                ->selectRaw('SUM(amount_received) as total_disbursements')
+                ->selectRaw('SUM(liquidated_amount) as liquidated_amount')
+                ->selectRaw('SUM(amount_received - liquidated_amount) as unliquidated_amount')
+                ->selectRaw('SUM(CASE WHEN status = "endorsed_to_accounting" THEN (amount_received - liquidated_amount) ELSE 0 END) as for_endorsement')
+                ->selectRaw('SUM(CASE WHEN status IN ("returned_to_hei", "returned_to_rc") THEN (amount_received - liquidated_amount) ELSE 0 END) as for_compliance')
+                ->selectRaw('ROUND((SUM(CASE WHEN status = "endorsed_to_accounting" THEN (amount_received - liquidated_amount) ELSE 0 END) + SUM(liquidated_amount)) / NULLIF(SUM(amount_received), 0) * 100, 2) as percentage_liquidation')
+                ->selectRaw('ROUND(SUM(CASE WHEN status IN ("returned_to_hei", "returned_to_rc") THEN (amount_received - liquidated_amount) ELSE 0 END) / NULLIF(SUM(amount_received), 0) * 100, 2) as percentage_compliance')
+                ->selectRaw('ROUND((COUNT(*) / NULLIF(COUNT(*), 0)) * 100, 2) as percentage_submission')
+                ->groupBy('academic_year')
+                ->orderBy('academic_year', 'desc')
+                ->get();
+
+            // Accountant Summary per HEI (same formulas as Admin)
+            $rcSummaryPerHEI = Liquidation::with('hei:id,name')
+                ->where('status', '!=', 'draft')
+                ->select('hei_id')
+                ->selectRaw('SUM(amount_received) as total_disbursements')
+                ->selectRaw('SUM(liquidated_amount) as total_amount_liquidated')
+                ->selectRaw('SUM(CASE WHEN status = "endorsed_to_accounting" THEN (amount_received - liquidated_amount) ELSE 0 END) as for_endorsement')
+                ->selectRaw('SUM(amount_received) - SUM(liquidated_amount) - SUM(CASE WHEN status = "endorsed_to_accounting" THEN (amount_received - liquidated_amount) ELSE 0 END) as unliquidated_amount')
+                ->selectRaw('SUM(CASE WHEN status IN ("returned_to_hei", "returned_to_rc") THEN (amount_received - liquidated_amount) ELSE 0 END) as for_compliance')
+                ->selectRaw('ROUND((SUM(CASE WHEN status = "endorsed_to_accounting" THEN (amount_received - liquidated_amount) ELSE 0 END) + SUM(liquidated_amount)) / NULLIF(SUM(amount_received), 0) * 100, 2) as percentage_liquidation')
+                ->selectRaw('ROUND((COUNT(*) / NULLIF(COUNT(*), 0)) * 100, 2) as percentage_submission')
+                ->groupBy('hei_id')
+                ->get();
+
         } elseif ($userRole === 'HEI') {
             // HEI users see their own liquidations including drafts
             if ($user->hei_id) {

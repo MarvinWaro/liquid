@@ -33,7 +33,7 @@ interface HEI {
     id: number;
     name: string;
     code: string;
-    uii?: string;
+    uii: string;
 }
 
 interface Program {
@@ -309,10 +309,10 @@ export default function Index({ auth, liquidations, heis, programs, userHei, reg
                                                                     variant={
                                                                         liquidation.days_lapsed <= 7 ? "default" :
                                                                         liquidation.days_lapsed <= 14 ? "secondary" :
-                                                                        liquidation.days_lapsed <= 30 ? "warning" :
+                                                                        liquidation.days_lapsed <= 30 ? "outline" :
                                                                         "destructive"
                                                                     }
-                                                                    className="w-fit"
+                                                                    className={`w-fit ${liquidation.days_lapsed > 14 && liquidation.days_lapsed <= 30 ? 'border-amber-500 text-amber-700 bg-amber-50' : ''}`}
                                                                 >
                                                                     {liquidation.days_lapsed} {liquidation.days_lapsed === 1 ? 'day' : 'days'}
                                                                 </Badge>

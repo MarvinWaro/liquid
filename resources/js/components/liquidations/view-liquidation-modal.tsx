@@ -586,7 +586,7 @@ export function ViewLiquidationModal({
                                 variant="outline"
                                 size="sm"
                                 onClick={handleOpenEditModal}
-                                className="ml-4"
+                                className="me-5"
                             >
                                 <Pencil className="h-4 w-4 mr-2" />
                                 Edit
@@ -1265,7 +1265,7 @@ export function ViewLiquidationModal({
                                         </p>
                                     </div>
                                     <div className="p-4 border rounded-lg">
-                                        <p className="text-xs text-muted-foreground mb-1">Refund Amount</p>
+                                        <p className="text-xs text-muted-foreground mb-1">Unliquidated Amount</p>
                                         <p className="text-2xl font-bold text-orange-600">
                                             ₱{Number(liquidation.remaining_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </p>
@@ -1284,7 +1284,7 @@ export function ViewLiquidationModal({
                                             </span>
                                         </div>
                                         <div className="flex justify-between items-center p-2 bg-orange-50 dark:bg-orange-950/20 rounded">
-                                            <span className="text-sm">Remaining/Refund</span>
+                                            <span className="text-sm">Unliquidated/Remaining</span>
                                             <span className="text-sm font-semibold">
                                                 ₱{Number(liquidation.remaining_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 <span className="text-xs text-muted-foreground ml-2">({(100 - percentLiquidated).toFixed(2)}%)</span>
