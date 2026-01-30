@@ -28,9 +28,17 @@ class LiquidationController extends Controller
         // Filter based on user role
         $user = $request->user();
 
-        // Regional Coordinator sees liquidations for initial review
+        // Regional Coordinator sees:
+        // - All liquidations pending review (for_initial_review, returned_to_rc)
+        // - Their own endorsed liquidations (endorsed_to_accounting where they are the reviewer)
         if ($user->role->name === 'Regional Coordinator') {
-            $query->whereIn('status', ['for_initial_review', 'returned_to_rc']);
+            $query->where(function ($q) use ($user) {
+                $q->whereIn('status', ['for_initial_review', 'returned_to_rc'])
+                  ->orWhere(function ($q2) use ($user) {
+                      $q2->whereIn('status', ['endorsed_to_accounting', 'endorsed_to_coa'])
+                         ->where('reviewed_by', $user->id);
+                  });
+            });
         }
 
         // Accountant sees liquidations endorsed to accounting
@@ -782,7 +790,7 @@ class LiquidationController extends Controller
     }
 
     /**
-     * Download CSV template for beneficiaries.
+     * Download Excel template for beneficiaries.
      */
     public function downloadBeneficiaryTemplate(Request $request, Liquidation $liquidation)
     {
@@ -790,50 +798,19 @@ class LiquidationController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        $filename = 'beneficiaries_template_' . $liquidation->control_no . '.csv';
+        $templatePath = base_path('materials/template-for-hei.xlsx');
 
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
-        ];
+        if (!file_exists($templatePath)) {
+            abort(404, 'Template file not found.');
+        }
 
-        $callback = function() {
-            $file = fopen('php://output', 'w');
-
-            // Add header row
-            fputcsv($file, [
-                'Student No',
-                'Last Name',
-                'First Name',
-                'Middle Name',
-                'Extension Name',
-                'Award No',
-                'Date Disbursed (YYYY-MM-DD)',
-                'Amount',
-                'Remarks'
-            ]);
-
-            // Add sample row
-            fputcsv($file, [
-                '2024-001',
-                'Dela Cruz',
-                'Juan',
-                'Santos',
-                'Jr.',
-                'TES-2024-123',
-                date('Y-m-d'),
-                '5000.00',
-                ''
-            ]);
-
-            fclose($file);
-        };
-
-        return response()->stream($callback, 200, $headers);
+        return response()->download($templatePath, 'BENEFICIARIES TEMPLATE.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
     }
 
     /**
-     * Import beneficiaries from CSV.
+     * Import beneficiaries from Excel file.
      */
     public function importBeneficiaries(Request $request, Liquidation $liquidation)
     {
@@ -852,41 +829,57 @@ class LiquidationController extends Controller
         }
 
         $validated = $request->validate([
-            'csv_file' => 'required|file|mimes:csv,txt|max:2048',
+            'beneficiary_file' => 'required|file|mimes:xlsx,xls|max:5120',
+        ], [
+            'beneficiary_file.mimes' => 'Please upload an Excel file (.xlsx or .xls).',
+            'beneficiary_file.max' => 'The file size must not exceed 5MB.',
         ]);
 
-        $file = $request->file('csv_file');
+        $file = $request->file('beneficiary_file');
         $path = $file->getRealPath();
-
-        $csv = array_map('str_getcsv', file($path));
-        $header = array_shift($csv); // Remove header row
 
         $imported = 0;
         $errors = [];
 
-        foreach ($csv as $index => $row) {
-            // Skip empty rows
-            if (empty(array_filter($row))) {
-                continue;
-            }
+        try {
+            $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($path);
+            $worksheet = $spreadsheet->getActiveSheet();
+            $rows = $worksheet->toArray();
 
-            try {
-                \App\Models\LiquidationBeneficiary::create([
-                    'liquidation_id' => $liquidation->id,
-                    'student_no' => $row[0] ?? '',
-                    'last_name' => $row[1] ?? '',
-                    'first_name' => $row[2] ?? '',
-                    'middle_name' => $row[3] ?? null,
-                    'extension_name' => $row[4] ?? null,
-                    'award_no' => $row[5] ?? '',
-                    'date_disbursed' => $row[6] ?? now(),
-                    'amount' => $row[7] ?? 0,
-                    'remarks' => $row[8] ?? null,
-                ]);
-                $imported++;
-            } catch (\Exception $e) {
-                $errors[] = "Row " . ($index + 2) . ": " . $e->getMessage();
+            // Remove header row (first row)
+            array_shift($rows);
+
+            foreach ($rows as $index => $row) {
+                // Skip empty rows (check if all cells are empty)
+                if (empty(array_filter($row, function($cell) {
+                    return $cell !== null && $cell !== '';
+                }))) {
+                    continue;
+                }
+
+                try {
+                    // Map columns based on template structure:
+                    // A: Student No, B: Last Name, C: First Name, D: Middle Name,
+                    // E: Extension Name, F: Award No, G: Date Disbursed, H: Amount, I: Remarks
+                    \App\Models\LiquidationBeneficiary::create([
+                        'liquidation_id' => $liquidation->id,
+                        'student_no' => trim($row[0] ?? ''),
+                        'last_name' => trim($row[1] ?? ''),
+                        'first_name' => trim($row[2] ?? ''),
+                        'middle_name' => !empty(trim($row[3] ?? '')) ? trim($row[3]) : null,
+                        'extension_name' => !empty(trim($row[4] ?? '')) ? trim($row[4]) : null,
+                        'award_no' => trim($row[5] ?? ''),
+                        'date_disbursed' => $this->parseExcelDate($row[6] ?? null),
+                        'amount' => $this->parseAmount($row[7] ?? 0),
+                        'remarks' => !empty(trim($row[8] ?? '')) ? trim($row[8]) : null,
+                    ]);
+                    $imported++;
+                } catch (\Exception $e) {
+                    $errors[] = "Row " . ($index + 2) . ": " . $e->getMessage();
+                }
             }
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Failed to read Excel file: ' . $e->getMessage());
         }
 
         // Update total disbursed amount
@@ -900,6 +893,47 @@ class LiquidationController extends Controller
         }
 
         return redirect()->back()->with('success', 'Successfully imported ' . $imported . ' beneficiaries.');
+    }
+
+    /**
+     * Parse Excel date value (handles both Excel serial date and string dates).
+     */
+    private function parseExcelDate($value)
+    {
+        if (empty($value)) {
+            return now();
+        }
+
+        // If it's a numeric value (Excel serial date)
+        if (is_numeric($value)) {
+            try {
+                return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($value);
+            } catch (\Exception $e) {
+                return now();
+            }
+        }
+
+        // Try to parse as string date
+        try {
+            return \Carbon\Carbon::parse($value);
+        } catch (\Exception $e) {
+            return now();
+        }
+    }
+
+    /**
+     * Parse amount value (handles formatted numbers).
+     */
+    private function parseAmount($value)
+    {
+        if (empty($value)) {
+            return 0;
+        }
+
+        // Remove any currency symbols and commas
+        $cleaned = preg_replace('/[^0-9.\-]/', '', (string) $value);
+
+        return (float) ($cleaned ?: 0);
     }
 
     /**
@@ -919,7 +953,7 @@ class LiquidationController extends Controller
             abort(403, 'You can only view your own liquidations.');
         }
 
-        $liquidation->load(['hei', 'program', 'beneficiaries', 'documents']);
+        $liquidation->load(['hei', 'program', 'beneficiaries', 'documents', 'reviewer']);
 
         $totalDisbursed = $liquidation->beneficiaries->sum('amount');
         $remaining = $liquidation->amount_received - $totalDisbursed;
@@ -944,6 +978,15 @@ class LiquidationController extends Controller
             'review_history' => $liquidation->review_history ?? [],
             'accountant_review_history' => $liquidation->accountant_review_history ?? [],
             'accountant_remarks' => $liquidation->accountant_remarks,
+            // Endorsement details (from RC to Accounting)
+            'receiver_name' => $liquidation->receiver_name,
+            'document_location' => $liquidation->document_location,
+            'transmittal_reference_no' => $liquidation->transmittal_reference_no,
+            'number_of_folders' => $liquidation->number_of_folders,
+            'folder_location_number' => $liquidation->folder_location_number,
+            'group_transmittal' => $liquidation->group_transmittal,
+            'reviewed_by_name' => $liquidation->reviewer?->name,
+            'reviewed_at' => $liquidation->reviewed_at?->format('Y-m-d H:i:s'),
             'beneficiaries' => $liquidation->beneficiaries->map(function ($b) {
                 return [
                     'id' => $b->id,

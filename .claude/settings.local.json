@@ -19,7 +19,9 @@
       "Bash(php:*)",
       "Bash(php -l:*)",
       "Bash(npm install:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(more:*)",
+      "Bash(Get-Content \"c:\\\\Users\\\\MARVIN\\\\projects\\\\liquid\\\\storage\\\\logs\\\\laravel.log\" -Tail 100)"
     ]
   }
 }

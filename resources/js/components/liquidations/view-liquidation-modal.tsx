@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useDeferredValue, useCallback } from 'react';
 import { router } from '@inertiajs/react';
 import axios from 'axios';
 import { Button } from '@/components/ui/button';
@@ -22,7 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Download, Upload, Search, FileText, Send, File, X, Loader2, BarChart3, Pencil, Link2, ExternalLink } from 'lucide-react';
+import { Download, Upload, Search, FileText, Send, File, X, Loader2, BarChart3, Pencil, Link2, ExternalLink, MessageSquare, ClipboardList, MapPin, FolderArchive, User, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -33,6 +33,11 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from '@/components/ui/popover';
 import {
     Select,
     SelectContent,
@@ -53,6 +58,14 @@ import {
     TabsContent,
 } from '@/components/ui/tabs';
 import { Stepper } from '@/components/ui/stepper';
+import {
+    EndorseToAccountingModal,
+    ReturnToHEIModal,
+    SubmitForReviewModal,
+    EndorseToCOAModal,
+    ReturnToRCModal,
+    EditLiquidationModal,
+} from './endorsement-modals';
 
 interface Beneficiary {
     id: number;
@@ -119,6 +132,15 @@ interface Liquidation {
     accountant_remarks?: string | null;
     beneficiaries: Beneficiary[];
     documents?: Document[];
+    // Endorsement details (from RC to Accounting)
+    receiver_name?: string | null;
+    document_location?: string | null;
+    transmittal_reference_no?: string | null;
+    number_of_folders?: number | null;
+    folder_location_number?: string | null;
+    group_transmittal?: string | null;
+    reviewed_by_name?: string | null;
+    reviewed_at?: string | null;
 }
 
 interface User {
@@ -150,42 +172,161 @@ export function ViewLiquidationModal({
     accountants = []
 }: Props) {
     const [searchQuery, setSearchQuery] = useState('');
+    const deferredSearchQuery = useDeferredValue(searchQuery);
     const [isUploading, setIsUploading] = useState(false);
     const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
-    const [submitRemarks, setSubmitRemarks] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isUploadingDoc, setIsUploadingDoc] = useState(false);
     const [isLoadingData, setIsLoadingData] = useState(false);
     const [isEndorseModalOpen, setIsEndorseModalOpen] = useState(false);
     const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
-    const [reviewRemarks, setReviewRemarks] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
-
-    // RC Endorse fields
-    const [receiverName, setReceiverName] = useState('');
-    const [documentLocation, setDocumentLocation] = useState('');
-    const [transmittalRefNo, setTransmittalRefNo] = useState('');
-    const [numberOfFolders, setNumberOfFolders] = useState('');
-    const [folderLocationNumber, setFolderLocationNumber] = useState('');
-    const [groupTransmittal, setGroupTransmittal] = useState('');
-
-    // RC Return fields
-    const [documentsForCompliance, setDocumentsForCompliance] = useState('');
 
     // Accountant modals
     const [isEndorseToCOAModalOpen, setIsEndorseToCOAModalOpen] = useState(false);
     const [isReturnToRCModalOpen, setIsReturnToRCModalOpen] = useState(false);
-    const [accountantRemarks, setAccountantRemarks] = useState('');
 
     // Edit modal state
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [editAmountReceived, setEditAmountReceived] = useState('');
     const [isUpdating, setIsUpdating] = useState(false);
 
     // Google Drive link state
     const [showGdriveInput, setShowGdriveInput] = useState(false);
     const [gdriveLink, setGdriveLink] = useState('');
     const [isAddingGdriveLink, setIsAddingGdriveLink] = useState(false);
+
+    // Open edit modal handler
+    const handleOpenEditModal = () => setIsEditModalOpen(true);
+
+    // Callback handlers - must be before early return for React Rules of Hooks
+    const handleSubmitForReview = useCallback((remarks: string) => {
+        if (!liquidation) return;
+        setIsSubmitting(true);
+        router.post(route('liquidation.submit', liquidation.id), {
+            remarks: remarks,
+        }, {
+            onSuccess: () => {
+                setIsSubmitting(false);
+                setIsSubmitModalOpen(false);
+                onClose();
+            },
+            onError: () => {
+                setIsSubmitting(false);
+            },
+        });
+    }, [liquidation, onClose]);
+
+    const handleEndorseToAccounting = useCallback((data: {
+        reviewRemarks: string;
+        receiverName: string;
+        documentLocation: string;
+        transmittalRefNo: string;
+        numberOfFolders: string;
+        folderLocationNumber: string;
+        groupTransmittal: string;
+    }) => {
+        if (!liquidation) return;
+        setIsProcessing(true);
+        router.post(route('liquidation.endorse-to-accounting', liquidation.id), {
+            review_remarks: data.reviewRemarks,
+            receiver_name: data.receiverName,
+            document_location: data.documentLocation,
+            transmittal_reference_no: data.transmittalRefNo,
+            number_of_folders: data.numberOfFolders ? parseInt(data.numberOfFolders) : null,
+            folder_location_number: data.folderLocationNumber,
+            group_transmittal: data.groupTransmittal,
+        }, {
+            onSuccess: () => {
+                setIsProcessing(false);
+                setIsEndorseModalOpen(false);
+                onClose();
+            },
+            onError: () => {
+                setIsProcessing(false);
+            },
+        });
+    }, [liquidation, onClose]);
+
+    const handleReturnToHEI = useCallback((data: {
+        reviewRemarks: string;
+        documentsForCompliance: string;
+        receiverName: string;
+    }) => {
+        if (!liquidation) return;
+        setIsProcessing(true);
+        router.post(route('liquidation.return-to-hei', liquidation.id), {
+            review_remarks: data.reviewRemarks,
+            documents_for_compliance: data.documentsForCompliance,
+            receiver_name: data.receiverName,
+        }, {
+            onSuccess: () => {
+                setIsProcessing(false);
+                setIsReturnModalOpen(false);
+                onClose();
+            },
+            onError: () => {
+                setIsProcessing(false);
+            },
+        });
+    }, [liquidation, onClose]);
+
+    const handleEndorseToCOA = useCallback((remarks: string) => {
+        if (!liquidation) return;
+        setIsProcessing(true);
+        router.post(route('liquidation.endorse-to-coa', liquidation.id), {
+            accountant_remarks: remarks,
+        }, {
+            onSuccess: () => {
+                setIsProcessing(false);
+                setIsEndorseToCOAModalOpen(false);
+                onClose();
+            },
+            onError: () => {
+                setIsProcessing(false);
+            },
+        });
+    }, [liquidation, onClose]);
+
+    const handleReturnToRC = useCallback((remarks: string) => {
+        if (!liquidation) return;
+        setIsProcessing(true);
+        router.post(route('liquidation.return-to-rc', liquidation.id), {
+            accountant_remarks: remarks,
+        }, {
+            onSuccess: () => {
+                setIsProcessing(false);
+                setIsReturnToRCModalOpen(false);
+                onClose();
+            },
+            onError: () => {
+                setIsProcessing(false);
+            },
+        });
+    }, [liquidation, onClose]);
+
+    const handleUpdateLiquidation = useCallback((amountReceived: string) => {
+        if (!liquidation) return;
+        setIsUpdating(true);
+        router.put(route('liquidation.update', liquidation.id), {
+            amount_received: parseFloat(amountReceived),
+        }, {
+            onSuccess: async () => {
+                try {
+                    const response = await axios.get(route('liquidation.show', liquidation.id));
+                    if (onDataChange) {
+                        onDataChange(response.data);
+                    }
+                } catch (error) {
+                    console.error('Error reloading liquidation:', error);
+                }
+                setIsUpdating(false);
+                setIsEditModalOpen(false);
+            },
+            onError: () => {
+                setIsUpdating(false);
+            },
+        });
+    }, [liquidation, onDataChange]);
 
     // Helper function to get user initials
     const getInitials = (name: string) => {
@@ -264,10 +405,10 @@ export function ViewLiquidationModal({
     const isFullyCompleted = liquidation.status === 'endorsed_to_coa';
 
     const filteredBeneficiaries = liquidation.beneficiaries.filter(beneficiary =>
-        beneficiary.student_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        beneficiary.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        beneficiary.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        beneficiary.award_no.toLowerCase().includes(searchQuery.toLowerCase())
+        beneficiary.student_no.toLowerCase().includes(deferredSearchQuery.toLowerCase()) ||
+        beneficiary.first_name.toLowerCase().includes(deferredSearchQuery.toLowerCase()) ||
+        beneficiary.last_name.toLowerCase().includes(deferredSearchQuery.toLowerCase()) ||
+        beneficiary.award_no.toLowerCase().includes(deferredSearchQuery.toLowerCase())
     );
 
     // Calculate % Age of Liquidation: (total_disbursed / amount_received) * 100
@@ -279,14 +420,25 @@ export function ViewLiquidationModal({
         window.location.href = route('liquidation.download-beneficiary-template', liquidation.id);
     };
 
-    const handleUploadCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleUploadExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+
+        // Validate file type
+        const validTypes = [
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-excel'
+        ];
+        if (!validTypes.includes(file.type) && !file.name.match(/\.(xlsx|xls)$/i)) {
+            toast.error('Please upload an Excel file (.xlsx or .xls)');
+            e.target.value = '';
+            return;
+        }
 
         setIsUploading(true);
         setIsLoadingData(true);
         const formData = new FormData();
-        formData.append('csv_file', file);
+        formData.append('beneficiary_file', file);
 
         router.post(route('liquidation.import-beneficiaries', liquidation.id), formData, {
             onSuccess: async () => {
@@ -442,135 +594,6 @@ export function ViewLiquidationModal({
         });
     };
 
-    const handleSubmitForReview = () => {
-        setIsSubmitting(true);
-        router.post(route('liquidation.submit', liquidation.id), {
-            remarks: submitRemarks,
-        }, {
-            onSuccess: () => {
-                setIsSubmitting(false);
-                setIsSubmitModalOpen(false);
-                setSubmitRemarks('');
-                onClose();
-            },
-            onError: () => {
-                setIsSubmitting(false);
-            },
-        });
-    };
-
-    const handleEndorseToAccounting = () => {
-        setIsProcessing(true);
-        router.post(route('liquidation.endorse-to-accounting', liquidation.id), {
-            review_remarks: reviewRemarks,
-            receiver_name: receiverName,
-            document_location: documentLocation,
-            transmittal_reference_no: transmittalRefNo,
-            number_of_folders: numberOfFolders ? parseInt(numberOfFolders) : null,
-            folder_location_number: folderLocationNumber,
-            group_transmittal: groupTransmittal,
-        }, {
-            onSuccess: () => {
-                setIsProcessing(false);
-                setIsEndorseModalOpen(false);
-                setReviewRemarks('');
-                setReceiverName('');
-                setDocumentLocation('');
-                setTransmittalRefNo('');
-                setNumberOfFolders('');
-                setFolderLocationNumber('');
-                setGroupTransmittal('');
-                onClose();
-            },
-            onError: () => {
-                setIsProcessing(false);
-            },
-        });
-    };
-
-    const handleReturnToHEI = () => {
-        setIsProcessing(true);
-        router.post(route('liquidation.return-to-hei', liquidation.id), {
-            review_remarks: reviewRemarks,
-            documents_for_compliance: documentsForCompliance,
-            receiver_name: receiverName,
-        }, {
-            onSuccess: () => {
-                setIsProcessing(false);
-                setIsReturnModalOpen(false);
-                setReviewRemarks('');
-                setDocumentsForCompliance('');
-                setReceiverName('');
-                onClose();
-            },
-            onError: () => {
-                setIsProcessing(false);
-            },
-        });
-    };
-
-    const handleEndorseToCOA = () => {
-        setIsProcessing(true);
-        router.post(route('liquidation.endorse-to-coa', liquidation.id), {
-            accountant_remarks: accountantRemarks,
-        }, {
-            onSuccess: () => {
-                setIsProcessing(false);
-                setIsEndorseToCOAModalOpen(false);
-                setAccountantRemarks('');
-                onClose();
-            },
-            onError: () => {
-                setIsProcessing(false);
-            },
-        });
-    };
-
-    const handleReturnToRC = () => {
-        setIsProcessing(true);
-        router.post(route('liquidation.return-to-rc', liquidation.id), {
-            accountant_remarks: accountantRemarks,
-        }, {
-            onSuccess: () => {
-                setIsProcessing(false);
-                setIsReturnToRCModalOpen(false);
-                setAccountantRemarks('');
-                onClose();
-            },
-            onError: () => {
-                setIsProcessing(false);
-            },
-        });
-    };
-
-    const handleOpenEditModal = () => {
-        setEditAmountReceived(liquidation.amount_received.toString());
-        setIsEditModalOpen(true);
-    };
-
-    const handleUpdateLiquidation = () => {
-        setIsUpdating(true);
-        router.put(route('liquidation.update', liquidation.id), {
-            amount_received: parseFloat(editAmountReceived),
-        }, {
-            onSuccess: async () => {
-                try {
-                    const response = await axios.get(route('liquidation.show', liquidation.id));
-                    if (onDataChange) {
-                        onDataChange(response.data);
-                    }
-                } catch (error) {
-                    console.error('Error reloading liquidation:', error);
-                }
-                setIsUpdating(false);
-                setIsEditModalOpen(false);
-            },
-            onError: () => {
-                setIsUpdating(false);
-            },
-        });
-    };
-
     // Check if HEI can edit (only in draft or returned_to_hei status)
     const canEdit = canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status);
 
@@ -619,6 +642,9 @@ export function ViewLiquidationModal({
                 <Tabs defaultValue="overview" className="flex-1 flex flex-col overflow-hidden">
                     <TabsList variant="line" className="flex-shrink-0">
                         <TabsTrigger value="overview">Overview & Files</TabsTrigger>
+                        {['endorsed_to_accounting', 'endorsed_to_coa'].includes(liquidation.status) && liquidation.transmittal_reference_no && (
+                            <TabsTrigger value="endorsement">Endorsement</TabsTrigger>
+                        )}
                         <TabsTrigger value="history">History</TabsTrigger>
                         <TabsTrigger value="analytics">Analytics</TabsTrigger>
                     </TabsList>
@@ -643,7 +669,7 @@ export function ViewLiquidationModal({
 
                             <Card>
                                 <CardHeader className="pb-3">
-                                    <CardDescription className="text-xs">Remaining / Refund</CardDescription>
+                                    <CardDescription className="text-xs">Remaining / Unliquidated</CardDescription>
                                     <CardTitle className="text-2xl text-orange-600">₱{Number(liquidation.remaining_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</CardTitle>
                                 </CardHeader>
                             </Card>
@@ -764,19 +790,19 @@ export function ViewLiquidationModal({
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                onClick={() => document.getElementById('csv-upload')?.click()}
+                                                onClick={() => document.getElementById('excel-upload')?.click()}
                                                 disabled={isUploading}
                                             >
                                                 <Upload className="h-4 w-4 mr-2" />
-                                                {isUploading ? 'Uploading...' : 'Upload CSV'}
+                                                {isUploading ? 'Uploading...' : 'Upload Excel'}
                                             </Button>
                                         )}
                                         <input
-                                            id="csv-upload"
+                                            id="excel-upload"
                                             type="file"
-                                            accept=".csv"
+                                            accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                                             className="hidden"
-                                            onChange={handleUploadCSV}
+                                            onChange={handleUploadExcel}
                                         />
                                     </div>
                                 </div>
@@ -804,6 +830,7 @@ export function ViewLiquidationModal({
                                                 <TableHead>Award No.</TableHead>
                                                 <TableHead>Date Disbursed</TableHead>
                                                 <TableHead className="text-right">Amount</TableHead>
+                                                <TableHead className="text-center w-[80px]">Remarks</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -815,11 +842,12 @@ export function ViewLiquidationModal({
                                                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                                                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                                                         <TableCell><Skeleton className="h-4 w-20 ml-auto" /></TableCell>
+                                                        <TableCell><Skeleton className="h-4 w-8 mx-auto" /></TableCell>
                                                     </TableRow>
                                                 ))
                                             ) : filteredBeneficiaries.length === 0 ? (
                                                 <TableRow>
-                                                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                                                         <div className="flex flex-col items-center gap-2">
                                                             <FileText className="h-8 w-8 opacity-50" />
                                                             <p>No students found.</p>
@@ -852,6 +880,31 @@ export function ViewLiquidationModal({
                                                         </TableCell>
                                                         <TableCell className="text-right font-medium">
                                                             ₱{parseFloat(beneficiary.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </TableCell>
+                                                        <TableCell className="text-center">
+                                                            {beneficiary.remarks ? (
+                                                                <Popover>
+                                                                    <PopoverTrigger asChild>
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            className="h-8 w-8 p-0"
+                                                                        >
+                                                                            <MessageSquare className="h-4 w-4 text-blue-500" />
+                                                                        </Button>
+                                                                    </PopoverTrigger>
+                                                                    <PopoverContent className="w-80" align="end">
+                                                                        <div className="space-y-2">
+                                                                            <h4 className="font-medium text-sm">Remarks</h4>
+                                                                            <p className="text-sm text-muted-foreground">
+                                                                                {beneficiary.remarks}
+                                                                            </p>
+                                                                        </div>
+                                                                    </PopoverContent>
+                                                                </Popover>
+                                                            ) : (
+                                                                <span className="text-muted-foreground text-xs">—</span>
+                                                            )}
                                                         </TableCell>
                                                     </TableRow>
                                                 ))
@@ -1295,6 +1348,134 @@ export function ViewLiquidationModal({
                             </CardContent>
                         </Card>
                     </TabsContent>
+
+                    {/* Endorsement Tab */}
+                    <TabsContent value="endorsement" className="flex-1 overflow-y-auto mt-4 space-y-4 px-1">
+                        <Card className="border-purple-200 bg-purple-50/50 dark:bg-purple-950/20">
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-base flex items-center gap-2">
+                                    <ClipboardList className="h-5 w-5 text-purple-600" />
+                                    Endorsement Details
+                                </CardTitle>
+                                <CardDescription>
+                                    Information provided by the Regional Coordinator during endorsement
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {/* Transmittal Reference */}
+                                    <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
+                                        <div className="p-2 rounded-md bg-purple-100 dark:bg-purple-900/30">
+                                            <FileText className="h-4 w-4 text-purple-600" />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-xs text-muted-foreground font-medium">Transmittal Reference No.</p>
+                                            <p className="text-sm font-semibold truncate">{liquidation.transmittal_reference_no}</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Receiver */}
+                                    {liquidation.receiver_name && (
+                                        <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
+                                            <div className="p-2 rounded-md bg-blue-100 dark:bg-blue-900/30">
+                                                <User className="h-4 w-4 text-blue-600" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs text-muted-foreground font-medium">Receiver (Accountant)</p>
+                                                <p className="text-sm font-semibold truncate">{liquidation.receiver_name}</p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Document Location */}
+                                    {liquidation.document_location && (
+                                        <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
+                                            <div className="p-2 rounded-md bg-green-100 dark:bg-green-900/30">
+                                                <MapPin className="h-4 w-4 text-green-600" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs text-muted-foreground font-medium">Document Location</p>
+                                                <p className="text-sm font-semibold truncate">{liquidation.document_location}</p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Number of Folders */}
+                                    {liquidation.number_of_folders && (
+                                        <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
+                                            <div className="p-2 rounded-md bg-amber-100 dark:bg-amber-900/30">
+                                                <FolderArchive className="h-4 w-4 text-amber-600" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs text-muted-foreground font-medium">Number of Folders</p>
+                                                <p className="text-sm font-semibold">{liquidation.number_of_folders}</p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Folder Location Number */}
+                                    {liquidation.folder_location_number && (
+                                        <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
+                                            <div className="p-2 rounded-md bg-cyan-100 dark:bg-cyan-900/30">
+                                                <FolderArchive className="h-4 w-4 text-cyan-600" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs text-muted-foreground font-medium">Folder Location Number</p>
+                                                <p className="text-sm font-semibold truncate">{liquidation.folder_location_number}</p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Group Transmittal */}
+                                    {liquidation.group_transmittal && (
+                                        <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
+                                            <div className="p-2 rounded-md bg-indigo-100 dark:bg-indigo-900/30">
+                                                <ClipboardList className="h-4 w-4 text-indigo-600" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs text-muted-foreground font-medium">Group Transmittal</p>
+                                                <p className="text-sm font-semibold truncate">{liquidation.group_transmittal}</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Endorsed By Info */}
+                                {(liquidation.reviewed_by_name || liquidation.reviewed_at) && (
+                                    <div className="mt-4 pt-4 border-t flex items-center gap-4 text-sm text-muted-foreground">
+                                        {liquidation.reviewed_by_name && (
+                                            <div className="flex items-center gap-1.5">
+                                                <User className="h-3.5 w-3.5" />
+                                                <span>Endorsed by <span className="font-medium text-foreground">{liquidation.reviewed_by_name}</span></span>
+                                            </div>
+                                        )}
+                                        {liquidation.reviewed_at && (
+                                            <div className="flex items-center gap-1.5">
+                                                <Calendar className="h-3.5 w-3.5" />
+                                                <span>{new Date(liquidation.reviewed_at).toLocaleString('en-US', {
+                                                    year: 'numeric',
+                                                    month: 'short',
+                                                    day: 'numeric',
+                                                    hour: '2-digit',
+                                                    minute: '2-digit'
+                                                })}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* RC Review Remarks */}
+                                {liquidation.review_remarks && (
+                                    <div className="mt-4 pt-4 border-t">
+                                        <Label className="text-sm font-semibold">RC Review Remarks</Label>
+                                        <div className="mt-2 p-3 bg-background rounded-md border">
+                                            <p className="text-sm">{liquidation.review_remarks}</p>
+                                        </div>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
                 </Tabs>
 
                 {/* Sticky Footer */}
@@ -1335,19 +1516,13 @@ export function ViewLiquidationModal({
                             <div className="flex justify-end gap-2">
                                 <Button
                                     variant="outline"
-                                    onClick={() => {
-                                        setReviewRemarks('');
-                                        setIsReturnModalOpen(true);
-                                    }}
+                                    onClick={() => setIsReturnModalOpen(true)}
                                 >
                                     <X className="h-4 w-4 mr-2" />
                                     Return to HEI
                                 </Button>
                                 <Button
-                                    onClick={() => {
-                                        setReviewRemarks('');
-                                        setIsEndorseModalOpen(true);
-                                    }}
+                                    onClick={() => setIsEndorseModalOpen(true)}
                                 >
                                     <Send className="h-4 w-4 mr-2" />
                                     Endorse to Accounting
@@ -1360,19 +1535,13 @@ export function ViewLiquidationModal({
                             <div className="flex justify-end gap-2">
                                 <Button
                                     variant="outline"
-                                    onClick={() => {
-                                        setAccountantRemarks('');
-                                        setIsReturnToRCModalOpen(true);
-                                    }}
+                                    onClick={() => setIsReturnToRCModalOpen(true)}
                                 >
                                     <X className="h-4 w-4 mr-2" />
                                     Return to RC
                                 </Button>
                                 <Button
-                                    onClick={() => {
-                                        setAccountantRemarks('');
-                                        setIsEndorseToCOAModalOpen(true);
-                                    }}
+                                    onClick={() => setIsEndorseToCOAModalOpen(true)}
                                 >
                                     <Send className="h-4 w-4 mr-2" />
                                     Endorse to COA
@@ -1385,421 +1554,57 @@ export function ViewLiquidationModal({
         </Dialog>
 
         {/* Submit Confirmation Modal */}
-        <Dialog open={isSubmitModalOpen} onOpenChange={setIsSubmitModalOpen}>
-            <DialogContent className="max-w-md">
-                <DialogHeader>
-                    <DialogTitle>
-                        {liquidation && liquidation.status === 'returned_to_hei' ? 'Resubmit to Regional Coordinator' : 'Submit for Initial Review'}
-                    </DialogTitle>
-                    <DialogDescription>
-                        {liquidation && liquidation.status === 'returned_to_hei'
-                            ? 'Confirm that you have addressed all compliance requirements before resubmitting to the Regional Coordinator.'
-                            : 'Are you sure you want to submit this liquidation report to the Regional Coordinator for initial review?'}
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="remarks">Remarks (Optional)</Label>
-                        <Textarea
-                            id="remarks"
-                            placeholder={liquidation && liquidation.status === 'returned_to_hei'
-                                ? 'Describe what corrections/updates you made...'
-                                : 'Add any additional notes or comments...'}
-                            value={submitRemarks}
-                            onChange={(e) => setSubmitRemarks(e.target.value)}
-                            rows={4}
-                            className="max-h-[200px] resize-none"
-                        />
-                    </div>
-                </div>
-                <DialogFooter>
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            setIsSubmitModalOpen(false);
-                            setSubmitRemarks('');
-                        }}
-                        disabled={isSubmitting}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={handleSubmitForReview}
-                        disabled={isSubmitting}
-                    >
-                        {isSubmitting ? 'Submitting...' : (liquidation && liquidation.status === 'returned_to_hei' ? 'Resubmit to RC' : 'Submit for Review')}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+        <SubmitForReviewModal
+            isOpen={isSubmitModalOpen}
+            onClose={() => setIsSubmitModalOpen(false)}
+            onSubmit={handleSubmitForReview}
+            isProcessing={isSubmitting}
+            isResubmission={liquidation?.status === 'returned_to_hei'}
+        />
 
         {/* Endorse to Accounting Modal */}
-        <Dialog open={isEndorseModalOpen} onOpenChange={setIsEndorseModalOpen}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                    <DialogTitle>Endorse to Accounting</DialogTitle>
-                    <DialogDescription>
-                        Complete the endorsement details to forward this liquidation to the Accounting department
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="receiver">Receiver (Accountant)</Label>
-                            <Select value={receiverName} onValueChange={setReceiverName}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select accountant" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {accountants.map((accountant) => (
-                                        <SelectItem key={accountant.id} value={accountant.name}>
-                                            {accountant.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label htmlFor="doc-location">Document Location</Label>
-                            <Select value={documentLocation} onValueChange={setDocumentLocation}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select location" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="Shelf 1B R1">Shelf 1B R1</SelectItem>
-                                    <SelectItem value="Shelf 1B R2">Shelf 1B R2</SelectItem>
-                                    <SelectItem value="Shelf 1B R3">Shelf 1B R3</SelectItem>
-                                    <SelectItem value="Shelf 1B R4">Shelf 1B R4</SelectItem>
-                                    <SelectItem value="Shelf 1B R5">Shelf 1B R5</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="transmittal-ref">Transmittal Reference Number *</Label>
-                        <Input
-                            id="transmittal-ref"
-                            placeholder="e.g., TES-2026-01210"
-                            value={transmittalRefNo}
-                            onChange={(e) => setTransmittalRefNo(e.target.value)}
-                            required
-                        />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="num-folders">Number of Folders</Label>
-                            <Input
-                                id="num-folders"
-                                type="number"
-                                placeholder="e.g., 2"
-                                value={numberOfFolders}
-                                onChange={(e) => setNumberOfFolders(e.target.value)}
-                            />
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label htmlFor="folder-location">Folder Location Number</Label>
-                            <Input
-                                id="folder-location"
-                                placeholder="e.g., 2/UniFAST R12-CMFCI"
-                                value={folderLocationNumber}
-                                onChange={(e) => setFolderLocationNumber(e.target.value)}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="group-transmittal">Group Transmittal</Label>
-                        <Input
-                            id="group-transmittal"
-                            placeholder="e.g., Transmittal No. 2026-0001"
-                            value={groupTransmittal}
-                            onChange={(e) => setGroupTransmittal(e.target.value)}
-                        />
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="endorse-remarks">Review Remarks (Optional)</Label>
-                        <Textarea
-                            id="endorse-remarks"
-                            placeholder="Add any review comments or recommendations..."
-                            value={reviewRemarks}
-                            onChange={(e) => setReviewRemarks(e.target.value)}
-                            rows={3}
-                            className="max-h-[200px] resize-none"
-                        />
-                    </div>
-                </div>
-                <DialogFooter>
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            setIsEndorseModalOpen(false);
-                            setReviewRemarks('');
-                            setReceiverName('');
-                            setDocumentLocation('');
-                            setTransmittalRefNo('');
-                            setNumberOfFolders('');
-                            setFolderLocationNumber('');
-                            setGroupTransmittal('');
-                        }}
-                        disabled={isProcessing}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={handleEndorseToAccounting}
-                        disabled={isProcessing || !transmittalRefNo.trim()}
-                    >
-                        {isProcessing ? 'Endorsing...' : 'Endorse to Accounting'}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+        <EndorseToAccountingModal
+            isOpen={isEndorseModalOpen}
+            onClose={() => setIsEndorseModalOpen(false)}
+            onSubmit={handleEndorseToAccounting}
+            isProcessing={isProcessing}
+            accountants={accountants}
+        />
 
         {/* Return to HEI Modal */}
-        <Dialog open={isReturnModalOpen} onOpenChange={setIsReturnModalOpen}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                    <DialogTitle>Return to HEI for Compliance</DialogTitle>
-                    <DialogDescription>
-                        Specify the compliance issues and documents needed from the HEI
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="return-receiver">Receiver (Regional Coordinator)</Label>
-                        <Select value={receiverName} onValueChange={setReceiverName}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select Regional Coordinator" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {regionalCoordinators.map((rc) => (
-                                    <SelectItem key={rc.id} value={rc.name}>
-                                        {rc.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="compliance-docs">Documents for Compliance *</Label>
-                        <Textarea
-                            id="compliance-docs"
-                            placeholder="List the missing or required documents (e.g., - Revised FUR&#10;- Updated beneficiary list&#10;- Supporting receipts)"
-                            value={documentsForCompliance}
-                            onChange={(e) => setDocumentsForCompliance(e.target.value)}
-                            rows={5}
-                            required
-                            className="max-h-[200px] resize-none"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            Provide a checklist of specific documents that need to be submitted
-                        </p>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="return-remarks">Additional Remarks *</Label>
-                        <Textarea
-                            id="return-remarks"
-                            placeholder="Specify the reason for returning (e.g., missing documents, incorrect data)..."
-                            value={reviewRemarks}
-                            onChange={(e) => setReviewRemarks(e.target.value)}
-                            rows={3}
-                            required
-                            className="max-h-[200px] resize-none"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            Please provide a clear reason for returning the liquidation
-                        </p>
-                    </div>
-                </div>
-                <DialogFooter>
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            setIsReturnModalOpen(false);
-                            setReviewRemarks('');
-                            setDocumentsForCompliance('');
-                            setReceiverName('');
-                        }}
-                        disabled={isProcessing}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        variant="destructive"
-                        onClick={handleReturnToHEI}
-                        disabled={isProcessing || !reviewRemarks.trim() || !documentsForCompliance.trim()}
-                    >
-                        {isProcessing ? 'Returning...' : 'Return to HEI'}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+        <ReturnToHEIModal
+            isOpen={isReturnModalOpen}
+            onClose={() => setIsReturnModalOpen(false)}
+            onSubmit={handleReturnToHEI}
+            isProcessing={isProcessing}
+            regionalCoordinators={regionalCoordinators}
+        />
 
         {/* Accountant: Endorse to COA Modal */}
-        <Dialog open={isEndorseToCOAModalOpen} onOpenChange={setIsEndorseToCOAModalOpen}>
-            <DialogContent className="max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Endorse to COA</DialogTitle>
-                    <DialogDescription>
-                        Forward this liquidation to the Commission on Audit (COA)
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="coa-remarks">Accountant Remarks (Optional)</Label>
-                        <Textarea
-                            id="coa-remarks"
-                            placeholder="Add any review comments or recommendations..."
-                            value={accountantRemarks}
-                            onChange={(e) => setAccountantRemarks(e.target.value)}
-                            rows={4}
-                            className="max-h-[200px] resize-none"
-                        />
-                    </div>
-                </div>
-                <DialogFooter>
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            setIsEndorseToCOAModalOpen(false);
-                            setAccountantRemarks('');
-                        }}
-                        disabled={isProcessing}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={handleEndorseToCOA}
-                        disabled={isProcessing}
-                    >
-                        {isProcessing ? 'Endorsing...' : 'Endorse to COA'}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+        <EndorseToCOAModal
+            isOpen={isEndorseToCOAModalOpen}
+            onClose={() => setIsEndorseToCOAModalOpen(false)}
+            onSubmit={handleEndorseToCOA}
+            isProcessing={isProcessing}
+        />
 
         {/* Accountant: Return to RC Modal */}
-        <Dialog open={isReturnToRCModalOpen} onOpenChange={setIsReturnToRCModalOpen}>
-            <DialogContent className="max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Return to Regional Coordinator</DialogTitle>
-                    <DialogDescription>
-                        Return this liquidation to the Regional Coordinator for corrections
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="rc-remarks">Accountant Remarks *</Label>
-                        <Textarea
-                            id="rc-remarks"
-                            placeholder="Specify the reason for returning (e.g., missing documents, incorrect calculations)..."
-                            value={accountantRemarks}
-                            onChange={(e) => setAccountantRemarks(e.target.value)}
-                            rows={4}
-                            required
-                            className="max-h-[200px] resize-none"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            Please provide a clear reason for returning to the RC
-                        </p>
-                    </div>
-                </div>
-                <DialogFooter>
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            setIsReturnToRCModalOpen(false);
-                            setAccountantRemarks('');
-                        }}
-                        disabled={isProcessing}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        variant="destructive"
-                        onClick={handleReturnToRC}
-                        disabled={isProcessing || !accountantRemarks.trim()}
-                    >
-                        {isProcessing ? 'Returning...' : 'Return to RC'}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+        <ReturnToRCModal
+            isOpen={isReturnToRCModalOpen}
+            onClose={() => setIsReturnToRCModalOpen(false)}
+            onSubmit={handleReturnToRC}
+            isProcessing={isProcessing}
+        />
 
         {/* Edit Liquidation Modal */}
-        <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-            <DialogContent className="max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Edit Liquidation</DialogTitle>
-                    <DialogDescription>
-                        Update the amount received from CHED for this liquidation report
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="edit-amount">Amount Received from CHED *</Label>
-                        <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₱</span>
-                            <Input
-                                id="edit-amount"
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                placeholder="0.00"
-                                value={editAmountReceived}
-                                onChange={(e) => setEditAmountReceived(e.target.value)}
-                                className="pl-8"
-                            />
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                            Enter the total amount disbursed by CHED for this liquidation
-                        </p>
-                    </div>
-
-                    {/* Show current values for reference */}
-                    <div className="rounded-md border p-3 bg-muted/30 space-y-2">
-                        <p className="text-xs font-medium text-muted-foreground">Current Values:</p>
-                        <div className="flex justify-between text-sm">
-                            <span>Disbursed to Students:</span>
-                            <span className="font-mono text-blue-600">
-                                ₱{Number(liquidation.total_disbursed).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                            <span>Remaining/Unliquidated:</span>
-                            <span className="font-mono text-orange-600">
-                                ₱{(parseFloat(editAmountReceived || '0') - liquidation.total_disbursed).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-                <DialogFooter>
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            setIsEditModalOpen(false);
-                            setEditAmountReceived('');
-                        }}
-                        disabled={isUpdating}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={handleUpdateLiquidation}
-                        disabled={isUpdating || !editAmountReceived || parseFloat(editAmountReceived) < 0}
-                    >
-                        {isUpdating ? 'Saving...' : 'Save Changes'}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+        <EditLiquidationModal
+            isOpen={isEditModalOpen}
+            onClose={() => setIsEditModalOpen(false)}
+            onSubmit={handleUpdateLiquidation}
+            isProcessing={isUpdating}
+            initialAmount={liquidation?.amount_received?.toString() || '0'}
+            totalDisbursed={liquidation?.total_disbursed || 0}
+        />
     </>
     );
 }
