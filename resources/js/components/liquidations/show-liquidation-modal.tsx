@@ -274,7 +274,7 @@ export function ShowLiquidationModal({ isOpen, onClose, liquidation, permissions
                         <Card className="bg-background shadow-sm">
                             <CardHeader className="p-4 pb-1">
                                 <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-2">
-                                    <FileText className="h-3.5 w-3.5" /> Remaining / Refund
+                                    <FileText className="h-3.5 w-3.5" /> Unliquidated Amount
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="p-4 pt-1">
