@@ -1,4 +1,4 @@
-import React, { useState, useDeferredValue, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { router } from '@inertiajs/react';
 import axios from 'axios';
 import { Button } from '@/components/ui/button';
@@ -6,26 +6,13 @@ import {
     Dialog,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/components/ui/table';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Download, Upload, Search, FileText, Send, File, X, Loader2, BarChart3, Pencil, Link2, ExternalLink, MessageSquare, ClipboardList, MapPin, FolderArchive, User, Calendar } from 'lucide-react';
-import { toast } from 'sonner';
+import { FileText, Send, X, BarChart3, Pencil, ClipboardList, MapPin, FolderArchive, User, Calendar } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
     Tooltip,
@@ -33,18 +20,6 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from '@/components/ui/popover';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import {
     Accordion,
     AccordionContent,
@@ -171,13 +146,8 @@ export function ViewLiquidationModal({
     regionalCoordinators = [],
     accountants = []
 }: Props) {
-    const [searchQuery, setSearchQuery] = useState('');
-    const deferredSearchQuery = useDeferredValue(searchQuery);
-    const [isUploading, setIsUploading] = useState(false);
     const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [isUploadingDoc, setIsUploadingDoc] = useState(false);
-    const [isLoadingData, setIsLoadingData] = useState(false);
     const [isEndorseModalOpen, setIsEndorseModalOpen] = useState(false);
     const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -189,11 +159,6 @@ export function ViewLiquidationModal({
     // Edit modal state
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
-
-    // Google Drive link state
-    const [showGdriveInput, setShowGdriveInput] = useState(false);
-    const [gdriveLink, setGdriveLink] = useState('');
-    const [isAddingGdriveLink, setIsAddingGdriveLink] = useState(false);
 
     // Open edit modal handler
     const handleOpenEditModal = () => setIsEditModalOpen(true);
@@ -375,8 +340,13 @@ export function ViewLiquidationModal({
 
     if (!liquidation) return null;
 
-    // Define workflow steps
-    const workflowSteps = [
+    const isHEIUser = userRole === 'HEI';
+
+    // HEI only sees steps 1–2; RC/Accountant/Admin see the full 4-step flow
+    const workflowSteps = isHEIUser ? [
+        { label: 'HEI Submission', description: 'Draft & Submit' },
+        { label: 'RC Review', description: 'Regional Coordinator' },
+    ] : [
         { label: 'HEI Submission', description: 'Draft & Submit' },
         { label: 'RC Review', description: 'Regional Coordinator' },
         { label: 'Accounting Review', description: 'Financial Verification' },
@@ -388,211 +358,28 @@ export function ViewLiquidationModal({
         switch (status) {
             case 'draft':
             case 'returned_to_hei':
-                return 1; // HEI Submission
+                return 1;
             case 'for_initial_review':
             case 'returned_to_rc':
-                return 2; // RC Review
+                return 2;
             case 'endorsed_to_accounting':
-                return 3; // Accounting Review
+                return isHEIUser ? 2 : 3;
             case 'endorsed_to_coa':
-                return 4; // COA Endorsement
+                return isHEIUser ? 2 : 4;
             default:
                 return 1;
         }
     };
 
     const currentStep = getCurrentStep(liquidation.status);
-    const isFullyCompleted = liquidation.status === 'endorsed_to_coa';
-
-    const filteredBeneficiaries = liquidation.beneficiaries.filter(beneficiary =>
-        beneficiary.student_no.toLowerCase().includes(deferredSearchQuery.toLowerCase()) ||
-        beneficiary.first_name.toLowerCase().includes(deferredSearchQuery.toLowerCase()) ||
-        beneficiary.last_name.toLowerCase().includes(deferredSearchQuery.toLowerCase()) ||
-        beneficiary.award_no.toLowerCase().includes(deferredSearchQuery.toLowerCase())
-    );
+    const isFullyCompleted = isHEIUser
+        ? ['endorsed_to_accounting', 'endorsed_to_coa'].includes(liquidation.status)
+        : liquidation.status === 'endorsed_to_coa';
 
     // Calculate % Age of Liquidation: (total_disbursed / amount_received) * 100
     const percentLiquidated = liquidation.amount_received > 0
         ? (liquidation.total_disbursed / liquidation.amount_received) * 100
         : 0;
-
-    const handleDownloadTemplate = () => {
-        window.location.href = route('liquidation.download-beneficiary-template', liquidation.id);
-    };
-
-    const handleUploadExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        // Validate file type
-        const validTypes = [
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'application/vnd.ms-excel'
-        ];
-        if (!validTypes.includes(file.type) && !file.name.match(/\.(xlsx|xls)$/i)) {
-            toast.error('Please upload an Excel file (.xlsx or .xls)');
-            e.target.value = '';
-            return;
-        }
-
-        setIsUploading(true);
-        setIsLoadingData(true);
-        const formData = new FormData();
-        formData.append('beneficiary_file', file);
-
-        router.post(route('liquidation.import-beneficiaries', liquidation.id), formData, {
-            onSuccess: async () => {
-                try {
-                    const response = await axios.get(route('liquidation.show', liquidation.id));
-                    if (onDataChange) {
-                        onDataChange(response.data);
-                    }
-                } catch (error) {
-                    console.error('Error reloading liquidation:', error);
-                }
-                setIsUploading(false);
-                setIsLoadingData(false);
-                e.target.value = '';
-            },
-            onError: () => {
-                setIsUploading(false);
-                setIsLoadingData(false);
-                e.target.value = '';
-            },
-        });
-    };
-
-    const handleUploadDocument = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-        if (!files || files.length === 0) return;
-
-        // Get current PDF document count (exclude gdrive links)
-        const currentPdfCount = liquidation.documents?.filter(doc => !doc.is_gdrive).length || 0;
-        const filesToUpload = Array.from(files);
-
-        // Validation: Check file limit (max 3 PDFs)
-        if (currentPdfCount + filesToUpload.length > 3) {
-            toast.error(`Maximum of 3 PDF files allowed. You currently have ${currentPdfCount} file(s).`);
-            e.target.value = '';
-            return;
-        }
-
-        // Validation: Check each file
-        for (const file of filesToUpload) {
-            // Check file type (PDF only)
-            if (file.type !== 'application/pdf') {
-                toast.error(`"${file.name}" is not a PDF file. Only PDF files are allowed.`);
-                e.target.value = '';
-                return;
-            }
-
-            // Check file size (max 20MB)
-            const maxSize = 20 * 1024 * 1024; // 20MB in bytes
-            if (file.size > maxSize) {
-                toast.error(`"${file.name}" exceeds the 20MB size limit.`);
-                e.target.value = '';
-                return;
-            }
-        }
-
-        setIsUploadingDoc(true);
-
-        let successCount = 0;
-        let errorCount = 0;
-
-        // Upload files sequentially using axios
-        for (const file of filesToUpload) {
-            try {
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('document_type', 'Supporting Document');
-
-                await axios.post(route('liquidation.upload-document', liquidation.id), formData, {
-                    headers: { 'Content-Type': 'multipart/form-data' }
-                });
-                successCount++;
-            } catch (error: any) {
-                errorCount++;
-                const errorMessage = error.response?.data?.message || `Failed to upload "${file.name}"`;
-                toast.error(errorMessage);
-            }
-        }
-
-        // Reload liquidation data after all uploads complete
-        try {
-            const response = await axios.get(route('liquidation.show', liquidation.id));
-            if (onDataChange) {
-                onDataChange(response.data);
-            }
-        } catch (error) {
-            console.error('Error reloading liquidation:', error);
-        }
-
-        setIsUploadingDoc(false);
-        e.target.value = '';
-
-        // Show success message
-        if (successCount > 0) {
-            toast.success(`${successCount} document(s) uploaded successfully.`);
-        }
-    };
-
-    const handleAddGdriveLink = async () => {
-        if (!gdriveLink.trim()) {
-            toast.error('Please enter a Google Drive link.');
-            return;
-        }
-
-        // Validate Google Drive link format
-        const gdrivePattern = /^https:\/\/(drive\.google\.com|docs\.google\.com)/i;
-        if (!gdrivePattern.test(gdriveLink)) {
-            toast.error('Please enter a valid Google Drive link.');
-            return;
-        }
-
-        setIsAddingGdriveLink(true);
-
-        try {
-            await axios.post(route('liquidation.store-gdrive-link', liquidation.id), {
-                gdrive_link: gdriveLink,
-                document_type: 'Supporting Document (Google Drive)',
-            });
-
-            // Reload liquidation data
-            const response = await axios.get(route('liquidation.show', liquidation.id));
-            if (onDataChange) {
-                onDataChange(response.data);
-            }
-
-            toast.success('Google Drive link added successfully.');
-            setGdriveLink('');
-            setShowGdriveInput(false);
-        } catch (error: any) {
-            const errorMessage = error.response?.data?.message || 'Failed to add Google Drive link.';
-            toast.error(errorMessage);
-        } finally {
-            setIsAddingGdriveLink(false);
-        }
-    };
-
-    const handleDeleteDocument = (documentId: number) => {
-        router.delete(route('liquidation.delete-document', documentId), {
-            onSuccess: async () => {
-                try {
-                    const response = await axios.get(route('liquidation.show', liquidation.id));
-                    if (onDataChange) {
-                        onDataChange(response.data);
-                    }
-                    toast.success('Document deleted successfully.');
-                } catch (error) {
-                    console.error('Error reloading liquidation:', error);
-                }
-            },
-            onError: () => {
-                toast.error('Failed to delete document.');
-            },
-        });
-    };
 
     // Check if HEI can edit (only in draft or returned_to_hei status)
     const canEdit = canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status);
@@ -769,316 +556,6 @@ export function ViewLiquidationModal({
                             </Card>
                         )}
 
-                        {/* Beneficiaries Section */}
-                        <Card>
-                            <CardHeader>
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <CardTitle>Beneficiaries</CardTitle>
-                                        <CardDescription>List of students who received funds</CardDescription>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={handleDownloadTemplate}
-                                        >
-                                            <Download className="h-4 w-4 mr-2" />
-                                            Template
-                                        </Button>
-                                        {canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status) && (
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => document.getElementById('excel-upload')?.click()}
-                                                disabled={isUploading}
-                                            >
-                                                <Upload className="h-4 w-4 mr-2" />
-                                                {isUploading ? 'Uploading...' : 'Upload Excel'}
-                                            </Button>
-                                        )}
-                                        <input
-                                            id="excel-upload"
-                                            type="file"
-                                            accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-                                            className="hidden"
-                                            onChange={handleUploadExcel}
-                                        />
-                                    </div>
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="mb-4">
-                                    <div className="relative">
-                                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                                        <Input
-                                            type="search"
-                                            placeholder="Search student..."
-                                            className="pl-8"
-                                            value={searchQuery}
-                                            onChange={(e) => setSearchQuery(e.target.value)}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="rounded-md border">
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>Student No.</TableHead>
-                                                <TableHead>Full Name</TableHead>
-                                                <TableHead>Award No.</TableHead>
-                                                <TableHead>Date Disbursed</TableHead>
-                                                <TableHead className="text-right">Amount</TableHead>
-                                                <TableHead className="text-center w-[80px]">Remarks</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {isLoadingData ? (
-                                                Array.from({ length: 5 }).map((_, index) => (
-                                                    <TableRow key={`skeleton-${index}`}>
-                                                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                                                        <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                                                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                                                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                                                        <TableCell><Skeleton className="h-4 w-20 ml-auto" /></TableCell>
-                                                        <TableCell><Skeleton className="h-4 w-8 mx-auto" /></TableCell>
-                                                    </TableRow>
-                                                ))
-                                            ) : filteredBeneficiaries.length === 0 ? (
-                                                <TableRow>
-                                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                                                        <div className="flex flex-col items-center gap-2">
-                                                            <FileText className="h-8 w-8 opacity-50" />
-                                                            <p>No students found.</p>
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ) : (
-                                                filteredBeneficiaries.map((beneficiary) => (
-                                                    <TableRow key={beneficiary.id}>
-                                                        <TableCell className="font-mono text-sm">
-                                                            {beneficiary.student_no}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <div className="flex flex-col">
-                                                                <span className="font-medium">
-                                                                    {beneficiary.last_name}, {beneficiary.first_name} {beneficiary.middle_name || ''}
-                                                                </span>
-                                                                {beneficiary.extension_name && (
-                                                                    <span className="text-xs text-muted-foreground">
-                                                                        {beneficiary.extension_name}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell className="font-mono text-sm">
-                                                            {beneficiary.award_no}
-                                                        </TableCell>
-                                                        <TableCell className="text-sm">
-                                                            {new Date(beneficiary.date_disbursed).toLocaleDateString()}
-                                                        </TableCell>
-                                                        <TableCell className="text-right font-medium">
-                                                            ₱{parseFloat(beneficiary.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                        </TableCell>
-                                                        <TableCell className="text-center">
-                                                            {beneficiary.remarks ? (
-                                                                <Popover>
-                                                                    <PopoverTrigger asChild>
-                                                                        <Button
-                                                                            variant="ghost"
-                                                                            size="sm"
-                                                                            className="h-8 w-8 p-0"
-                                                                        >
-                                                                            <MessageSquare className="h-4 w-4 text-blue-500" />
-                                                                        </Button>
-                                                                    </PopoverTrigger>
-                                                                    <PopoverContent className="w-80" align="end">
-                                                                        <div className="space-y-2">
-                                                                            <h4 className="font-medium text-sm">Remarks</h4>
-                                                                            <p className="text-sm text-muted-foreground">
-                                                                                {beneficiary.remarks}
-                                                                            </p>
-                                                                        </div>
-                                                                    </PopoverContent>
-                                                                </Popover>
-                                                            ) : (
-                                                                <span className="text-muted-foreground text-xs">—</span>
-                                                            )}
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))
-                                            )}
-                                        </TableBody>
-                                    </Table>
-                                </div>
-
-                                {filteredBeneficiaries.length > 0 && (
-                                    <div className="mt-4 text-sm text-muted-foreground">
-                                        Showing {filteredBeneficiaries.length} of {liquidation.beneficiaries.length} beneficiaries
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
-
-                        {/* Documents Section */}
-                        <Card>
-                            <CardHeader className="pb-3">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <CardTitle className="text-base">Supporting Documents</CardTitle>
-                                        <CardDescription className="text-xs">
-                                            PDF only, max 20MB each, up to 3 files. Or add a Google Drive link.
-                                        </CardDescription>
-                                    </div>
-                                    {canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status) && (
-                                        <div className="flex items-center gap-2">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => setShowGdriveInput(!showGdriveInput)}
-                                                disabled={isAddingGdriveLink}
-                                            >
-                                                <Link2 className="h-4 w-4 mr-2" />
-                                                Google Drive
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => document.getElementById('document-upload')?.click()}
-                                                disabled={isUploadingDoc || (liquidation.documents?.filter(d => !d.is_gdrive).length || 0) >= 3}
-                                            >
-                                                <Upload className="h-4 w-4 mr-2" />
-                                                {isUploadingDoc ? 'Uploading...' : 'Upload PDF'}
-                                            </Button>
-                                        </div>
-                                    )}
-                                    <input
-                                        id="document-upload"
-                                        type="file"
-                                        accept=".pdf,application/pdf"
-                                        className="hidden"
-                                        multiple
-                                        onChange={handleUploadDocument}
-                                    />
-                                </div>
-                            </CardHeader>
-                            <CardContent className="pt-0">
-                                {/* Google Drive Link Input */}
-                                {showGdriveInput && canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status) && (
-                                    <div className="mb-4 p-3 border rounded-md bg-muted/30">
-                                        <Label className="text-sm font-medium mb-2 block">Google Drive Link</Label>
-                                        <div className="flex items-center gap-2">
-                                            <Input
-                                                type="url"
-                                                placeholder="https://drive.google.com/..."
-                                                value={gdriveLink}
-                                                onChange={(e) => setGdriveLink(e.target.value)}
-                                                className="flex-1"
-                                            />
-                                            <Button
-                                                size="sm"
-                                                onClick={handleAddGdriveLink}
-                                                disabled={isAddingGdriveLink || !gdriveLink.trim()}
-                                            >
-                                                {isAddingGdriveLink ? (
-                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                ) : (
-                                                    'Add'
-                                                )}
-                                            </Button>
-                                            <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                onClick={() => {
-                                                    setShowGdriveInput(false);
-                                                    setGdriveLink('');
-                                                }}
-                                            >
-                                                <X className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                            Enter a valid Google Drive or Google Docs link
-                                        </p>
-                                    </div>
-                                )}
-
-                                {/* File Count Indicator */}
-                                {liquidation.documents && liquidation.documents.length > 0 && (
-                                    <div className="mb-3 text-xs text-muted-foreground">
-                                        PDF files: {liquidation.documents.filter(d => !d.is_gdrive).length}/3
-                                        {liquidation.documents.filter(d => d.is_gdrive).length > 0 && (
-                                            <span> | Google Drive links: {liquidation.documents.filter(d => d.is_gdrive).length}</span>
-                                        )}
-                                    </div>
-                                )}
-
-                                {liquidation.documents && liquidation.documents.length > 0 ? (
-                                    <div className="space-y-1.5">
-                                        {liquidation.documents.map((doc) => (
-                                            <div key={doc.id} className="flex items-center justify-between p-2 border rounded-md hover:bg-muted/50 transition-colors">
-                                                <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                    {doc.is_gdrive ? (
-                                                        <Link2 className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                                                    ) : (
-                                                        <File className="h-4 w-4 text-red-500 flex-shrink-0" />
-                                                    )}
-                                                    <div className="min-w-0 flex-1">
-                                                        <p className="text-sm font-medium truncate">
-                                                            {doc.is_gdrive ? 'Google Drive Link' : doc.file_name}
-                                                        </p>
-                                                        <p className="text-xs text-muted-foreground">
-                                                            {doc.is_gdrive ? (
-                                                                <span className="text-blue-500 truncate block max-w-[200px]">{doc.gdrive_link}</span>
-                                                            ) : (
-                                                                new Date(doc.uploaded_at).toLocaleDateString()
-                                                            )}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-1">
-                                                    {doc.is_gdrive ? (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-8 w-8 p-0"
-                                                            onClick={() => window.open(doc.gdrive_link, '_blank')}
-                                                        >
-                                                            <ExternalLink className="h-3.5 w-3.5" />
-                                                        </Button>
-                                                    ) : (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-8 w-8 p-0"
-                                                            onClick={() => window.open(route('liquidation.download-document', doc.id), '_blank')}
-                                                        >
-                                                            <Download className="h-3.5 w-3.5" />
-                                                        </Button>
-                                                    )}
-                                                    {canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status) && (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-8 w-8 p-0"
-                                                            onClick={() => handleDeleteDocument(doc.id)}
-                                                        >
-                                                            <X className="h-3.5 w-3.5 text-destructive" />
-                                                        </Button>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="text-center py-6 text-muted-foreground">
-                                        <File className="h-6 w-6 mx-auto mb-1.5 opacity-50" />
-                                        <p className="text-sm">No documents uploaded yet</p>
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
                     </TabsContent>
 
                     {/* History Tab */}

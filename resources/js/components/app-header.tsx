@@ -34,9 +34,11 @@ import {
 } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
 import {
+    Building2,
     Check,
     FileText,
     LayoutGrid,
+    MapPin,
     Menu,
     Monitor,
     Moon,
@@ -73,6 +75,18 @@ const allNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
         icon: Users,
         ability: 'canViewUsers',
     },
+    {
+        title: 'HEI',
+        href: '/hei',
+        icon: Building2,
+        ability: 'canViewHEI',
+    },
+    {
+        title: 'Regions',
+        href: '/regions',
+        icon: MapPin,
+        ability: 'canViewRegions',
+    },
 ];
 
 interface AppHeaderProps {
@@ -91,6 +105,8 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
         canViewLiquidation: false,
         canViewRoles: false,
         canViewUsers: false,
+        canViewHEI: false,
+        canViewRegions: false,
     };
 
     // Filter navigation items based on user abilities

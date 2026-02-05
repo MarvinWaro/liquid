@@ -16,19 +16,9 @@ import {
     Card,
     CardContent,
 } from '@/components/ui/card';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
+import { DeletePopover } from '@/components/ui/delete-popover';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Pencil, Trash2, Shield, Search, Lock } from 'lucide-react';
+import { Plus, Pencil, Shield, Search, Lock } from 'lucide-react';
 
 interface Permission {
     id: number;
@@ -200,31 +190,10 @@ export default function Index({ auth, roles, permissions, canCreate, canEdit, ca
                                                                 </Button>
                                                             )}
                                                             {canDelete && role.name !== 'Admin' && (
-                                                                <AlertDialog>
-                                                                    <AlertDialogTrigger asChild>
-                                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive">
-                                                                            <Trash2 className="h-4 w-4" />
-                                                                        </Button>
-                                                                    </AlertDialogTrigger>
-                                                                    <AlertDialogContent>
-                                                                        <AlertDialogHeader>
-                                                                            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                                                                            <AlertDialogDescription>
-                                                                                This will permanently delete the role "{role.name}".
-                                                                                This action cannot be undone.
-                                                                            </AlertDialogDescription>
-                                                                        </AlertDialogHeader>
-                                                                        <AlertDialogFooter>
-                                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                                            <AlertDialogAction
-                                                                                onClick={() => handleDelete(role.id)}
-                                                                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                                                            >
-                                                                                Delete
-                                                                            </AlertDialogAction>
-                                                                        </AlertDialogFooter>
-                                                                    </AlertDialogContent>
-                                                                </AlertDialog>
+                                                                <DeletePopover
+                                                                    itemName={role.name}
+                                                                    onConfirm={() => handleDelete(role.id)}
+                                                                />
                                                             )}
                                                         </div>
                                                     )}

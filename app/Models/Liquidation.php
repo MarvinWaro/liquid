@@ -21,6 +21,7 @@ class Liquidation extends Model
         'academic_year',
         'semester',
         'batch_no',
+        'number_of_grantees',
         'amount_received',
         'amount_disbursed',
         'amount_refunded',

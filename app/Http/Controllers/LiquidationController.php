@@ -23,21 +23,29 @@ class LiquidationController extends Controller
         }
 
         $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer'])
-            ->orderBy('created_at', 'desc');
+            ->orderBy('control_no', 'asc');
 
         // Filter based on user role
         $user = $request->user();
 
         // Regional Coordinator sees:
+        // - Draft liquidations they created (from bulk import)
         // - All liquidations pending review (for_initial_review, returned_to_rc)
         // - Their own endorsed liquidations (endorsed_to_accounting where they are the reviewer)
         if ($user->role->name === 'Regional Coordinator') {
             $query->where(function ($q) use ($user) {
-                $q->whereIn('status', ['for_initial_review', 'returned_to_rc'])
-                  ->orWhere(function ($q2) use ($user) {
-                      $q2->whereIn('status', ['endorsed_to_accounting', 'endorsed_to_coa'])
-                         ->where('reviewed_by', $user->id);
-                  });
+                // Drafts they created
+                $q->where(function ($q2) use ($user) {
+                    $q2->where('status', 'draft')
+                       ->where('created_by', $user->id);
+                })
+                // Pending review
+                ->orWhereIn('status', ['for_initial_review', 'returned_to_rc'])
+                // Their endorsed liquidations
+                ->orWhere(function ($q2) use ($user) {
+                    $q2->whereIn('status', ['endorsed_to_accounting', 'endorsed_to_coa'])
+                       ->where('reviewed_by', $user->id);
+                });
             });
         }
 
@@ -56,6 +64,11 @@ class LiquidationController extends Controller
             $query->where('status', $request->status);
         }
 
+        // Program filter
+        if ($request->program && $request->program !== 'all') {
+            $query->where('program_id', $request->program);
+        }
+
         // Search
         if ($request->search) {
             $query->where(function ($q) use ($request) {
@@ -66,35 +79,29 @@ class LiquidationController extends Controller
             });
         }
 
-        $liquidations = $query->paginate(15)->through(function ($liquidation) {
+        $liquidations = $query->with('program')->paginate(15)->through(function ($liquidation, $key) {
             return [
                 'id' => $liquidation->id,
-                'reference_number' => $liquidation->control_no ?? $liquidation->reference_number,
-                'hei' => [
-                    'id' => $liquidation->hei?->id ?? 0,
-                    'name' => $liquidation->hei?->name ?? 'N/A',
-                    'code' => $liquidation->hei?->code ?? 'N/A',
-                ],
-                'disbursed_amount' => number_format($liquidation->disbursed_amount, 2),
-                'liquidated_amount' => number_format($liquidation->liquidated_amount, 2),
+                'program' => $liquidation->program ? [
+                    'id' => $liquidation->program->id,
+                    'name' => $liquidation->program->name,
+                    'code' => $liquidation->program->code,
+                ] : null,
+                'uii' => $liquidation->hei?->uii ?? 'N/A',
+                'hei_name' => $liquidation->hei?->name ?? 'N/A',
+                'date_fund_released' => $liquidation->date_fund_released?->format('M d, Y'),
+                'due_date' => $liquidation->date_fund_released?->copy()->addDays(90)->format('M d, Y'),
+                'academic_year' => $liquidation->academic_year,
+                'semester' => $liquidation->semester,
+                'batch_no' => $liquidation->batch_no,
+                'dv_control_no' => $liquidation->control_no ?? $liquidation->reference_number,
+                'number_of_grantees' => $liquidation->number_of_grantees,
+                'total_disbursements' => number_format($liquidation->disbursed_amount ?? 0, 2),
                 'status' => $liquidation->status,
                 'status_label' => $liquidation->getStatusLabel(),
                 'status_badge' => $liquidation->getStatusBadgeClass(),
-                'created_at' => $liquidation->created_at->format('M d, Y'),
-                'created_by' => $liquidation->creator?->name ?? 'N/A',
-                'reviewed_by' => $liquidation->reviewer?->name,
-                'accountant_reviewed_by' => $liquidation->accountantReviewer?->name,
-                'days_lapsed' => $liquidation->days_lapsed,
             ];
         });
-
-        $heis = HEI::where('status', 'active')
-            ->orderBy('name')
-            ->get(['id', 'name', 'code']);
-
-        $programs = Program::where('status', 'active')
-            ->orderBy('code')
-            ->get(['id', 'code', 'name']);
 
         // Get user's HEI if they belong to one
         $userHei = $request->user()->hei;
@@ -108,10 +115,13 @@ class LiquidationController extends Controller
             $q->where('name', 'Accountant');
         })->where('status', 'active')->orderBy('name')->get(['id', 'name']);
 
+        // Get all active programs for filter
+        $programs = Program::where('status', 'active')
+            ->orderBy('name')
+            ->get(['id', 'name', 'code']);
+
         return Inertia::render('liquidation/index', [
             'liquidations' => $liquidations,
-            'heis' => $heis,
-            'programs' => $programs,
             'userHei' => $userHei ? [
                 'id' => $userHei->id,
                 'name' => $userHei->name,
@@ -120,94 +130,14 @@ class LiquidationController extends Controller
             ] : null,
             'regionalCoordinators' => $regionalCoordinators,
             'accountants' => $accountants,
-            'filters' => $request->only(['search']),
+            'programs' => $programs,
+            'filters' => $request->only(['search', 'status', 'program']),
             'permissions' => [
-                'create' => $request->user()->hasPermission('create_liquidation'),
-                'edit' => $request->user()->hasPermission('edit_liquidation'),
-                'delete' => $request->user()->hasPermission('delete_liquidation'),
                 'review' => $request->user()->hasPermission('review_liquidation'),
-                'endorse' => $request->user()->hasPermission('endorse_liquidation'),
+                'create' => $request->user()->hasPermission('create_liquidation'),
             ],
             'userRole' => $request->user()->role->name,
         ]);
-    }
-
-    /**
-     * Show the form for creating a new liquidation.
-     */
-    public function create(Request $request)
-    {
-        if (!$request->user()->hasPermission('create_liquidation')) {
-            abort(403, 'Unauthorized action.');
-        }
-
-        $heis = HEI::where('status', 'active')
-            ->orderBy('name')
-            ->get(['id', 'name', 'code']);
-
-        return Inertia::render('liquidation/create', [
-            'heis' => $heis,
-        ]);
-    }
-
-    /**
-     * Store a newly created liquidation.
-     */
-    public function store(Request $request)
-    {
-        if (!$request->user()->hasPermission('create_liquidation')) {
-            abort(403, 'Unauthorized action.');
-        }
-
-        $validated = $request->validate([
-            'hei_id' => 'required|exists:heis,id',
-            'program_id' => 'required|exists:programs,id',
-            'academic_year' => 'required|string',
-            'semester' => 'required|string',
-            'batch_no' => 'nullable|string|max:255',
-            'amount_received' => 'required|numeric|min:0',
-            'date_fund_released' => 'nullable|date',
-        ]);
-
-        // Get program to generate control number
-        $program = Program::findOrFail($validated['program_id']);
-
-        // Generate control number with database locking to prevent duplicates
-        $year = date('Y');
-
-        // Use database transaction with row locking to ensure unique control numbers
-        $liquidation = \DB::transaction(function () use ($validated, $program, $year, $request) {
-            $lastLiquidation = Liquidation::where('program_id', $program->id)
-                ->whereYear('created_at', $year)
-                ->orderBy('control_no', 'desc')
-                ->lockForUpdate() // Lock rows to prevent race conditions
-                ->first();
-
-            $nextNumber = $lastLiquidation ? ((int) substr($lastLiquidation->control_no, -5) + 1) : 1;
-            $controlNo = $program->code . '-' . $year . '-' . str_pad($nextNumber, 5, '0', STR_PAD_LEFT);
-
-            return Liquidation::create([
-            'hei_id' => $validated['hei_id'],
-            'program_id' => $validated['program_id'],
-            'academic_year' => $validated['academic_year'],
-            'semester' => $validated['semester'],
-            'batch_no' => $validated['batch_no'],
-            'control_no' => $controlNo,
-            'created_by' => $request->user()->id,
-            'status' => 'draft',
-            'date_fund_released' => $validated['date_fund_released'] ?? null,
-            // Initialize other required fields with defaults
-            'disbursed_amount' => $validated['amount_received'],
-            'amount_disbursed' => $validated['amount_received'],
-            'amount_received' => $validated['amount_received'],
-            'amount_refunded' => 0,
-                'liquidated_amount' => 0,
-                'document_status' => 'No Submission',
-            ]);
-        });
-
-        return redirect()->route('liquidation.index')
-            ->with('success', 'Liquidation report created successfully with Control No: ' . $liquidation->control_no);
     }
 
     /**
@@ -934,6 +864,358 @@ class LiquidationController extends Controller
         $cleaned = preg_replace('/[^0-9.\-]/', '', (string) $value);
 
         return (float) ($cleaned ?: 0);
+    }
+
+    /**
+     * Download RC bulk liquidation template.
+     */
+    public function downloadRCTemplate(Request $request)
+    {
+        $user = $request->user();
+
+        // Only RC can download this template
+        if ($user->role->name !== 'Regional Coordinator' && !$user->isSuperAdmin() && $user->role->name !== 'Admin') {
+            abort(403, 'Only Regional Coordinators can download this template.');
+        }
+
+        $templatePath = base_path('materials/template-for-rc.xlsx');
+
+        if (!file_exists($templatePath)) {
+            abort(404, 'Template file not found.');
+        }
+
+        return response()->download($templatePath, 'RC_LIQUIDATION_TEMPLATE.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
+    /**
+     * Bulk import liquidations from Excel file (for RC).
+     */
+    public function bulkImportLiquidations(Request $request)
+    {
+        $user = $request->user();
+
+        // Only RC can bulk import
+        if ($user->role->name !== 'Regional Coordinator' && !$user->isSuperAdmin() && $user->role->name !== 'Admin') {
+            abort(403, 'Only Regional Coordinators can bulk import liquidations.');
+        }
+
+        $validated = $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls|max:10240',
+        ], [
+            'file.mimes' => 'Please upload an Excel file (.xlsx or .xls).',
+            'file.max' => 'The file size must not exceed 10MB.',
+        ]);
+
+        $file = $request->file('file');
+        $path = $file->getRealPath();
+
+        $imported = 0;
+        $errors = [];
+
+        try {
+            $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($path);
+            $worksheet = $spreadsheet->getActiveSheet();
+            $rows = $worksheet->toArray();
+
+            // Remove header rows (instruction row and column header row)
+            // Skip rows until we find one with a numeric SEQ value
+            foreach ($rows as $index => $row) {
+                // Skip empty rows
+                if (empty(array_filter($row, fn($cell) => $cell !== null && $cell !== ''))) {
+                    continue;
+                }
+
+                // Skip header rows (SEQ column should be numeric for data rows)
+                $seq = trim($row[0] ?? '');
+                if (!is_numeric($seq)) {
+                    continue;
+                }
+
+                try {
+                    // Template columns (matching Excel format):
+                    // A (0): SEQ
+                    // B (1): Program
+                    // C (2): UII
+                    // D (3): HEI Name (auto-filled, skipped in import)
+                    // E (4): Date of Fund Release
+                    // F (5): Due Date
+                    // G (6): Academic Year
+                    // H (7): Semester
+                    // I (8): Batch no.
+                    // J (9): DV Control no.
+                    // K (10): Number of Grantees
+                    // L (11): Total Disbursements
+
+                    $programCode = trim($row[1] ?? '');
+                    $uii = trim($row[2] ?? '');
+                    $dvControlNo = trim($row[9] ?? '');
+
+                    // Find HEI by UII
+                    $hei = $this->findHEI($uii);
+                    if (!$hei) {
+                        $errors[] = "Row " . ($index + 2) . ": UII '{$uii}' not found. Please use a valid UII from the system.";
+                        continue;
+                    }
+
+                    // Find program by code or name
+                    $program = $this->findProgram($programCode);
+
+                    // Use DV Control no. from template, or generate if empty
+                    $controlNo = !empty($dvControlNo) ? $dvControlNo : $this->generateControlNumber();
+
+                    // Check if control_no already exists
+                    if (Liquidation::where('control_no', $controlNo)->exists()) {
+                        $errors[] = "Row " . ($index + 2) . ": DV Control No '{$controlNo}' already exists.";
+                        continue;
+                    }
+
+                    Liquidation::create([
+                        'control_no' => $controlNo,
+                        'hei_id' => $hei->id,
+                        'program_id' => $program?->id,
+                        'date_fund_released' => $this->parseExcelDate($row[4] ?? null),
+                        'academic_year' => trim($row[6] ?? ''),
+                        'semester' => $this->parseSemester($row[7] ?? ''),
+                        'batch_no' => trim($row[8] ?? ''),
+                        'number_of_grantees' => $this->parseInteger($row[10] ?? null),
+                        'amount_received' => $this->parseAmount($row[11] ?? 0),
+                        'disbursed_amount' => $this->parseAmount($row[11] ?? 0),
+                        'status' => 'draft',
+                        'created_by' => $user->id,
+                    ]);
+                    $imported++;
+                } catch (\Exception $e) {
+                    $errors[] = "Row " . ($index + 2) . ": " . $e->getMessage();
+                }
+            }
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Failed to read Excel file: ' . $e->getMessage());
+        }
+
+        if (count($errors) > 0 && $imported === 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Import failed: ' . implode('; ', array_slice($errors, 0, 5)),
+                'errors' => $errors,
+            ], 422);
+        }
+
+        if (count($errors) > 0) {
+            return response()->json([
+                'success' => true,
+                'message' => "Imported {$imported} liquidations with " . count($errors) . " errors.",
+                'imported' => $imported,
+                'errors' => $errors,
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => "Successfully imported {$imported} liquidations.",
+            'imported' => $imported,
+        ]);
+    }
+
+    /**
+     * Generate a unique control number for liquidation.
+     */
+    private function generateControlNumber(): string
+    {
+        $year = date('Y');
+        $prefix = "LIQ-{$year}-";
+
+        // Get the latest control number for this year
+        $latest = Liquidation::where('control_no', 'like', $prefix . '%')
+            ->orderBy('control_no', 'desc')
+            ->first();
+
+        if ($latest) {
+            $lastNumber = (int) str_replace($prefix, '', $latest->control_no);
+            $newNumber = $lastNumber + 1;
+        } else {
+            $newNumber = 1;
+        }
+
+        return $prefix . str_pad($newNumber, 5, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Parse semester value from Excel (1, 2, or text).
+     */
+    private function parseSemester($value): string
+    {
+        $value = trim((string) $value);
+
+        // If already in text format, return as is
+        if (stripos($value, 'semester') !== false || stripos($value, 'summer') !== false) {
+            return $value;
+        }
+
+        // Convert numeric to text
+        return match ($value) {
+            '1', '1st' => '1st Semester',
+            '2', '2nd' => '2nd Semester',
+            '3', 'summer', 'Summer' => 'Summer',
+            default => $value ?: '1st Semester',
+        };
+    }
+
+    /**
+     * Parse integer value from Excel.
+     */
+    private function parseInteger($value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        // Remove any non-numeric characters except minus
+        $cleaned = preg_replace('/[^0-9\-]/', '', (string) $value);
+
+        return $cleaned !== '' ? (int) $cleaned : null;
+    }
+
+    /**
+     * Find HEI by UII (primary) or name (fallback).
+     */
+    private function findHEI(string $identifier): ?HEI
+    {
+        if (empty($identifier)) {
+            return null;
+        }
+
+        $identifier = trim($identifier);
+
+        // 1. Try exact match by UII (primary method)
+        $hei = HEI::where('uii', $identifier)->first();
+        if ($hei) return $hei;
+
+        // 2. Try case-insensitive UII match
+        $hei = HEI::whereRaw('LOWER(uii) = ?', [strtolower($identifier)])->first();
+        if ($hei) return $hei;
+
+        // 3. Fallback: Try exact match by name (case-insensitive)
+        $hei = HEI::whereRaw('LOWER(name) = ?', [strtolower($identifier)])->first();
+        if ($hei) return $hei;
+
+        // 4. Fallback: Try partial match by name
+        $hei = HEI::whereRaw('LOWER(name) LIKE ?', ['%' . strtolower($identifier) . '%'])->first();
+
+        return $hei;
+    }
+
+    /**
+     * Find Program by name or code.
+     */
+    private function findProgram(string $programName): ?Program
+    {
+        if (empty($programName)) {
+            return null;
+        }
+
+        // 1. Try exact match by code (case-insensitive) - most common case
+        $program = Program::whereRaw('LOWER(code) = ?', [strtolower($programName)])->first();
+        if ($program) return $program;
+
+        // 2. Try exact match by name
+        $program = Program::whereRaw('LOWER(name) = ?', [strtolower($programName)])->first();
+        if ($program) return $program;
+
+        // 3. Try partial match
+        $program = Program::whereRaw('LOWER(name) LIKE ?', ['%' . strtolower($programName) . '%'])
+            ->orWhereRaw('LOWER(code) LIKE ?', ['%' . strtolower($programName) . '%'])
+            ->first();
+
+        return $program;
+    }
+
+    /**
+     * Lookup HEI by UII for auto-fill.
+     */
+    public function lookupHEI(Request $request)
+    {
+        $uii = trim($request->input('uii', ''));
+
+        if (empty($uii)) {
+            return response()->json(['found' => false, 'message' => 'UII is required']);
+        }
+
+        $hei = HEI::where('uii', $uii)->first();
+
+        if (!$hei) {
+            return response()->json(['found' => false, 'message' => 'HEI not found with this UII']);
+        }
+
+        return response()->json([
+            'found' => true,
+            'hei' => [
+                'id' => $hei->id,
+                'uii' => $hei->uii,
+                'name' => $hei->name,
+                'code' => $hei->code,
+                'type' => $hei->type,
+            ]
+        ]);
+    }
+
+    /**
+     * Store a single liquidation (for RC).
+     */
+    public function store(Request $request)
+    {
+        $user = $request->user();
+
+        // Only RC, Admin, Super Admin can create liquidations
+        if (!in_array($user->role->name, ['Regional Coordinator', 'Admin']) && !$user->isSuperAdmin()) {
+            abort(403, 'Only Regional Coordinators can create liquidations.');
+        }
+
+        $validated = $request->validate([
+            'program_id' => 'required|exists:programs,id',
+            'uii' => 'required|string',
+            'date_fund_released' => 'required|date',
+            'due_date' => 'nullable|date',
+            'academic_year' => 'required|string|max:20',
+            'semester' => 'required|string|max:50',
+            'batch_no' => 'nullable|string|max:50',
+            'dv_control_no' => 'required|string|max:100|unique:liquidations,control_no',
+            'number_of_grantees' => 'nullable|integer|min:0',
+            'total_disbursements' => 'required|numeric|min:0',
+        ], [
+            'dv_control_no.unique' => 'This DV Control No. already exists.',
+        ]);
+
+        // Find HEI by UII
+        $hei = HEI::where('uii', $validated['uii'])->first();
+        if (!$hei) {
+            return response()->json(['message' => 'HEI not found with the provided UII.'], 422);
+        }
+
+        $liquidation = Liquidation::create([
+            'control_no' => $validated['dv_control_no'],
+            'hei_id' => $hei->id,
+            'program_id' => $validated['program_id'],
+            'date_fund_released' => $validated['date_fund_released'],
+            'academic_year' => $validated['academic_year'],
+            'semester' => $validated['semester'],
+            'batch_no' => $validated['batch_no'] ?? null,
+            'number_of_grantees' => $validated['number_of_grantees'] ?? null,
+            'amount_received' => $validated['total_disbursements'],
+            'disbursed_amount' => $validated['total_disbursements'],
+            'status' => 'draft',
+            'created_by' => $user->id,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Liquidation created successfully.',
+            'liquidation' => [
+                'id' => $liquidation->id,
+                'control_no' => $liquidation->control_no,
+            ]
+        ]);
     }
 
     /**

@@ -27,6 +27,8 @@ export interface NavigationAbilities {
     canViewLiquidation: boolean;
     canViewRoles: boolean;
     canViewUsers: boolean;
+    canViewHEI: boolean;
+    canViewRegions: boolean;
 }
 
 export interface SharedData {

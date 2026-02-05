@@ -10,16 +10,12 @@ return new class extends Migration
     {
         Schema::create('heis', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->string('code')->unique()->comment('HEI Code');
+            $table->string('uii')->unique()->comment('Unique Institutional Identifier');
+            $table->string('code')->nullable()->comment('HEI Code');
             $table->string('name');
-            $table->string('type')->nullable()->comment('Public/Private');
-            $table->string('region')->nullable();
-            $table->string('province')->nullable();
-            $table->string('city_municipality')->nullable();
-            $table->text('address')->nullable();
-            $table->string('contact_person')->nullable();
-            $table->string('contact_number')->nullable();
-            $table->string('email')->nullable();
+            $table->enum('type', ['Private', 'SUC', 'LUC'])->comment('Private, SUC (State University Colleges), LUC (Local University Colleges)');
+            $table->uuid('region_id')->nullable();
+            $table->foreign('region_id')->references('id')->on('regions')->onDelete('set null');
             $table->enum('status', ['active', 'inactive'])->default('active');
             $table->timestamps();
         });

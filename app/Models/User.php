@@ -26,7 +26,7 @@ class User extends Authenticatable
         'password',
         'role_id',
         'hei_id',
-        'region',
+        'region_id',
         'status',
     ];
 
@@ -73,6 +73,14 @@ class User extends Authenticatable
     }
 
     /**
+     * Get the region for this user.
+     */
+    public function region(): BelongsTo
+    {
+        return $this->belongsTo(Region::class);
+    }
+
+    /**
      * Check if user has a specific permission.
      */
     public function hasPermission(string $permissionName): bool
@@ -115,6 +123,8 @@ class User extends Authenticatable
             'canViewLiquidation' => $this->hasPermission('view_liquidation'),
             'canViewRoles' => $this->hasPermission('view_roles'),
             'canViewUsers' => $this->hasPermission('view_users'),
+            'canViewHEI' => $this->hasPermission('view_hei'),
+            'canViewRegions' => $this->hasPermission('view_regions'),
         ];
     }
 
@@ -139,10 +149,6 @@ class User extends Authenticatable
      */
     public function getRegionLabel(): ?string
     {
-        return match($this->region) {
-            'region_12' => 'Region 12',
-            'barmm_b' => 'BARMM-B',
-            default => null,
-        };
+        return $this->region?->name;
     }
 }

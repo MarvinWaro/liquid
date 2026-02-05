@@ -1,12 +1,10 @@
 import InputError from '@/components/input-error';
-import TextLink from '@/components/text-link';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent } from "@/components/ui/card";
-import { register } from '@/routes';
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
 import { Form, Head } from '@inertiajs/react';
@@ -14,13 +12,11 @@ import { Form, Head } from '@inertiajs/react';
 interface LoginProps {
     status?: string;
     canResetPassword: boolean;
-    canRegister: boolean;
 }
 
 export default function Login({
     status,
     canResetPassword,
-    canRegister,
 }: LoginProps) {
     return (
         <div className="relative min-h-svh flex flex-col items-center justify-center p-6 md:p-10 overflow-hidden bg-background">
@@ -117,14 +113,6 @@ export default function Login({
                                             Log in
                                         </Button>
 
-                                        {canRegister && (
-                                            <div className="text-center text-xs mt-4 text-muted-foreground">
-                                                Don&apos;t have an account?{' '}
-                                                <TextLink href={register()} className="font-bold text-foreground hover:underline" tabIndex={5}>
-                                                    Sign up
-                                                </TextLink>
-                                            </div>
-                                        )}
                                     </>
                                 )}
                             </Form>

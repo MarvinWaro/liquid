@@ -16,22 +16,11 @@ import {
     Card,
     CardContent,
 } from '@/components/ui/card';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
+import { DeletePopover } from '@/components/ui/delete-popover';
 import { Badge } from '@/components/ui/badge';
 import {
     Plus,
     Pencil,
-    Trash2,
     User as UserIcon,
     Power,
     PowerOff,
@@ -47,9 +36,17 @@ interface Role {
 }
 
 interface HEI {
-    id: number;
+    id: string;
     name: string;
+    code?: string | null;
+    region_id?: string | null;
+    region?: Region | null;
+}
+
+interface Region {
+    id: string;
     code: string;
+    name: string;
 }
 
 interface User {
@@ -59,8 +56,10 @@ interface User {
     status: string;
     role: Role;
     role_id: number;
-    hei?: HEI;
-    region?: string | null;
+    hei?: HEI | null;
+    hei_id?: string | null;
+    region?: Region | null;
+    region_id?: string | null;
     created_at: string;
 }
 
@@ -70,21 +69,23 @@ interface Props {
     };
     users: User[];
     roles: Role[];
+    regions: Region[];
+    heis: HEI[];
     canCreate: boolean;
     canEdit: boolean;
     canDelete: boolean;
     canChangeStatus: boolean;
 }
 
-export default function Index({ auth, users, roles, canCreate, canEdit, canDelete, canChangeStatus }: Props) {
+export default function Index({ auth, users, roles, regions, heis, canCreate, canEdit, canDelete, canChangeStatus }: Props) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
 
     // Format region label for display
-    const getRegionLabel = (region?: string | null) => {
+    const getRegionLabel = (region?: Region | null) => {
         if (!region) return null;
-        return region === 'region_12' ? 'Region 12' : 'BARMM-B';
+        return region.name;
     };
 
     // Filter users based on search
@@ -125,6 +126,8 @@ export default function Index({ auth, users, roles, canCreate, canEdit, canDelet
                 onClose={() => setIsModalOpen(false)}
                 user={selectedUser}
                 roles={roles}
+                regions={regions}
+                heis={heis}
             />
 
             <div className="py-8 w-full">
@@ -302,31 +305,10 @@ export default function Index({ auth, users, roles, canCreate, canEdit, canDelet
                                                                 )}
 
                                                                 {canDelete && user.id !== auth.user.id && (
-                                                                    <AlertDialog>
-                                                                        <AlertDialogTrigger asChild>
-                                                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive">
-                                                                                <Trash2 className="h-4 w-4" />
-                                                                            </Button>
-                                                                        </AlertDialogTrigger>
-                                                                        <AlertDialogContent>
-                                                                            <AlertDialogHeader>
-                                                                                <AlertDialogTitle>Delete User?</AlertDialogTitle>
-                                                                                <AlertDialogDescription>
-                                                                                    Are you sure you want to delete <strong>{user.name}</strong>?
-                                                                                    This action cannot be undone.
-                                                                                </AlertDialogDescription>
-                                                                            </AlertDialogHeader>
-                                                                            <AlertDialogFooter>
-                                                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                                                <AlertDialogAction
-                                                                                    onClick={() => handleDelete(user.id)}
-                                                                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                                                                >
-                                                                                    Delete
-                                                                                </AlertDialogAction>
-                                                                            </AlertDialogFooter>
-                                                                        </AlertDialogContent>
-                                                                    </AlertDialog>
+                                                                    <DeletePopover
+                                                                        itemName={user.name}
+                                                                        onConfirm={() => handleDelete(user.id)}
+                                                                    />
                                                                 )}
                                                             </>
                                                         )}

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import InputError from '@/components/input-error';
 import TextLink from '@/components/text-link';
 import { Button } from '@/components/ui/button';
@@ -5,29 +6,33 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent } from "@/components/ui/card";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
+import { HEISelector } from '@/components/ui/hei-selector';
 import { login } from '@/routes';
 import { store } from '@/routes/register';
 import { Form, Head } from '@inertiajs/react';
 
-interface HEI {
-    id: number;
-    name: string;
+interface Region {
+    id: string;
     code: string;
-    uii: string | null;
+    name: string;
+}
+
+interface HEI {
+    id: string;
+    name: string;
+    code: string | null;
+    region_id?: string | null;
+    region?: Region | null;
 }
 
 interface Props {
     heis: HEI[];
+    regions: Region[];
 }
 
-export default function Register({ heis }: Props) {
+export default function Register({ heis, regions }: Props) {
+    const [selectedHeiId, setSelectedHeiId] = useState('');
+
     return (
         <div className="relative min-h-svh flex flex-col items-center justify-center p-6 md:p-10 overflow-hidden bg-background">
             <Head title="Register" />
@@ -45,7 +50,7 @@ export default function Register({ heis }: Props) {
             <div className="absolute inset-0 z-10 bg-gradient-to-br from-blue-50/90 via-white/80 to-blue-100/50 dark:from-gray-900/90 dark:via-gray-950/80 dark:to-gray-900/50 mix-blend-overlay dark:mix-blend-normal" />
 
             {/* CONTENT LAYER */}
-            <div className="relative z-20 w-full max-w-sm md:max-w-4xl">
+            <div className="relative z-20 w-full max-w-md md:max-w-5xl">
                 <Card className="overflow-hidden shadow-2xl border-0 rounded-2xl">
                     <CardContent className="grid p-0 md:grid-cols-2 h-full">
 
@@ -68,28 +73,25 @@ export default function Register({ heis }: Props) {
                             <Form
                                 {...store.form()}
                                 resetOnSuccess={['password', 'password_confirmation']}
-                                className="flex flex-col gap-4"
+                                className="flex flex-col gap-3"
                             >
                                 {({ processing, errors }) => (
                                     <>
-                                        <div className="grid gap-2">
+                                        <div className="grid gap-1.5">
                                             <Label htmlFor="hei_id" className="text-xs uppercase font-medium text-muted-foreground">Institution *</Label>
-                                            <Select name="hei_id" required>
-                                                <SelectTrigger id="hei_id" className="bg-muted/50 border-border">
-                                                    <SelectValue placeholder="Select your institution" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {heis.map((hei) => (
-                                                        <SelectItem key={hei.id} value={hei.id.toString()}>
-                                                            {hei.name} ({hei.code})
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
+                                            <input type="hidden" name="hei_id" value={selectedHeiId} />
+                                            <HEISelector
+                                                heis={heis}
+                                                regions={regions}
+                                                value={selectedHeiId}
+                                                onChange={setSelectedHeiId}
+                                                error={!!errors.hei_id}
+                                                placeholder="Search your institution..."
+                                            />
                                             <InputError message={errors.hei_id} />
                                         </div>
 
-                                        <div className="grid gap-2">
+                                        <div className="grid gap-1.5">
                                             <Label htmlFor="name" className="text-xs uppercase font-medium text-muted-foreground">Contact Person Name</Label>
                                             <Input
                                                 id="name"
@@ -101,7 +103,7 @@ export default function Register({ heis }: Props) {
                                             <InputError message={errors.name} />
                                         </div>
 
-                                        <div className="grid gap-2">
+                                        <div className="grid gap-1.5">
                                             <Label htmlFor="email" className="text-xs uppercase font-medium text-muted-foreground">Institutional Email</Label>
                                             <Input
                                                 id="email"
@@ -115,7 +117,7 @@ export default function Register({ heis }: Props) {
                                         </div>
 
                                         <div className="grid grid-cols-2 gap-4">
-                                            <div className="grid gap-2">
+                                            <div className="grid gap-1.5">
                                                 <Label htmlFor="password" title="Password" className="text-xs uppercase font-medium text-muted-foreground">Password</Label>
                                                 <Input
                                                     id="password"
@@ -125,7 +127,7 @@ export default function Register({ heis }: Props) {
                                                     className="bg-muted/50 border-border"
                                                 />
                                             </div>
-                                            <div className="grid gap-2">
+                                            <div className="grid gap-1.5">
                                                 <Label htmlFor="password_confirmation" className="text-xs uppercase font-medium text-muted-foreground">Confirm</Label>
                                                 <Input
                                                     id="password_confirmation"
