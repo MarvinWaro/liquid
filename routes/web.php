@@ -2,16 +2,15 @@
 
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
-use Laravel\Fortify\Features;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\HEIController;
+use App\Http\Controllers\RegionController;
 use App\Http\Controllers\LiquidationController;
 
 Route::get('/', function () {
-    return Inertia::render('welcome', [
-        'canRegister' => Features::enabled(Features::registration()),
-    ]);
+    return Inertia::render('welcome');
 })->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
@@ -34,10 +33,22 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::patch('users/{user}/toggle-status', [UserController::class, 'toggleStatus'])->name('users.toggle-status');
     Route::delete('users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
 
+    // HEI Management Routes
+    Route::get('hei', [HEIController::class, 'index'])->name('hei.index');
+    Route::post('hei', [HEIController::class, 'store'])->name('hei.store');
+    Route::put('hei/{hei}', [HEIController::class, 'update'])->name('hei.update');
+    Route::delete('hei/{hei}', [HEIController::class, 'destroy'])->name('hei.destroy');
+
+    // Region Management Routes
+    Route::get('regions', [RegionController::class, 'index'])->name('regions.index');
+    Route::post('regions', [RegionController::class, 'store'])->name('regions.store');
+    Route::put('regions/{region}', [RegionController::class, 'update'])->name('regions.update');
+    Route::delete('regions/{region}', [RegionController::class, 'destroy'])->name('regions.destroy');
+
     // Liquidation Management Routes
     Route::get('liquidation', [LiquidationController::class, 'index'])->name('liquidation.index');
-    Route::get('liquidation/create', [LiquidationController::class, 'create'])->name('liquidation.create');
     Route::post('liquidation', [LiquidationController::class, 'store'])->name('liquidation.store');
+    Route::get('liquidation/lookup-hei', [LiquidationController::class, 'lookupHEI'])->name('liquidation.lookup-hei');
     Route::get('liquidation/{liquidation}/edit', [LiquidationController::class, 'edit'])->name('liquidation.edit');
     Route::put('liquidation/{liquidation}', [LiquidationController::class, 'update'])->name('liquidation.update');
     Route::delete('liquidation/{liquidation}', [LiquidationController::class, 'destroy'])->name('liquidation.destroy');
@@ -57,6 +68,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Liquidation Template Download
     Route::get('liquidation/template/download', [LiquidationController::class, 'downloadTemplate'])->name('liquidation.download-template');
+
+    // RC Bulk Liquidation Routes
+    Route::get('liquidation/rc-template/download', [LiquidationController::class, 'downloadRCTemplate'])->name('liquidation.download-rc-template');
+    Route::post('liquidation/bulk-import', [LiquidationController::class, 'bulkImportLiquidations'])->name('liquidation.bulk-import');
 
     // Liquidation Beneficiary Routes
     Route::get('liquidation/{liquidation}', [LiquidationController::class, 'show'])->name('liquidation.show');

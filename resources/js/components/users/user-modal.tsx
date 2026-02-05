@@ -18,11 +18,26 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { HEISelector } from '@/components/ui/hei-selector';
 import { Save, Loader2 } from 'lucide-react';
 
 interface Role {
     id: number;
     name: string;
+}
+
+interface Region {
+    id: string;
+    code: string;
+    name: string;
+}
+
+interface HEI {
+    id: string;
+    name: string;
+    code?: string | null;
+    region_id?: string | null;
+    region?: Region | null;
 }
 
 interface User {
@@ -31,7 +46,8 @@ interface User {
     email: string;
     role_id: number;
     status: string;
-    region?: string | null;
+    region_id?: string | null;
+    hei_id?: string | null;
 }
 
 interface UserModalProps {
@@ -39,6 +55,8 @@ interface UserModalProps {
     onClose: () => void;
     user?: User | null;
     roles: Role[];
+    regions: Region[];
+    heis: HEI[];
 }
 
 interface FormData {
@@ -47,11 +65,12 @@ interface FormData {
     password: string;
     password_confirmation: string;
     role_id: string;
-    region: string;
+    region_id: string;
+    hei_id: string;
     status: string;
 }
 
-export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
+export function UserModal({ isOpen, onClose, user, roles, regions, heis }: UserModalProps) {
     const isEdit = !!user;
 
     const { data, setData, post, put, processing, errors, reset, clearErrors } = useForm<FormData>({
@@ -60,25 +79,30 @@ export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
         password: '',
         password_confirmation: '',
         role_id: '',
-        region: '',
+        region_id: '',
+        hei_id: '',
         status: 'active',
     });
+
+    // Get selected role name for conditional field display
+    const selectedRole = roles.find(r => r.id.toString() === data.role_id);
+    const isHEIRole = selectedRole?.name === 'HEI';
+    const isRegionalCoordinator = selectedRole?.name === 'Regional Coordinator';
 
     useEffect(() => {
         if (isOpen) {
             if (user) {
-                // Edit Mode: Populate form
                 setData({
                     name: user.name,
                     email: user.email,
                     password: '',
                     password_confirmation: '',
                     role_id: user.role_id.toString(),
-                    region: user.region || '',
+                    region_id: user.region_id || '',
+                    hei_id: user.hei_id || '',
                     status: user.status,
                 });
             } else {
-                // Create Mode: Reset form with default password
                 reset();
                 setData({
                     name: '',
@@ -86,7 +110,8 @@ export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
                     password: '12345678',
                     password_confirmation: '12345678',
                     role_id: '',
-                    region: '',
+                    region_id: '',
+                    hei_id: '',
                     status: 'active',
                 });
             }
@@ -113,16 +138,16 @@ export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="max-w-lg">
-                <DialogHeader>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                <DialogHeader className="pb-2">
                     <DialogTitle>{isEdit ? 'Edit User' : 'Create New User'}</DialogTitle>
                     <DialogDescription>
                         {isEdit ? 'Update user details.' : 'Add a new user to the system.'}
                     </DialogDescription>
                 </DialogHeader>
 
-                <form id="user-form" onSubmit={handleSubmit} className="space-y-4">
-                    <div className="space-y-2">
+                <form id="user-form" onSubmit={handleSubmit} className="space-y-3">
+                    <div className="space-y-1.5">
                         <Label htmlFor="name">Full Name *</Label>
                         <Input
                             id="name"
@@ -136,7 +161,7 @@ export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
                         )}
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                         <Label htmlFor="email">Email Address *</Label>
                         <Input
                             id="email"
@@ -152,7 +177,7 @@ export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
+                        <div className="space-y-1.5">
                             <Label htmlFor="role">Role *</Label>
                             <Select
                                 value={data.role_id}
@@ -174,7 +199,7 @@ export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
                             )}
                         </div>
 
-                        <div className="space-y-2">
+                        <div className="space-y-1.5">
                             <Label htmlFor="status">Status *</Label>
                             <Select
                                 value={data.status}
@@ -195,28 +220,51 @@ export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
                     </div>
 
                     {/* Region Selection - Applicable for Regional Coordinators */}
-                    <div className="space-y-2">
-                        <Label htmlFor="region">
-                            Region <span className="text-xs text-muted-foreground">(Applicable for Regional Coordinators)</span>
+                    {isRegionalCoordinator && (
+                        <div className="space-y-1.5">
+                            <Label htmlFor="region_id">
+                                Region {isRegionalCoordinator && <span className="text-destructive">*</span>}
+                            </Label>
+                            <Select
+                                value={data.region_id || undefined}
+                                onValueChange={(value) => setData('region_id', value)}
+                            >
+                                <SelectTrigger className={errors.region_id ? 'border-destructive' : ''}>
+                                    <SelectValue placeholder="Select region" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {regions.map((region) => (
+                                        <SelectItem key={region.id} value={region.id}>
+                                            {region.name} ({region.code})
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {errors.region_id && (
+                                <p className="text-sm text-destructive">{errors.region_id}</p>
+                            )}
+                        </div>
+                    )}
+
+                    {/* HEI Selection - Always visible, required only for HEI role */}
+                    <div className="space-y-1.5">
+                        <Label htmlFor="hei_id">
+                            Institution {isHEIRole ? <span className="text-destructive">*</span> : <span className="text-muted-foreground text-xs">(Optional)</span>}
                         </Label>
-                        <Select
-                            value={data.region || undefined}
-                            onValueChange={(value) => setData('region', value)}
-                        >
-                            <SelectTrigger className={errors.region ? 'border-destructive' : ''}>
-                                <SelectValue placeholder="Select region (Optional)" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="region_12">Region 12</SelectItem>
-                                <SelectItem value="barmm_b">BARMM-B</SelectItem>
-                            </SelectContent>
-                        </Select>
-                        {errors.region && (
-                            <p className="text-sm text-destructive">{errors.region}</p>
+                        <HEISelector
+                            heis={heis}
+                            regions={regions}
+                            value={data.hei_id}
+                            onChange={(value) => setData('hei_id', value)}
+                            error={!!errors.hei_id}
+                            placeholder="Search institution..."
+                        />
+                        {errors.hei_id && (
+                            <p className="text-sm text-destructive">{errors.hei_id}</p>
                         )}
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                         <Label htmlFor="password">
                             Password {isEdit ? '(Leave blank to keep current)' : '*'}
                         </Label>
@@ -238,7 +286,7 @@ export function UserModal({ isOpen, onClose, user, roles }: UserModalProps) {
                         )}
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                         <Label htmlFor="password_confirmation">Confirm Password</Label>
                         <Input
                             id="password_confirmation"

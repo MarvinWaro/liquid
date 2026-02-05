@@ -5,21 +5,16 @@ namespace App\Models;
 use App\Traits\HasUuid;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class HEI extends Model
+class Region extends Model
 {
     use HasFactory, HasUuid;
 
-    protected $table = 'heis';
-
     protected $fillable = [
-        'uii',
         'code',
         'name',
-        'type',
-        'region_id',
+        'description',
         'status',
     ];
 
@@ -31,23 +26,15 @@ class HEI extends Model
     }
 
     /**
-     * Get the region this HEI belongs to.
+     * Get users for this region.
      */
-    public function region(): BelongsTo
+    public function users(): HasMany
     {
-        return $this->belongsTo(Region::class);
+        return $this->hasMany(User::class);
     }
 
     /**
-     * Get liquidations for this HEI.
-     */
-    public function liquidations(): HasMany
-    {
-        return $this->hasMany(Liquidation::class);
-    }
-
-    /**
-     * Check if HEI is active.
+     * Check if region is active.
      */
     public function isActive(): bool
     {

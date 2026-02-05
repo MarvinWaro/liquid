@@ -1,16 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import { useForm, usePage } from '@inertiajs/react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
-    DialogFooter,
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
     Select,
     SelectContent,
@@ -18,250 +15,338 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from '@/components/ui/card';
-import { Save, Loader2, FileText, Banknote } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { toast } from 'sonner';
+import axios from 'axios';
 
 interface Program {
-    id: number;
+    id: string;
     name: string;
+    code: string;
 }
 
-interface School {
-    id: number;
+interface HEILookup {
+    id: string;
+    uii: string;
     name: string;
+    code: string | null;
+    type: string;
 }
 
-interface Props {
+interface CreateLiquidationModalProps {
     isOpen: boolean;
     onClose: () => void;
-    nextSequence: string; // ✅ Receive sequence (00001)
-    currentYear: string;  // ✅ Receive year (2026)
     programs: Program[];
-    schools: School[];
+    onSuccess: () => void;
 }
 
-export function CreateLiquidationModal({ isOpen, onClose, nextSequence, currentYear, programs, schools }: Props) {
-    const { auth } = usePage().props as any;
+const SEMESTERS = [
+    { value: '1st Semester', label: '1st Semester' },
+    { value: '2nd Semester', label: '2nd Semester' },
+    { value: 'Summer', label: 'Summer' },
+];
 
-    const { data, setData, post, processing, errors, reset, clearErrors } = useForm({
-        batch_no: '', // ✅ Added Batch No field
-        hei_id: '',
+export function CreateLiquidationModal({
+    isOpen,
+    onClose,
+    programs,
+    onSuccess,
+}: CreateLiquidationModalProps) {
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isLookingUp, setIsLookingUp] = useState(false);
+    const [heiLookup, setHeiLookup] = useState<HEILookup | null>(null);
+    const [lookupError, setLookupError] = useState<string | null>(null);
+
+    const [formData, setFormData] = useState({
         program_id: '',
+        uii: '',
+        date_fund_released: '',
+        due_date: '',
         academic_year: '',
         semester: '',
-        amount_received: '',
+        batch_no: '',
+        dv_control_no: '',
+        number_of_grantees: '',
+        total_disbursements: '',
     });
 
-    const [previewControlNo, setPreviewControlNo] = useState("Select Program...");
-
-    // ✅ Effect: Dynamically update Control No based on Program Selection
+    // Reset form when modal closes
     useEffect(() => {
-        if (isOpen) {
-            let prefix = "---";
-            // Check IDs based on your database (1=TES, 2=TDP)
-            if (data.program_id === '1') prefix = "TES";
-            if (data.program_id === '2') prefix = "TDP";
-
-            // Generate the preview string
-            if (data.program_id) {
-                setPreviewControlNo(`${prefix}-${currentYear}-${nextSequence}`);
-            } else {
-                setPreviewControlNo("Select Program...");
-            }
-        } else {
-            reset();
-            clearErrors();
+        if (!isOpen) {
+            setFormData({
+                program_id: '',
+                uii: '',
+                date_fund_released: '',
+                due_date: '',
+                academic_year: '',
+                semester: '',
+                batch_no: '',
+                dv_control_no: '',
+                number_of_grantees: '',
+                total_disbursements: '',
+            });
+            setHeiLookup(null);
+            setLookupError(null);
         }
-    }, [isOpen, data.program_id, nextSequence, currentYear]);
+    }, [isOpen]);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    // Debounced UII lookup
+    const lookupHEI = useCallback(async (uii: string) => {
+        if (!uii || uii.length < 2) {
+            setHeiLookup(null);
+            setLookupError(null);
+            return;
+        }
+
+        setIsLookingUp(true);
+        setLookupError(null);
+
+        try {
+            const response = await axios.get(route('liquidation.lookup-hei'), {
+                params: { uii }
+            });
+
+            if (response.data.found) {
+                setHeiLookup(response.data.hei);
+                setLookupError(null);
+            } else {
+                setHeiLookup(null);
+                setLookupError(response.data.message || 'HEI not found');
+            }
+        } catch (error) {
+            setHeiLookup(null);
+            setLookupError('Failed to lookup HEI');
+        } finally {
+            setIsLookingUp(false);
+        }
+    }, []);
+
+    // Debounce UII input
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            if (formData.uii) {
+                lookupHEI(formData.uii);
+            }
+        }, 500);
+
+        return () => clearTimeout(timer);
+    }, [formData.uii, lookupHEI]);
+
+    const handleInputChange = (field: string, value: string) => {
+        setFormData(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        post(route('liquidations.store'), {
-            onSuccess: () => {
-                reset();
+        if (!heiLookup) {
+            toast.error('Please enter a valid UII');
+            return;
+        }
+
+        setIsSubmitting(true);
+
+        try {
+            const response = await axios.post(route('liquidation.store'), formData);
+
+            if (response.data.success) {
+                toast.success('Liquidation created successfully');
+                onSuccess();
                 onClose();
-            },
-        });
+            }
+        } catch (error: any) {
+            const message = error.response?.data?.message || 'Failed to create liquidation';
+            toast.error(message);
+
+            if (error.response?.data?.errors) {
+                Object.values(error.response.data.errors).flat().forEach((err: any) => {
+                    toast.error(err);
+                });
+            }
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
-        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="sm:max-w-4xl w-full max-h-[90vh] flex flex-col p-0 gap-0">
-                <DialogHeader className="p-5 pb-4 border-b">
-                    <DialogTitle className="text-xl font-semibold">New Liquidation Report</DialogTitle>
-                    <DialogDescription className="text-sm">
-                        Initialize a new fund utilization report for CHED verification.
-                    </DialogDescription>
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                    <DialogTitle>Create Liquidation Report</DialogTitle>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-y-auto bg-muted/30 p-5">
-                    <form id="create-liquidation-form" onSubmit={handleSubmit} className="h-full">
-                        <div className="grid grid-cols-1 md:grid-cols-12 gap-5 h-full">
-
-                            {/* LEFT COLUMN: Reference Info */}
-                            <div className="md:col-span-4 space-y-4">
-                                <Card className="border-l-4 border-l-primary shadow-sm h-full">
-                                    <CardHeader className="p-4 pb-2">
-                                        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                                            <FileText className="h-4 w-4 text-primary" />
-                                            Reference Info
-                                        </CardTitle>
-                                    </CardHeader>
-                                    <CardContent className="p-4 space-y-4">
-                                        <div className="space-y-1.5">
-                                            <Label className="text-[11px] text-muted-foreground uppercase tracking-wider font-bold">Control Number</Label>
-                                            {/* ✅ Dynamic Preview Display */}
-                                            <div className={`font-mono text-sm font-bold py-2 px-3 rounded border text-center ${data.program_id ? 'bg-primary/10 text-primary border-primary/20' : 'bg-muted text-muted-foreground'}`}>
-                                                {previewControlNo}
-                                            </div>
-                                            <p className="text-[10px] text-muted-foreground text-center">
-                                                Auto-generated based on Program & Year
-                                            </p>
-                                        </div>
-
-                                        {/* ✅ New Batch No Input */}
-                                        <div className="space-y-1.5">
-                                            <Label htmlFor="batch_no" className="text-xs font-semibold">Batch No. (Optional)</Label>
-                                            <Input
-                                                id="batch_no"
-                                                placeholder="e.g., Batch 1"
-                                                value={data.batch_no}
-                                                onChange={(e) => setData('batch_no', e.target.value)}
-                                                className={`h-9 text-sm ${errors.batch_no ? 'border-destructive' : ''}`}
-                                            />
-                                            {errors.batch_no && <p className="text-xs text-destructive">{errors.batch_no}</p>}
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                            <Label htmlFor="hei_id" className="text-xs font-semibold">Select HEI / School *</Label>
-                                            <Select
-                                                value={data.hei_id}
-                                                onValueChange={(val) => setData('hei_id', val)}
-                                            >
-                                                <SelectTrigger className={`h-9 text-sm ${errors.hei_id ? 'border-destructive' : ''}`}>
-                                                    <SelectValue placeholder="Select Institution..." />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {schools.map((school) => (
-                                                        <SelectItem key={school.id} value={school.id.toString()} className="text-sm">
-                                                            {school.name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                            {errors.hei_id && <p className="text-xs text-destructive">{errors.hei_id}</p>}
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            </div>
-
-                            {/* RIGHT COLUMN: Report Details */}
-                            <div className="md:col-span-8">
-                                <Card className="shadow-sm h-full flex flex-col">
-                                    <CardHeader className="p-4 pb-2 border-b bg-background">
-                                        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                                            <Banknote className="h-4 w-4 text-green-600" />
-                                            Fund Details
-                                        </CardTitle>
-                                    </CardHeader>
-                                    <CardContent className="p-5 space-y-5 flex-1">
-
-                                        <div className="space-y-1.5">
-                                            <Label htmlFor="program_id" className="text-sm">Program Fund *</Label>
-                                            <Select
-                                                value={data.program_id}
-                                                onValueChange={(val) => setData('program_id', val)}
-                                            >
-                                                <SelectTrigger className={errors.program_id ? 'border-destructive' : ''}>
-                                                    <SelectValue placeholder="Select Program..." />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {programs.map((p) => (
-                                                        <SelectItem key={p.id} value={p.id.toString()}>
-                                                            {p.name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                            {errors.program_id && <p className="text-xs text-destructive">{errors.program_id}</p>}
-                                        </div>
-
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-1.5">
-                                                <Label htmlFor="academic_year" className="text-sm">Academic Year *</Label>
-                                                <Input
-                                                    id="academic_year"
-                                                    placeholder="e.g., 2024-2025"
-                                                    value={data.academic_year}
-                                                    onChange={(e) => setData('academic_year', e.target.value)}
-                                                    className={errors.academic_year ? 'border-destructive' : ''}
-                                                />
-                                                {errors.academic_year && <p className="text-xs text-destructive">{errors.academic_year}</p>}
-                                            </div>
-
-                                            <div className="space-y-1.5">
-                                                <Label htmlFor="semester" className="text-sm">Semester *</Label>
-                                                <Select
-                                                    value={data.semester}
-                                                    onValueChange={(val) => setData('semester', val)}
-                                                >
-                                                    <SelectTrigger className={errors.semester ? 'border-destructive' : ''}>
-                                                        <SelectValue placeholder="Select Semester" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="1st Semester">1st Semester</SelectItem>
-                                                        <SelectItem value="2nd Semester">2nd Semester</SelectItem>
-                                                        <SelectItem value="Summer">Summer</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                                {errors.semester && <p className="text-xs text-destructive">{errors.semester}</p>}
-                                            </div>
-                                        </div>
-
-                                        <div className="pt-2 mt-auto">
-                                            <div className="bg-green-50/50 p-4 rounded-lg border border-green-100">
-                                                <Label htmlFor="amount_received" className="text-sm font-semibold text-green-900">
-                                                    Total Amount Received (PHP) *
-                                                </Label>
-                                                <div className="relative mt-2">
-                                                    <span className="absolute left-3 top-2.5 text-green-600 font-bold text-lg">₱</span>
-                                                    <Input
-                                                        id="amount_received"
-                                                        type="number"
-                                                        step="0.01"
-                                                        placeholder="0.00"
-                                                        className={`pl-8 h-12 text-lg font-mono font-bold bg-white text-green-700 ${errors.amount_received ? 'border-destructive' : 'border-green-200 focus-visible:ring-green-500'}`}
-                                                        value={data.amount_received}
-                                                        onChange={(e) => setData('amount_received', e.target.value)}
-                                                    />
-                                                </div>
-                                                {errors.amount_received && <p className="text-xs text-destructive mt-1">{errors.amount_received}</p>}
-                                            </div>
-                                        </div>
-
-                                    </CardContent>
-                                </Card>
-                            </div>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                        {/* Program */}
+                        <div className="space-y-2">
+                            <Label htmlFor="program_id">Program *</Label>
+                            <Select
+                                value={formData.program_id}
+                                onValueChange={(value) => handleInputChange('program_id', value)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select program" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {programs.map((program) => (
+                                        <SelectItem key={program.id} value={program.id}>
+                                            {program.code} - {program.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
-                    </form>
-                </div>
 
-                <DialogFooter className="p-4 border-t bg-background">
-                    <Button variant="outline" type="button" onClick={onClose} className="mr-2">
-                        Cancel
-                    </Button>
-                    <Button type="submit" form="create-liquidation-form" disabled={processing} className="bg-primary hover:bg-primary/90">
-                        {processing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                        Create Report
-                    </Button>
-                </DialogFooter>
+                        {/* UII with auto-fill */}
+                        <div className="space-y-2">
+                            <Label htmlFor="uii">UII (Unique Institutional Identifier) *</Label>
+                            <div className="relative">
+                                <Input
+                                    id="uii"
+                                    value={formData.uii}
+                                    onChange={(e) => handleInputChange('uii', e.target.value)}
+                                    placeholder="Enter UII"
+                                    className={`pr-10 ${heiLookup ? 'border-green-500' : lookupError ? 'border-red-500' : ''}`}
+                                />
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                    {isLookingUp && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                                    {!isLookingUp && heiLookup && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                                    {!isLookingUp && lookupError && <XCircle className="h-4 w-4 text-red-500" />}
+                                </div>
+                            </div>
+                            {lookupError && (
+                                <p className="text-sm text-red-500">{lookupError}</p>
+                            )}
+                        </div>
+
+                        {/* HEI Name (auto-filled, disabled) */}
+                        <div className="space-y-2">
+                            <Label htmlFor="hei_name">HEI Name</Label>
+                            <Input
+                                id="hei_name"
+                                value={heiLookup?.name || ''}
+                                disabled
+                                placeholder="Auto-filled from UII"
+                                className={`bg-muted ${heiLookup ? 'border-green-500 text-foreground' : ''}`}
+                            />
+                        </div>
+
+                        {/* Date of Fund Released */}
+                        <div className="space-y-2">
+                            <Label htmlFor="date_fund_released">Date of Fund Released *</Label>
+                            <Input
+                                id="date_fund_released"
+                                type="date"
+                                value={formData.date_fund_released}
+                                onChange={(e) => handleInputChange('date_fund_released', e.target.value)}
+                            />
+                        </div>
+
+                        {/* Due Date */}
+                        <div className="space-y-2">
+                            <Label htmlFor="due_date">Due Date</Label>
+                            <Input
+                                id="due_date"
+                                type="date"
+                                value={formData.due_date}
+                                onChange={(e) => handleInputChange('due_date', e.target.value)}
+                            />
+                        </div>
+
+                        {/* Academic Year */}
+                        <div className="space-y-2">
+                            <Label htmlFor="academic_year">Academic Year *</Label>
+                            <Input
+                                id="academic_year"
+                                value={formData.academic_year}
+                                onChange={(e) => handleInputChange('academic_year', e.target.value)}
+                                placeholder="e.g., 2024-2025"
+                            />
+                        </div>
+
+                        {/* Semester */}
+                        <div className="space-y-2">
+                            <Label htmlFor="semester">Semester *</Label>
+                            <Select
+                                value={formData.semester}
+                                onValueChange={(value) => handleInputChange('semester', value)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select semester" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {SEMESTERS.map((sem) => (
+                                        <SelectItem key={sem.value} value={sem.value}>
+                                            {sem.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {/* Batch No */}
+                        <div className="space-y-2">
+                            <Label htmlFor="batch_no">Batch No.</Label>
+                            <Input
+                                id="batch_no"
+                                value={formData.batch_no}
+                                onChange={(e) => handleInputChange('batch_no', e.target.value)}
+                                placeholder="e.g., Batch 1"
+                            />
+                        </div>
+
+                        {/* DV Control No */}
+                        <div className="space-y-2">
+                            <Label htmlFor="dv_control_no">DV Control No. *</Label>
+                            <Input
+                                id="dv_control_no"
+                                value={formData.dv_control_no}
+                                onChange={(e) => handleInputChange('dv_control_no', e.target.value)}
+                                placeholder="e.g., 2025-0001"
+                            />
+                        </div>
+
+                        {/* Number of Grantees */}
+                        <div className="space-y-2">
+                            <Label htmlFor="number_of_grantees">Number of Grantees</Label>
+                            <Input
+                                id="number_of_grantees"
+                                type="number"
+                                min="0"
+                                value={formData.number_of_grantees}
+                                onChange={(e) => handleInputChange('number_of_grantees', e.target.value)}
+                                placeholder="Enter number"
+                            />
+                        </div>
+
+                        {/* Total Disbursements */}
+                        <div className="space-y-2">
+                            <Label htmlFor="total_disbursements">Total Disbursements *</Label>
+                            <Input
+                                id="total_disbursements"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={formData.total_disbursements}
+                                onChange={(e) => handleInputChange('total_disbursements', e.target.value)}
+                                placeholder="Enter amount"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-4">
+                        <Button type="button" variant="outline" onClick={onClose}>
+                            Cancel
+                        </Button>
+                        <Button
+                            type="submit"
+                            disabled={isSubmitting || !heiLookup}
+                        >
+                            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Create Liquidation
+                        </Button>
+                    </div>
+                </form>
             </DialogContent>
         </Dialog>
     );

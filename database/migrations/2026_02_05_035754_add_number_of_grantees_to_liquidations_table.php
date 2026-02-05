@@ -11,8 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('heis', function (Blueprint $table) {
-            $table->string('uii')->unique()->nullable()->after('code')->comment('Unified Institution Identifier');
+        Schema::table('liquidations', function (Blueprint $table) {
+            $table->integer('number_of_grantees')->nullable()->after('batch_no');
         });
     }
 
@@ -21,8 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('heis', function (Blueprint $table) {
-            $table->dropColumn('uii');
+        Schema::table('liquidations', function (Blueprint $table) {
+            $table->dropColumn('number_of_grantees');
         });
     }
 };

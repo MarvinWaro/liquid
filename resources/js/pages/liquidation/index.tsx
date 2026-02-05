@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import AppLayout from '@/layouts/app-layout';
-import { Head, router, Link } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -23,11 +23,11 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Plus, Search, FileText, Eye } from 'lucide-react';
-import { LiquidationCreateModal } from '@/components/liquidation/liquidation-create-modal';
-import { CreateLiquidationModalHEI } from '@/components/liquidations/create-liquidation-modal-hei';
+import { Search, FileText, Eye, Download, Upload, Plus } from 'lucide-react';
 import { ViewLiquidationModal } from '@/components/liquidations/view-liquidation-modal';
+import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
 import axios from 'axios';
+import { toast } from 'sonner';
 
 interface HEI {
     id: number;
@@ -37,25 +37,27 @@ interface HEI {
 }
 
 interface Program {
-    id: number;
-    code: string;
+    id: string;
     name: string;
+    code: string;
 }
 
 interface Liquidation {
     id: number;
-    reference_number: string;
-    hei: HEI;
-    disbursed_amount: string;
-    liquidated_amount: string;
+    program: Program | null;
+    uii: string;
+    hei_name: string;
+    date_fund_released: string | null;
+    due_date: string | null;
+    academic_year: string | null;
+    semester: string | null;
+    batch_no: string | null;
+    dv_control_no: string;
+    number_of_grantees: number | null;
+    total_disbursements: string;
     status: string;
     status_label: string;
     status_badge: string;
-    created_at: string;
-    created_by: string;
-    reviewed_by: string | null;
-    accountant_reviewed_by: string | null;
-    days_lapsed: number | null;
 }
 
 interface User {
@@ -64,42 +66,44 @@ interface User {
 }
 
 interface Props {
-    auth: {
-        user: any;
-    };
     liquidations: {
         data: Liquidation[];
         links: any[];
         meta: any;
     };
-    heis: HEI[];
-    programs: Program[];
     userHei: HEI | null;
     regionalCoordinators: User[];
     accountants: User[];
+    programs: Program[];
     filters: {
         search?: string;
+        status?: string;
+        program?: string;
     };
     permissions: {
-        create: boolean;
-        edit: boolean;
-        delete: boolean;
         review: boolean;
-        endorse: boolean;
+        create: boolean;
     };
     userRole: string;
 }
 
-export default function Index({ auth, liquidations, heis, programs, userHei, regionalCoordinators, accountants, filters, permissions, userRole }: Props) {
+export default function Index({ liquidations, userHei, regionalCoordinators, accountants, programs, filters, permissions, userRole }: Props) {
     const [searchQuery, setSearchQuery] = useState(filters.search || '');
-    const [statusFilter, setStatusFilter] = useState('');
-    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [statusFilter, setStatusFilter] = useState(filters.status || '');
+    const [programFilter, setProgramFilter] = useState(filters.program || '');
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [selectedLiquidation, setSelectedLiquidation] = useState<any>(null);
+    const [isUploading, setIsUploading] = useState(false);
+    const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+    const isRC = userRole === 'Regional Coordinator';
+    const isHEI = userRole === 'HEI';
+    const canCreate = (permissions.create || isRC) && !isHEI;
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        router.get(route('liquidation.index'), { search: searchQuery, status: statusFilter }, {
+        router.get(route('liquidation.index'), { search: searchQuery, status: statusFilter, program: programFilter }, {
             preserveState: true,
             preserveScroll: true,
         });
@@ -107,10 +111,65 @@ export default function Index({ auth, liquidations, heis, programs, userHei, reg
 
     const handleStatusFilter = (value: string) => {
         setStatusFilter(value);
-        router.get(route('liquidation.index'), { search: searchQuery, status: value }, {
+        router.get(route('liquidation.index'), { search: searchQuery, status: value, program: programFilter }, {
             preserveState: true,
             preserveScroll: true,
         });
+    };
+
+    const handleProgramFilter = (value: string) => {
+        setProgramFilter(value);
+        router.get(route('liquidation.index'), { search: searchQuery, status: statusFilter, program: value }, {
+            preserveState: true,
+            preserveScroll: true,
+        });
+    };
+
+    const handleDownloadTemplate = () => {
+        window.location.href = route('liquidation.download-rc-template');
+    };
+
+    const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setIsUploading(true);
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const response = await axios.post(route('liquidation.bulk-import'), formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            if (response.data.success) {
+                toast.success(response.data.message);
+
+                // Show individual errors if any
+                if (response.data.errors && response.data.errors.length > 0) {
+                    response.data.errors.slice(0, 3).forEach((err: string) => {
+                        toast.warning(err);
+                    });
+                }
+
+                router.reload();
+            }
+        } catch (error: any) {
+            const message = error.response?.data?.message || 'Failed to import liquidations';
+            toast.error(message);
+
+            // Show individual errors if available
+            if (error.response?.data?.errors) {
+                error.response.data.errors.slice(0, 3).forEach((err: string) => {
+                    toast.error(err);
+                });
+            }
+        } finally {
+            setIsUploading(false);
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
+        }
     };
 
     const getStatusColor = (status: string) => {
@@ -162,22 +221,6 @@ export default function Index({ auth, liquidations, heis, programs, userHei, reg
         <AppLayout>
             <Head title="Liquidation Management" />
 
-            {/* Use different modals based on user type */}
-            {userHei ? (
-                <CreateLiquidationModalHEI
-                    isOpen={isCreateModalOpen}
-                    onClose={() => setIsCreateModalOpen(false)}
-                    programs={programs}
-                    userHei={userHei}
-                />
-            ) : (
-                <LiquidationCreateModal
-                    isOpen={isCreateModalOpen}
-                    onClose={() => setIsCreateModalOpen(false)}
-                    heis={heis}
-                />
-            )}
-
             {/* View Liquidation Modal */}
             <ViewLiquidationModal
                 isOpen={isViewModalOpen}
@@ -196,6 +239,14 @@ export default function Index({ auth, liquidations, heis, programs, userHei, reg
                 accountants={accountants}
             />
 
+            {/* Create Liquidation Modal */}
+            <CreateLiquidationModal
+                isOpen={isCreateModalOpen}
+                onClose={() => setIsCreateModalOpen(false)}
+                programs={programs}
+                onSuccess={() => router.reload()}
+            />
+
             <div className="py-8 w-full">
                 <div className="w-full max-w-[95%] mx-auto">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
@@ -207,19 +258,40 @@ export default function Index({ auth, liquidations, heis, programs, userHei, reg
                                 {!['Regional Coordinator', 'Accountant'].includes(userRole) && 'Manage liquidation records and submissions'}
                             </p>
                         </div>
-                        {permissions.create && (
-                            <Button onClick={() => setIsCreateModalOpen(true)}>
-                                <Plus className="mr-2 h-4 w-4" />
-                                Create Liquidation
-                            </Button>
+                        {canCreate && (
+                            <div className="flex gap-2">
+                                <Button onClick={() => setIsCreateModalOpen(true)}>
+                                    <Plus className="h-4 w-4 mr-2" />
+                                    Create Liquidation
+                                </Button>
+                                <Button variant="outline" onClick={handleDownloadTemplate}>
+                                    <Download className="h-4 w-4 mr-2" />
+                                    Download Template
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={isUploading}
+                                >
+                                    <Upload className="h-4 w-4 mr-2" />
+                                    {isUploading ? 'Uploading...' : 'Bulk Upload'}
+                                </Button>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept=".xlsx,.xls"
+                                    className="hidden"
+                                    onChange={handleBulkUpload}
+                                />
+                            </div>
                         )}
                     </div>
 
                     <Card>
                         <CardContent className="pt-6">
                             <form onSubmit={handleSearch} className="mb-4">
-                                <div className="flex gap-2">
-                                    <div className="relative flex-1">
+                                <div className="flex gap-2 flex-wrap">
+                                    <div className="relative flex-1 min-w-[200px]">
                                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                                         <Input
                                             type="search"
@@ -229,6 +301,19 @@ export default function Index({ auth, liquidations, heis, programs, userHei, reg
                                             className="pl-8"
                                         />
                                     </div>
+                                    <Select value={programFilter} onValueChange={handleProgramFilter}>
+                                        <SelectTrigger className="w-[180px]">
+                                            <SelectValue placeholder="Filter by program" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All Programs</SelectItem>
+                                            {programs.map((program) => (
+                                                <SelectItem key={program.id} value={program.id}>
+                                                    {program.code || program.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                     <Select value={statusFilter} onValueChange={handleStatusFilter}>
                                         <SelectTrigger className="w-[200px]">
                                             <SelectValue placeholder="Filter by status" />
@@ -247,102 +332,84 @@ export default function Index({ auth, liquidations, heis, programs, userHei, reg
                                 </div>
                             </form>
 
-                            <div className="rounded-md border">
+                            <div className="rounded-md border overflow-x-auto">
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
-                                            <TableHead>Reference #</TableHead>
-                                            <TableHead>HEI</TableHead>
-                                            <TableHead className="text-right">Disbursed Amount</TableHead>
-                                            <TableHead className="text-right">Liquidated Amount</TableHead>
+                                            <TableHead className="w-[50px]">SEQ</TableHead>
+                                            <TableHead>Program</TableHead>
+                                            <TableHead>UII</TableHead>
+                                            <TableHead>HEI Name</TableHead>
+                                            <TableHead>Date of Fund Released</TableHead>
+                                            <TableHead>Due Date</TableHead>
+                                            <TableHead>Academic Year</TableHead>
+                                            <TableHead>Semester</TableHead>
+                                            <TableHead>Batch No.</TableHead>
+                                            <TableHead>DV Control No.</TableHead>
+                                            <TableHead className="text-right">No. of Grantees</TableHead>
+                                            <TableHead className="text-right">Total Disbursements</TableHead>
                                             <TableHead>Status</TableHead>
-                                            <TableHead className="text-center">Days Lapsed</TableHead>
-                                            <TableHead>Created By</TableHead>
-                                            <TableHead>Date Created</TableHead>
                                             <TableHead className="text-right">Actions</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {liquidations.data.length === 0 ? (
                                             <TableRow>
-                                                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                                                <TableCell colSpan={14} className="text-center py-8 text-muted-foreground">
                                                     <FileText className="mx-auto h-12 w-12 mb-2 opacity-50" />
                                                     <p>No liquidation records found</p>
-                                                    {permissions.create && (
-                                                        <Button
-                                                            variant="link"
-                                                            onClick={() => setIsCreateModalOpen(true)}
-                                                            className="mt-2"
-                                                        >
-                                                            Create your first liquidation
-                                                        </Button>
-                                                    )}
                                                 </TableCell>
                                             </TableRow>
                                         ) : (
-                                            liquidations.data.map((liquidation) => (
+                                            liquidations.data.map((liquidation, index) => (
                                                 <TableRow key={liquidation.id}>
-                                                    <TableCell className="font-medium">
-                                                        {liquidation.reference_number}
+                                                    <TableCell className="font-medium text-center">
+                                                        {index + 1}
                                                     </TableCell>
                                                     <TableCell>
-                                                        <div>
-                                                            <div className="font-medium">{liquidation.hei.name}</div>
-                                                            <div className="text-xs text-muted-foreground">{liquidation.hei.code}</div>
-                                                        </div>
+                                                        {liquidation.program ? (
+                                                            <Badge variant="outline" className="font-normal">
+                                                                {liquidation.program.code || liquidation.program.name}
+                                                            </Badge>
+                                                        ) : (
+                                                            <span className="text-xs text-muted-foreground">-</span>
+                                                        )}
                                                     </TableCell>
-                                                    <TableCell className="text-right font-medium">
-                                                        ₱{liquidation.disbursed_amount}
+                                                    <TableCell className="font-mono text-sm">
+                                                        {liquidation.uii}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="font-medium">{liquidation.hei_name}</div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {liquidation.date_fund_released || <span className="text-muted-foreground">-</span>}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {liquidation.due_date || <span className="text-muted-foreground">-</span>}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {liquidation.academic_year || <span className="text-muted-foreground">-</span>}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {liquidation.semester || <span className="text-muted-foreground">-</span>}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {liquidation.batch_no || <span className="text-muted-foreground">-</span>}
+                                                    </TableCell>
+                                                    <TableCell className="font-medium">
+                                                        {liquidation.dv_control_no}
                                                     </TableCell>
                                                     <TableCell className="text-right">
-                                                        ₱{liquidation.liquidated_amount}
+                                                        {liquidation.number_of_grantees ?? <span className="text-muted-foreground">-</span>}
+                                                    </TableCell>
+                                                    <TableCell className="text-right font-medium">
+                                                        ₱{liquidation.total_disbursements}
                                                     </TableCell>
                                                     <TableCell>
                                                         <Badge className={`${getStatusColor(liquidation.status)} shadow-none border font-normal text-xs`}>
                                                             {liquidation.status_label}
                                                         </Badge>
                                                     </TableCell>
-                                                    <TableCell>
-                                                        {liquidation.days_lapsed !== null ? (
-                                                            <div className="flex flex-col gap-1">
-                                                                <Badge
-                                                                    variant={
-                                                                        liquidation.days_lapsed <= 7 ? "default" :
-                                                                        liquidation.days_lapsed <= 14 ? "secondary" :
-                                                                        liquidation.days_lapsed <= 30 ? "outline" :
-                                                                        "destructive"
-                                                                    }
-                                                                    className={`w-fit ${liquidation.days_lapsed > 14 && liquidation.days_lapsed <= 30 ? 'border-amber-500 text-amber-700 bg-amber-50' : ''}`}
-                                                                >
-                                                                    {liquidation.days_lapsed} {liquidation.days_lapsed === 1 ? 'day' : 'days'}
-                                                                </Badge>
-                                                                <span className="text-xs text-muted-foreground">
-                                                                    {liquidation.status === 'for_initial_review' && 'Pending RC Review'}
-                                                                    {liquidation.status === 'returned_to_hei' && 'With HEI'}
-                                                                    {liquidation.status === 'returned_to_rc' && 'With RC'}
-                                                                    {liquidation.status === 'endorsed_to_accounting' && 'With Accountant'}
-                                                                    {liquidation.status === 'endorsed_to_coa' && 'With COA'}
-                                                                    {liquidation.status === 'approved' && 'Completed'}
-                                                                </span>
-                                                            </div>
-                                                        ) : (
-                                                            <span className="text-xs text-muted-foreground">Not submitted</span>
-                                                        )}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div className="text-sm">{liquidation.created_by}</div>
-                                                        {liquidation.reviewed_by && (
-                                                            <div className="text-xs text-muted-foreground">
-                                                                RC: {liquidation.reviewed_by}
-                                                            </div>
-                                                        )}
-                                                        {liquidation.accountant_reviewed_by && (
-                                                            <div className="text-xs text-muted-foreground">
-                                                                Acct: {liquidation.accountant_reviewed_by}
-                                                            </div>
-                                                        )}
-                                                    </TableCell>
-                                                    <TableCell>{liquidation.created_at}</TableCell>
                                                     <TableCell className="text-right">
                                                         <Button
                                                             variant="ghost"

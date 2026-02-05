@@ -32,6 +32,12 @@ class PermissionSeeder extends Seeder
                 ['name' => 'delete_hei', 'description' => 'Delete HEI'],
                 ['name' => 'sync_hei_api', 'description' => 'Sync HEI from API'],
             ],
+            'Regions' => [
+                ['name' => 'view_regions', 'description' => 'View regions list'],
+                ['name' => 'create_regions', 'description' => 'Create new regions'],
+                ['name' => 'edit_regions', 'description' => 'Edit existing regions'],
+                ['name' => 'delete_regions', 'description' => 'Delete regions'],
+            ],
             'Liquidation' => [
                 ['name' => 'view_liquidation', 'description' => 'View liquidation records'],
                 ['name' => 'create_liquidation', 'description' => 'Create liquidation records'],
@@ -72,13 +78,14 @@ class PermissionSeeder extends Seeder
             'view_roles', 'create_roles', 'edit_roles', 'delete_roles',
             'view_users', 'create_users', 'edit_users', 'delete_users', 'change_user_status',
             'view_hei', 'create_hei', 'edit_hei', 'delete_hei', 'sync_hei_api',
+            'view_regions', 'create_regions', 'edit_regions', 'delete_regions',
             'view_liquidation', 'create_liquidation', 'edit_liquidation', 'delete_liquidation',
             'view_reports', 'export_reports', 'view_dashboard',
         ]);
 
         $this->createExampleRole('Regional Coordinator', 'Reviews and endorses liquidation', [
             'view_hei',
-            'view_liquidation', 'review_liquidation', 'endorse_liquidation',
+            'view_liquidation', 'create_liquidation', 'edit_liquidation', 'review_liquidation', 'endorse_liquidation',
             'view_reports', 'view_dashboard',
         ]);
 
@@ -89,7 +96,7 @@ class PermissionSeeder extends Seeder
         ]);
 
         $this->createExampleRole('HEI', 'Higher Education Institution user', [
-            'view_liquidation', 'create_liquidation', 'edit_liquidation', 'delete_liquidation',
+            'view_liquidation', 'edit_liquidation',
         ]);
 
         $this->createExampleRole('Encoder', 'Data entry staff', [

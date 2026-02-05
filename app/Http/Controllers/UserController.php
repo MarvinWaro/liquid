@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\Role;
+use App\Models\Region;
+use App\Models\HEI;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -19,19 +21,25 @@ class UserController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        // ✅ FIX: Join roles table to sort by Role Name, then User Name
-        $users = User::with(['role', 'hei'])
+        $users = User::with(['role', 'hei', 'region'])
             ->join('roles', 'users.role_id', '=', 'roles.id')
-            ->select('users.*') // Important: Keep user columns, avoid overwriting ID with role ID
+            ->select('users.*')
             ->orderByRaw("CASE WHEN roles.name = 'Super Admin' THEN 0 ELSE 1 END")
             ->orderBy('users.name', 'asc')
             ->get();
 
         $roles = Role::select('id', 'name')->orderBy('name')->get();
+        $regions = Region::where('status', 'active')->orderBy('name')->get(['id', 'code', 'name']);
+        $heis = HEI::with('region:id,code,name')
+            ->where('status', 'active')
+            ->orderBy('name')
+            ->get(['id', 'name', 'code', 'region_id']);
 
         return Inertia::render('users/index', [
             'users' => $users,
             'roles' => $roles,
+            'regions' => $regions,
+            'heis' => $heis,
             'canCreate' => auth()->user()->hasPermission('create_users'),
             'canEdit' => auth()->user()->hasPermission('edit_users'),
             'canDelete' => auth()->user()->hasPermission('delete_users'),
@@ -45,16 +53,17 @@ class UserController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        // Check if the selected role is Regional Coordinator
         $role = Role::find($request->role_id);
         $isRegionalCoordinator = $role && $role->name === 'Regional Coordinator';
+        $isHEIRole = $role && $role->name === 'HEI';
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8|confirmed',
             'role_id' => 'required|exists:roles,id',
-            'region' => $isRegionalCoordinator ? 'required|in:region_12,barmm_b' : 'nullable|in:region_12,barmm_b',
+            'region_id' => $isRegionalCoordinator ? 'required|exists:regions,id' : 'nullable|exists:regions,id',
+            'hei_id' => $isHEIRole ? 'required|exists:heis,id' : 'nullable|exists:heis,id',
             'status' => 'required|in:active,inactive',
         ]);
 
@@ -63,7 +72,8 @@ class UserController extends Controller
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']),
             'role_id' => $validated['role_id'],
-            'region' => $validated['region'] ?? null,
+            'region_id' => $validated['region_id'] ?? null,
+            'hei_id' => $validated['hei_id'] ?? null,
             'status' => $validated['status'],
         ]);
 
@@ -80,16 +90,17 @@ class UserController extends Controller
             abort(403, 'You cannot modify the Super Admin.');
         }
 
-        // Check if the selected role is Regional Coordinator
         $role = Role::find($request->role_id);
         $isRegionalCoordinator = $role && $role->name === 'Regional Coordinator';
+        $isHEIRole = $role && $role->name === 'HEI';
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => ['required', 'email', Rule::unique('users')->ignore($user->id)],
             'password' => 'nullable|string|min:8|confirmed',
             'role_id' => 'required|exists:roles,id',
-            'region' => $isRegionalCoordinator ? 'required|in:region_12,barmm_b' : 'nullable|in:region_12,barmm_b',
+            'region_id' => $isRegionalCoordinator ? 'required|exists:regions,id' : 'nullable|exists:regions,id',
+            'hei_id' => $isHEIRole ? 'required|exists:heis,id' : 'nullable|exists:heis,id',
             'status' => 'required|in:active,inactive',
         ]);
 
@@ -97,7 +108,8 @@ class UserController extends Controller
             'name' => $validated['name'],
             'email' => $validated['email'],
             'role_id' => $validated['role_id'],
-            'region' => $validated['region'] ?? null,
+            'region_id' => $validated['region_id'] ?? null,
+            'hei_id' => $validated['hei_id'] ?? null,
             'status' => $validated['status'],
         ];
 
