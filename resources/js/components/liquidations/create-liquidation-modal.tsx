@@ -46,6 +46,20 @@ const SEMESTERS = [
     { value: 'Summer', label: 'Summer' },
 ];
 
+const DOCUMENT_STATUSES = [
+    { value: 'NONE', label: 'No Submission' },
+    { value: 'PARTIAL', label: 'Partial Submission' },
+    { value: 'COMPLETE', label: 'Complete Submission' },
+];
+
+const RC_NOTES_OPTIONS = [
+    { value: 'For Review', label: 'For Review' },
+    { value: 'For Compliance', label: 'For Compliance' },
+    { value: 'For Endorsement', label: 'For Endorsement' },
+    { value: 'Fully Endorsed', label: 'Fully Endorsed' },
+    { value: 'Partially Endorsed', label: 'Partially Endorsed' },
+];
+
 export function CreateLiquidationModal({
     isOpen,
     onClose,
@@ -68,6 +82,9 @@ export function CreateLiquidationModal({
         dv_control_no: '',
         number_of_grantees: '',
         total_disbursements: '',
+        total_amount_liquidated: '',
+        document_status: '',
+        rc_notes: '',
     });
 
     // Reset form when modal closes
@@ -84,6 +101,9 @@ export function CreateLiquidationModal({
                 dv_control_no: '',
                 number_of_grantees: '',
                 total_disbursements: '',
+                total_amount_liquidated: '',
+                document_status: '',
+                rc_notes: '',
             });
             setHeiLookup(null);
             setLookupError(null);
@@ -289,9 +309,12 @@ export function CreateLiquidationModal({
                             <Label htmlFor="batch_no">Batch No.</Label>
                             <Input
                                 id="batch_no"
+                                type="number"
+                                min="0"
+                                step="0.01"
                                 value={formData.batch_no}
                                 onChange={(e) => handleInputChange('batch_no', e.target.value)}
-                                placeholder="e.g., Batch 1"
+                                placeholder="e.g., 1, 2, 3"
                             />
                         </div>
 
@@ -331,6 +354,60 @@ export function CreateLiquidationModal({
                                 onChange={(e) => handleInputChange('total_disbursements', e.target.value)}
                                 placeholder="Enter amount"
                             />
+                        </div>
+
+                        {/* Total Amount Liquidated */}
+                        <div className="space-y-2">
+                            <Label htmlFor="total_amount_liquidated">Total Amount Liquidated</Label>
+                            <Input
+                                id="total_amount_liquidated"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={formData.total_amount_liquidated}
+                                onChange={(e) => handleInputChange('total_amount_liquidated', e.target.value)}
+                                placeholder="Enter amount (default: 0)"
+                            />
+                        </div>
+
+                        {/* Status of Documents */}
+                        <div className="space-y-2">
+                            <Label htmlFor="document_status">Status of Documents</Label>
+                            <Select
+                                value={formData.document_status}
+                                onValueChange={(value) => handleInputChange('document_status', value)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {DOCUMENT_STATUSES.map((status) => (
+                                        <SelectItem key={status.value} value={status.value}>
+                                            {status.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {/* RC Notes */}
+                        <div className="space-y-2 col-span-2">
+                            <Label htmlFor="rc_notes">RC Notes</Label>
+                            <Select
+                                value={formData.rc_notes}
+                                onValueChange={(value) => handleInputChange('rc_notes', value)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select RC notes (optional)" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {RC_NOTES_OPTIONS.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                     </div>
 

@@ -40,6 +40,7 @@ class LiquidationFinancial extends Model
     protected $fillable = [
         'liquidation_id',
         'date_fund_released',
+        'due_date',
         'fund_source',
         'amount_received',
         'amount_disbursed',
@@ -60,6 +61,7 @@ class LiquidationFinancial extends Model
     {
         return [
             'date_fund_released' => 'date',
+            'due_date' => 'date',
             'disbursement_date' => 'date',
             'amount_received' => 'decimal:2',
             'amount_disbursed' => 'decimal:2',
@@ -78,30 +80,68 @@ class LiquidationFinancial extends Model
     }
 
     /**
-     * Calculate the unliquidated/remaining amount.
+     * Calculate the unliquidated amount.
+     * Formula: Total Disbursements (amount_received) - Total Amount Liquidated
+     */
+    public function getUnliquidatedAmountAttribute(): float
+    {
+        return (float) $this->amount_received - (float) $this->amount_liquidated;
+    }
+
+    /**
+     * Alias for unliquidated amount (backwards compatibility).
      */
     public function getRemainingAmountAttribute(): float
     {
-        return $this->amount_received - $this->amount_disbursed;
+        return $this->unliquidated_amount;
     }
 
     /**
      * Calculate the liquidation percentage.
+     * Formula: (Total Amount Liquidated / Total Disbursements) × 100
      */
     public function getLiquidationPercentageAttribute(): float
     {
-        if ($this->amount_received <= 0) {
+        if ((float) $this->amount_received <= 0) {
             return 0.0;
         }
 
-        return ($this->amount_disbursed / $this->amount_received) * 100;
+        return ((float) $this->amount_liquidated / (float) $this->amount_received) * 100;
     }
 
     /**
-     * Calculate due date (fund release + 90 days).
+     * Calculate the lapsing period (days overdue).
+     * Formula: Date of Submission - Due Date
+     * Returns 0 if submission is before due date (early submission).
      */
-    public function getDueDateAttribute(): ?\Carbon\Carbon
+    public function getLapsingPeriodAttribute(): int
     {
+        $dueDate = $this->due_date;
+        $liquidation = $this->liquidation;
+
+        if (!$dueDate || !$liquidation || !$liquidation->date_submitted) {
+            return 0;
+        }
+
+        $submissionDate = $liquidation->date_submitted;
+        $diff = $submissionDate->diffInDays($dueDate, false);
+
+        // If submission is before due date (negative diff), return 0
+        // If submission is after due date (positive diff), return the days overdue
+        return $diff < 0 ? abs($diff) : 0;
+    }
+
+    /**
+     * Get due date - returns explicit value or calculates from fund release + 90 days.
+     */
+    public function getDueDateAttribute($value): ?\Carbon\Carbon
+    {
+        // If explicit due_date is set, use it
+        if ($value) {
+            return \Carbon\Carbon::parse($value);
+        }
+
+        // Otherwise calculate from date_fund_released + 90 days
         if (!$this->date_fund_released) {
             return null;
         }

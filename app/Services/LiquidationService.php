@@ -27,7 +27,7 @@ class LiquidationService
      */
     public function getPaginatedLiquidations(User $user, array $filters = []): LengthAwarePaginator
     {
-        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'program'])
+        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'program', 'documentStatus'])
             ->orderBy('control_no', 'asc');
 
         $this->applyRoleFilter($query, $user);
@@ -92,6 +92,54 @@ class LiquidationService
                     });
             });
         }
+
+        // Filter by document status
+        if (!empty($filters['document_status']) && $filters['document_status'] !== 'all') {
+            $documentStatus = DocumentStatus::findByCode($filters['document_status']);
+            if ($documentStatus) {
+                $query->where('document_status_id', $documentStatus->id);
+            } elseif ($filters['document_status'] === 'NONE') {
+                // Also include null document_status_id for "No Submission"
+                $query->where(function ($q) {
+                    $noneStatus = DocumentStatus::findByCode(DocumentStatus::CODE_NONE);
+                    $q->whereNull('document_status_id');
+                    if ($noneStatus) {
+                        $q->orWhere('document_status_id', $noneStatus->id);
+                    }
+                });
+            }
+        }
+
+        // Filter by liquidation status (based on workflow status)
+        if (!empty($filters['liquidation_status']) && $filters['liquidation_status'] !== 'all') {
+            switch ($filters['liquidation_status']) {
+                case 'unliquidated':
+                    $query->whereIn('status', [
+                        Liquidation::STATUS_DRAFT,
+                        Liquidation::STATUS_FOR_INITIAL_REVIEW,
+                        Liquidation::STATUS_RETURNED_TO_HEI,
+                        Liquidation::STATUS_RETURNED_TO_RC,
+                    ]);
+                    break;
+                case 'partially_liquidated':
+                    $query->where('status', Liquidation::STATUS_ENDORSED_TO_ACCOUNTING)
+                        ->whereHas('financial', function ($q) {
+                            $q->whereRaw('amount_liquidated < amount_received');
+                        });
+                    break;
+                case 'fully_liquidated':
+                    $query->where(function ($q) {
+                        $q->where('status', Liquidation::STATUS_ENDORSED_TO_COA)
+                            ->orWhere(function ($q2) {
+                                $q2->where('status', Liquidation::STATUS_ENDORSED_TO_ACCOUNTING)
+                                    ->whereHas('financial', function ($q3) {
+                                        $q3->whereRaw('amount_liquidated >= amount_received');
+                                    });
+                            });
+                    });
+                    break;
+            }
+        }
     }
 
     /**
@@ -107,6 +155,12 @@ class LiquidationService
 
         $semesterId = $this->findSemesterId($data['semester']);
 
+        // Determine document status ID
+        $documentStatusId = null;
+        if (!empty($data['document_status'])) {
+            $documentStatusId = DocumentStatus::findByCode($data['document_status'])?->id;
+        }
+
         $liquidation = Liquidation::create([
             'control_no' => $data['dv_control_no'],
             'hei_id' => $hei->id,
@@ -114,15 +168,19 @@ class LiquidationService
             'academic_year' => $data['academic_year'],
             'semester_id' => $semesterId,
             'batch_no' => $data['batch_no'] ?? null,
+            'document_status_id' => $documentStatusId,
+            'remarks' => $data['rc_notes'] ?? null,
             'status' => Liquidation::STATUS_DRAFT,
             'created_by' => $creator->id,
         ]);
 
         $liquidation->createOrUpdateFinancial([
             'date_fund_released' => $data['date_fund_released'],
+            'due_date' => $data['due_date'] ?? null,
             'number_of_grantees' => $data['number_of_grantees'] ?? null,
             'amount_received' => $data['total_disbursements'],
             'amount_disbursed' => $data['total_disbursements'],
+            'amount_liquidated' => $data['total_amount_liquidated'] ?? 0,
         ]);
 
         return $liquidation;
