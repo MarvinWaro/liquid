@@ -287,7 +287,7 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                         )}
                     </div>
 
-                    <Card>
+
                         <CardContent className="pt-6">
                             <form onSubmit={handleSearch} className="mb-4">
                                 <div className="flex gap-2 flex-wrap">
@@ -443,7 +443,7 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                 </div>
                             )}
                         </CardContent>
-                    </Card>
+                    
                 </div>
             </div>
         </AppLayout>
