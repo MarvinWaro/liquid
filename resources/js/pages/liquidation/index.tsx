@@ -55,6 +55,14 @@ interface Liquidation {
     dv_control_no: string;
     number_of_grantees: number | null;
     total_disbursements: string;
+    total_amount_liquidated: string;
+    total_unliquidated_amount: string;
+    document_status: string;
+    document_status_code: string;
+    rc_notes: string | null;
+    liquidation_status: string;
+    percentage_liquidation: number;
+    lapsing_period: number;
     status: string;
     status_label: string;
     status_badge: string;
@@ -77,8 +85,9 @@ interface Props {
     programs: Program[];
     filters: {
         search?: string;
-        status?: string;
         program?: string;
+        document_status?: string;
+        liquidation_status?: string;
     };
     permissions: {
         review: boolean;
@@ -89,8 +98,9 @@ interface Props {
 
 export default function Index({ liquidations, userHei, regionalCoordinators, accountants, programs, filters, permissions, userRole }: Props) {
     const [searchQuery, setSearchQuery] = useState(filters.search || '');
-    const [statusFilter, setStatusFilter] = useState(filters.status || '');
     const [programFilter, setProgramFilter] = useState(filters.program || '');
+    const [documentStatusFilter, setDocumentStatusFilter] = useState(filters.document_status || '');
+    const [liquidationStatusFilter, setLiquidationStatusFilter] = useState(filters.liquidation_status || '');
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [selectedLiquidation, setSelectedLiquidation] = useState<any>(null);
@@ -101,17 +111,17 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
     const isHEI = userRole === 'HEI';
     const canCreate = (permissions.create || isRC) && !isHEI;
 
+    const getFilterParams = (overrides: Record<string, string> = {}) => ({
+        search: searchQuery,
+        program: programFilter,
+        document_status: documentStatusFilter,
+        liquidation_status: liquidationStatusFilter,
+        ...overrides,
+    });
+
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        router.get(route('liquidation.index'), { search: searchQuery, status: statusFilter, program: programFilter }, {
-            preserveState: true,
-            preserveScroll: true,
-        });
-    };
-
-    const handleStatusFilter = (value: string) => {
-        setStatusFilter(value);
-        router.get(route('liquidation.index'), { search: searchQuery, status: value, program: programFilter }, {
+        router.get(route('liquidation.index'), getFilterParams(), {
             preserveState: true,
             preserveScroll: true,
         });
@@ -119,7 +129,23 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
 
     const handleProgramFilter = (value: string) => {
         setProgramFilter(value);
-        router.get(route('liquidation.index'), { search: searchQuery, status: statusFilter, program: value }, {
+        router.get(route('liquidation.index'), getFilterParams({ program: value }), {
+            preserveState: true,
+            preserveScroll: true,
+        });
+    };
+
+    const handleDocumentStatusFilter = (value: string) => {
+        setDocumentStatusFilter(value);
+        router.get(route('liquidation.index'), getFilterParams({ document_status: value }), {
+            preserveState: true,
+            preserveScroll: true,
+        });
+    };
+
+    const handleLiquidationStatusFilter = (value: string) => {
+        setLiquidationStatusFilter(value);
+        router.get(route('liquidation.index'), getFilterParams({ liquidation_status: value }), {
             preserveState: true,
             preserveScroll: true,
         });
@@ -172,39 +198,26 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
         }
     };
 
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            // Draft - gray
-            case 'draft':
-            case 'Draft':
-                return 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-200';
-
-            // For RC Review - black/dark gray
-            case 'for_initial_review':
-                return 'bg-gray-800 text-gray-100 hover:bg-gray-900 border-gray-800';
-
-            // Endorsed to Accounting - purple/violet
-            case 'endorsed_to_accounting':
-                return 'bg-purple-100 text-purple-700 hover:bg-purple-200 border-purple-200';
-
-            // Endorsed to COA - green (success)
-            case 'endorsed_to_coa':
-            case 'Endorsed to COA':
-                return 'bg-green-100 text-green-700 hover:bg-green-200 border-green-200';
-
-            // Returned to HEI or RC - red (destructive)
-            case 'returned_to_hei':
-            case 'returned_to_rc':
-            case 'Returned':
-                return 'bg-red-100 text-red-700 hover:bg-red-200 border-red-200';
-
-            // Old statuses for backward compatibility
-            case 'Submitted': return 'bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-200';
-            case 'Verified': return 'bg-amber-100 text-amber-700 hover:bg-amber-200 border-amber-200';
-            case 'Cleared': return 'bg-green-100 text-green-700 hover:bg-green-200 border-green-200';
-
-            default: return 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-200';
+    const getDocumentStatusColor = (status: string) => {
+        if (status?.includes('Complete')) {
+            return 'bg-green-100 text-green-700 border-green-200';
         }
+        if (status?.includes('Partial')) {
+            return 'bg-amber-100 text-amber-700 border-amber-200';
+        }
+        // No Submission - highlighted in red
+        return 'bg-red-100 text-red-700 border-red-200';
+    };
+
+    const getLiquidationStatusColor = (status: string) => {
+        if (status?.includes('Fully Liquidated')) {
+            return 'bg-green-100 text-green-700 border-green-200';
+        }
+        if (status?.includes('Partially Liquidated')) {
+            return 'bg-blue-100 text-blue-700 border-blue-200';
+        }
+        // Unliquidated - highlighted in red
+        return 'bg-red-100 text-red-700 border-red-200';
     };
 
     const handleViewLiquidation = async (liquidationId: number) => {
@@ -288,9 +301,9 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                     </div>
 
 
-                        <CardContent className="pt-6">
+                        <CardContent className="pt-6 px-0">
                             <form onSubmit={handleSearch} className="mb-4">
-                                <div className="flex gap-2 flex-wrap">
+                                <div className="flex gap-2 flex-wrap items-center">
                                     <div className="relative flex-1 min-w-[200px]">
                                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                                         <Input
@@ -302,8 +315,8 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                         />
                                     </div>
                                     <Select value={programFilter} onValueChange={handleProgramFilter}>
-                                        <SelectTrigger className="w-[180px]">
-                                            <SelectValue placeholder="Filter by program" />
+                                        <SelectTrigger className="w-[150px]">
+                                            <SelectValue placeholder="Program" />
                                         </SelectTrigger>
                                         <SelectContent>
                                             <SelectItem value="all">All Programs</SelectItem>
@@ -314,21 +327,78 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                    <Select value={statusFilter} onValueChange={handleStatusFilter}>
-                                        <SelectTrigger className="w-[200px]">
-                                            <SelectValue placeholder="Filter by status" />
+                                    <Select value={documentStatusFilter} onValueChange={handleDocumentStatusFilter}>
+                                        <SelectTrigger className="w-[180px]">
+                                            <SelectValue placeholder="Document Status" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="all">All Statuses</SelectItem>
-                                            <SelectItem value="draft">Draft</SelectItem>
-                                            <SelectItem value="for_initial_review">For Initial Review</SelectItem>
-                                            <SelectItem value="returned_to_hei">Returned to HEI</SelectItem>
-                                            <SelectItem value="endorsed_to_accounting">Endorsed to Accounting</SelectItem>
-                                            <SelectItem value="returned_to_rc">Returned to RC</SelectItem>
-                                            <SelectItem value="endorsed_to_coa">Endorsed to COA</SelectItem>
+                                            <SelectItem value="all">All Documents</SelectItem>
+                                            <SelectItem value="NONE">
+                                                <span className="flex items-center gap-2">
+                                                    <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                                                    No Submission
+                                                </span>
+                                            </SelectItem>
+                                            <SelectItem value="PARTIAL">
+                                                <span className="flex items-center gap-2">
+                                                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                                                    Partial Submission
+                                                </span>
+                                            </SelectItem>
+                                            <SelectItem value="COMPLETE">
+                                                <span className="flex items-center gap-2">
+                                                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                                                    Complete Submission
+                                                </span>
+                                            </SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <Select value={liquidationStatusFilter} onValueChange={handleLiquidationStatusFilter}>
+                                        <SelectTrigger className="w-[180px]">
+                                            <SelectValue placeholder="Liquidation Status" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All Liquidation</SelectItem>
+                                            <SelectItem value="unliquidated">
+                                                <span className="flex items-center gap-2">
+                                                    <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                                                    Unliquidated
+                                                </span>
+                                            </SelectItem>
+                                            <SelectItem value="partially_liquidated">
+                                                <span className="flex items-center gap-2">
+                                                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                                                    Partially Liquidated
+                                                </span>
+                                            </SelectItem>
+                                            <SelectItem value="fully_liquidated">
+                                                <span className="flex items-center gap-2">
+                                                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                                                    Fully Liquidated
+                                                </span>
+                                            </SelectItem>
                                         </SelectContent>
                                     </Select>
                                     <Button type="submit">Search</Button>
+                                </div>
+                                {/* Color Legend */}
+                                <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                                        Needs Attention
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                                        In Progress
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                                        Partial
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                                        Complete
+                                    </span>
                                 </div>
                             </form>
 
@@ -338,24 +408,27 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                         <TableRow>
                                             <TableHead className="w-[50px]">SEQ</TableHead>
                                             <TableHead>Program</TableHead>
-                                            <TableHead>UII</TableHead>
-                                            <TableHead>HEI Name</TableHead>
-                                            <TableHead>Date of Fund Released</TableHead>
-                                            <TableHead>Due Date</TableHead>
-                                            <TableHead>Academic Year</TableHead>
-                                            <TableHead>Semester</TableHead>
-                                            <TableHead>Batch No.</TableHead>
+                                            <TableHead>HEI</TableHead>
+                                            <TableHead>Period</TableHead>
+                                            <TableHead>Dates</TableHead>
+                                            <TableHead>Batch</TableHead>
                                             <TableHead>DV Control No.</TableHead>
-                                            <TableHead className="text-right">No. of Grantees</TableHead>
-                                            <TableHead className="text-right">Total Disbursements</TableHead>
-                                            <TableHead>Status</TableHead>
+                                            <TableHead className="text-right">Grantees</TableHead>
+                                            <TableHead className="text-right">Disbursements</TableHead>
+                                            <TableHead className="text-right">Liquidated</TableHead>
+                                            <TableHead className="text-right">Unliquidated</TableHead>
+                                            <TableHead>Documents</TableHead>
+                                            <TableHead>RC Notes</TableHead>
+                                            <TableHead>Liquidation Status</TableHead>
+                                            <TableHead className="text-right">%</TableHead>
+                                            <TableHead className="text-right">Lapsing</TableHead>
                                             <TableHead className="text-right">Actions</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {liquidations.data.length === 0 ? (
                                             <TableRow>
-                                                <TableCell colSpan={14} className="text-center py-8 text-muted-foreground">
+                                                <TableCell colSpan={17} className="text-center py-8 text-muted-foreground">
                                                     <FileText className="mx-auto h-12 w-12 mb-2 opacity-50" />
                                                     <p>No liquidation records found</p>
                                                 </TableCell>
@@ -375,28 +448,25 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                                             <span className="text-xs text-muted-foreground">-</span>
                                                         )}
                                                     </TableCell>
-                                                    <TableCell className="font-mono text-sm">
-                                                        {liquidation.uii}
-                                                    </TableCell>
+                                                    {/* Combined: HEI Name + UII */}
                                                     <TableCell>
-                                                        <div className="font-medium">{liquidation.hei_name}</div>
+                                                        <div className="font-medium text-sm">{liquidation.hei_name}</div>
+                                                        <div className="text-xs text-muted-foreground font-mono">{liquidation.uii}</div>
                                                     </TableCell>
+                                                    {/* Combined: Academic Year + Semester */}
                                                     <TableCell>
-                                                        {liquidation.date_fund_released || <span className="text-muted-foreground">-</span>}
+                                                        <div className="text-sm">{liquidation.academic_year || '-'}</div>
+                                                        <div className="text-xs text-muted-foreground">{liquidation.semester || '-'}</div>
                                                     </TableCell>
+                                                    {/* Combined: Fund Released + Due Date */}
                                                     <TableCell>
-                                                        {liquidation.due_date || <span className="text-muted-foreground">-</span>}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        {liquidation.academic_year || <span className="text-muted-foreground">-</span>}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        {liquidation.semester || <span className="text-muted-foreground">-</span>}
+                                                        <div className="text-sm">{liquidation.date_fund_released || '-'}</div>
+                                                        <div className="text-xs text-muted-foreground">Due: {liquidation.due_date || '-'}</div>
                                                     </TableCell>
                                                     <TableCell>
                                                         {liquidation.batch_no || <span className="text-muted-foreground">-</span>}
                                                     </TableCell>
-                                                    <TableCell className="font-medium">
+                                                    <TableCell className="font-medium text-sm">
                                                         {liquidation.dv_control_no}
                                                     </TableCell>
                                                     <TableCell className="text-right">
@@ -405,10 +475,40 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                                     <TableCell className="text-right font-medium">
                                                         ₱{liquidation.total_disbursements}
                                                     </TableCell>
+                                                    <TableCell className="text-right font-medium">
+                                                        ₱{liquidation.total_amount_liquidated ?? '0.00'}
+                                                    </TableCell>
+                                                    <TableCell className="text-right font-medium">
+                                                        ₱{liquidation.total_unliquidated_amount ?? '0.00'}
+                                                    </TableCell>
                                                     <TableCell>
-                                                        <Badge className={`${getStatusColor(liquidation.status)} shadow-none border font-normal text-xs`}>
-                                                            {liquidation.status_label}
+                                                        <Badge className={`${getDocumentStatusColor(liquidation.document_status)} shadow-none border font-normal text-xs`}>
+                                                            {liquidation.document_status}
                                                         </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="max-w-[100px]">
+                                                        {liquidation.rc_notes ? (
+                                                            <span className="text-xs truncate block" title={liquidation.rc_notes}>
+                                                                {liquidation.rc_notes}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-muted-foreground">-</span>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge className={`${getLiquidationStatusColor(liquidation.liquidation_status)} shadow-none border font-normal text-xs whitespace-nowrap`}>
+                                                            {liquidation.liquidation_status}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-right font-medium">
+                                                        {(liquidation.percentage_liquidation ?? 0).toFixed(0)}%
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        {(liquidation.lapsing_period ?? 0) > 0 ? (
+                                                            <span className="text-red-600 font-medium">{liquidation.lapsing_period}</span>
+                                                        ) : (
+                                                            <span className="text-green-600 font-medium">0</span>
+                                                        )}
                                                     </TableCell>
                                                     <TableCell className="text-right">
                                                         <Button
@@ -417,7 +517,7 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                                             onClick={() => handleViewLiquidation(liquidation.id)}
                                                             className="text-green-600 hover:text-green-700 hover:bg-green-50"
                                                         >
-                                                            <Eye className="h-4 w-4 mr-1" />
+                                                            <Eye className="h-4 w-4" />
                                                             View
                                                         </Button>
                                                     </TableCell>
@@ -443,7 +543,7 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                 </div>
                             )}
                         </CardContent>
-                    
+
                 </div>
             </div>
         </AppLayout>

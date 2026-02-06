@@ -12,6 +12,7 @@ use App\Http\Requests\Liquidation\ReturnToRCRequest;
 use App\Http\Requests\Liquidation\StoreLiquidationRequest;
 use App\Http\Requests\Liquidation\SubmitLiquidationRequest;
 use App\Http\Requests\Liquidation\UpdateLiquidationRequest;
+use App\Models\DocumentStatus;
 use App\Models\Liquidation;
 use App\Models\LiquidationDocument;
 use App\Models\LiquidationReview;
@@ -42,7 +43,7 @@ class LiquidationController extends Controller
         }
 
         $user = $request->user();
-        $filters = $request->only(['search', 'status', 'program']);
+        $filters = $request->only(['search', 'status', 'program', 'document_status', 'liquidation_status']);
 
         $liquidations = $this->liquidationService
             ->getPaginatedLiquidations($user, $filters)
@@ -485,7 +486,7 @@ class LiquidationController extends Controller
     /**
      * Download RC bulk liquidation template.
      */
-    public function downloadRCTemplate(Request $request): BinaryFileResponse
+    public function downloadRCTemplate(Request $request): \Symfony\Component\HttpFoundation\BinaryFileResponse
     {
         $user = $request->user();
 
@@ -493,13 +494,17 @@ class LiquidationController extends Controller
             abort(403, 'Only Regional Coordinators can download this template.');
         }
 
-        $templatePath = base_path('materials/template-for-rc.xlsx');
+        $templatePath = base_path('materials/RC_LIQUIDATION_TEMPLATE_complete.xlsx');
 
         if (!file_exists($templatePath)) {
             abort(404, 'Template file not found.');
         }
 
-        return response()->download($templatePath, 'RC_LIQUIDATION_TEMPLATE.xlsx');
+        return response()->download(
+            $templatePath,
+            'RC_LIQUIDATION_TEMPLATE.xlsx',
+            ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+        );
     }
 
     /**
@@ -556,6 +561,25 @@ class LiquidationController extends Controller
     {
         $financial = $liquidation->financial;
 
+        // Calculate financial values
+        $totalDisbursements = (float) ($financial?->amount_received ?? 0);
+        $totalLiquidated = (float) ($financial?->amount_liquidated ?? 0);
+        $totalUnliquidated = $totalDisbursements - $totalLiquidated;
+        $percentageLiquidation = $totalDisbursements > 0
+            ? round(($totalLiquidated / $totalDisbursements) * 100, 2)
+            : 0;
+
+        // Determine Status of Documents display name
+        $documentStatusCode = $liquidation->documentStatus?->code;
+        $documentStatusDisplay = match ($documentStatusCode) {
+            'COMPLETE' => 'Complete Submission',
+            'PARTIAL' => 'Partial Submission',
+            default => 'No Submission',
+        };
+
+        // Determine Status of Liquidation (different from workflow status)
+        $liquidationStatus = $this->determineLiquidationStatus($liquidation, $percentageLiquidation);
+
         return [
             'id' => $liquidation->id,
             'program' => $liquidation->program ? [
@@ -572,11 +596,43 @@ class LiquidationController extends Controller
             'batch_no' => $liquidation->batch_no,
             'dv_control_no' => $liquidation->control_no,
             'number_of_grantees' => $financial?->number_of_grantees,
-            'total_disbursements' => number_format((float) ($financial?->amount_disbursed ?? 0), 2),
+            'total_disbursements' => number_format($totalDisbursements, 2),
+            'total_amount_liquidated' => number_format($totalLiquidated, 2),
+            'total_unliquidated_amount' => number_format($totalUnliquidated, 2),
+            'document_status' => $documentStatusDisplay,
+            'document_status_code' => $documentStatusCode ?? 'NONE',
+            'rc_notes' => $liquidation->remarks,
+            'liquidation_status' => $liquidationStatus,
+            'percentage_liquidation' => $percentageLiquidation,
+            'lapsing_period' => $financial?->lapsing_period ?? 0,
             'status' => $liquidation->status,
             'status_label' => $liquidation->getStatusLabel(),
             'status_badge' => $liquidation->getStatusBadgeClass(),
         ];
+    }
+
+    /**
+     * Determine the liquidation status based on workflow status and percentage.
+     */
+    private function determineLiquidationStatus(Liquidation $liquidation, float $percentageLiquidation): string
+    {
+        $status = $liquidation->status;
+
+        // If endorsed to COA, it's fully liquidated
+        if ($status === Liquidation::STATUS_ENDORSED_TO_COA) {
+            return 'Fully Liquidated - Endorsed to COA';
+        }
+
+        // If endorsed to accounting
+        if ($status === Liquidation::STATUS_ENDORSED_TO_ACCOUNTING) {
+            if ($percentageLiquidation >= 100) {
+                return 'Fully Liquidated - Endorsed to Accounting';
+            }
+            return 'Partially Liquidated - Endorsed to Accounting';
+        }
+
+        // All other statuses (draft, for_initial_review, returned_to_hei, returned_to_rc)
+        return 'Unliquidated';
     }
 
     private function formatLiquidationForEdit(Liquidation $liquidation): array
@@ -729,6 +785,15 @@ class LiquidationController extends Controller
         ];
     }
 
+    /**
+     * Process a single import row.
+     *
+     * Column mapping (0-indexed):
+     * 0: SEQ, 1: Program, 2: UII, 3: HEI Name, 4: Date of Fund Release,
+     * 5: Due Date, 6: Academic Year, 7: Semester, 8: Batch no., 9: DV Control no.,
+     * 10: Number of Grantees, 11: Total Disbursements, 12: Total Amount Liquidated,
+     * 13: Status of Documents, 14: RC Notes
+     */
     private function processImportRow(array $row, $user): array
     {
         $uii = trim($row[2] ?? '');
@@ -749,6 +814,12 @@ class LiquidationController extends Controller
         $program = $this->findProgram($programCode);
         $semesterId = $this->liquidationService->findSemesterId($row[7] ?? '');
 
+        // Parse document status (column 13)
+        $documentStatusId = $this->parseDocumentStatus($row[13] ?? null);
+
+        // Parse RC notes/remarks (column 14)
+        $remarks = trim($row[14] ?? '');
+
         $liquidation = Liquidation::create([
             'control_no' => $controlNo,
             'hei_id' => $hei->id,
@@ -757,14 +828,22 @@ class LiquidationController extends Controller
             'semester_id' => $semesterId,
             'batch_no' => trim($row[8] ?? ''),
             'status' => Liquidation::STATUS_DRAFT,
+            'document_status_id' => $documentStatusId,
+            'remarks' => !empty($remarks) ? $remarks : null,
             'created_by' => $user->id,
         ]);
 
+        // Parse financial data including new columns
+        $totalDisbursements = $this->parseAmount($row[11] ?? 0);
+        $totalLiquidated = $this->parseAmount($row[12] ?? 0);
+
         $liquidation->createOrUpdateFinancial([
             'date_fund_released' => $this->parseExcelDate($row[4] ?? null),
+            'due_date' => $this->parseExcelDate($row[5] ?? null),
             'number_of_grantees' => $this->parseInteger($row[10] ?? null),
-            'amount_received' => $this->parseAmount($row[11] ?? 0),
-            'amount_disbursed' => $this->parseAmount($row[11] ?? 0),
+            'amount_received' => $totalDisbursements,
+            'amount_disbursed' => $totalDisbursements,
+            'amount_liquidated' => $totalLiquidated,
         ]);
 
         return ['success' => true];
@@ -849,5 +928,37 @@ class LiquidationController extends Controller
         $cleaned = preg_replace('/[^0-9\-]/', '', (string) $value);
 
         return $cleaned !== '' ? (int) $cleaned : null;
+    }
+
+    /**
+     * Parse document status from import value.
+     * Accepts: COMPLETE, PARTIAL, NONE, or empty
+     */
+    private function parseDocumentStatus($value): ?string
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        $normalized = strtoupper(trim($value));
+
+        // Map common variations to standard codes
+        $statusMap = [
+            'COMPLETE' => DocumentStatus::CODE_COMPLETE,
+            'COMPLETED' => DocumentStatus::CODE_COMPLETE,
+            'PARTIAL' => DocumentStatus::CODE_PARTIAL,
+            'INCOMPLETE' => DocumentStatus::CODE_PARTIAL,
+            'NONE' => DocumentStatus::CODE_NONE,
+            'N/A' => DocumentStatus::CODE_NONE,
+            'NA' => DocumentStatus::CODE_NONE,
+        ];
+
+        $code = $statusMap[$normalized] ?? null;
+
+        if ($code) {
+            return DocumentStatus::findByCode($code)?->id;
+        }
+
+        return null;
     }
 }

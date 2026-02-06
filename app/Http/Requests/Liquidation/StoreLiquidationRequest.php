@@ -39,6 +39,9 @@ class StoreLiquidationRequest extends FormRequest
             'dv_control_no' => 'required|string|max:100|unique:liquidations,control_no',
             'number_of_grantees' => 'nullable|integer|min:0',
             'total_disbursements' => 'required|numeric|min:0',
+            'total_amount_liquidated' => 'nullable|numeric|min:0',
+            'document_status' => 'nullable|string|in:NONE,PARTIAL,COMPLETE',
+            'rc_notes' => 'nullable|string|max:1000',
         ];
     }
 
