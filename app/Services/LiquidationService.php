@@ -61,8 +61,11 @@ class LiquidationService
             $query->whereIn('status', ['endorsed_to_accounting', 'endorsed_to_coa']);
         }
 
-        // HEI users see only their liquidations
-        if (!$user->isSuperAdmin() && !in_array($roleName, ['Regional Coordinator', 'Accountant', 'Admin'])) {
+        // HEI users see only their institution's liquidations
+        if ($roleName === 'HEI' && $user->hei_id) {
+            $query->where('hei_id', $user->hei_id);
+        } elseif (!$user->isSuperAdmin() && !in_array($roleName, ['Regional Coordinator', 'Accountant', 'Admin', 'HEI'])) {
+            // Fallback for other non-admin roles: show only their own created liquidations
             $query->where('created_by', $user->id);
         }
     }

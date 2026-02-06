@@ -110,15 +110,35 @@ interface DashboardProps {
     userRole?: string;
 }
 
-export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, statusDistribution, totalStats, userStats, recentLiquidations, userRole }: DashboardProps) {
+export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, statusDistribution, totalStats: rawTotalStats, userStats: rawUserStats, recentLiquidations, userRole }: DashboardProps) {
+    // Provide default values for totalStats to prevent undefined errors
+    const totalStats: TotalStats = {
+        total_liquidations: rawTotalStats?.total_liquidations ?? 0,
+        total_disbursed: rawTotalStats?.total_disbursed ?? 0,
+        total_liquidated: rawTotalStats?.total_liquidated ?? 0,
+        total_unliquidated: rawTotalStats?.total_unliquidated ?? 0,
+        pending_review: rawTotalStats?.pending_review ?? 0,
+    };
+
+    // Provide default values for userStats to prevent undefined errors
+    const userStats: UserStats = {
+        my_liquidations: rawUserStats?.my_liquidations ?? 0,
+        pending_action: rawUserStats?.pending_action ?? 0,
+        completed: rawUserStats?.completed ?? 0,
+        total_amount: rawUserStats?.total_amount ?? 0,
+        total_liquidated: rawUserStats?.total_liquidated ?? 0,
+        total_unliquidated: rawUserStats?.total_unliquidated ?? 0,
+    };
+
     // State for filters
     const [chartAYFilter, setChartAYFilter] = useState<string>('all');
     const [tableAYFilter, setTableAYFilter] = useState<string>('all');
     const [heiSearchQuery, setHeiSearchQuery] = useState<string>('');
     const [recentLiquidationsSearch, setRecentLiquidationsSearch] = useState<string>('');
 
-    const formatCurrency = (amount: number) => {
-        return `₱${parseFloat(amount.toString()).toLocaleString(undefined, {
+    const formatCurrency = (amount: number | null | undefined) => {
+        const value = amount ?? 0;
+        return `₱${parseFloat(value.toString()).toLocaleString(undefined, {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         })}`;
@@ -814,7 +834,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                                     <TableHead className="pl-6">Control No.</TableHead>
                                                     <TableHead>HEI</TableHead>
                                                     <TableHead>Academic Year</TableHead>
-                                                    <TableHead>Amount</TableHead>
+                                                    <TableHead>Total Disbursements</TableHead>
                                                     <TableHead>Status</TableHead>
                                                     <TableHead className="pr-6">Date</TableHead>
                                                 </TableRow>
@@ -1208,7 +1228,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                                     <TableHead className="pl-6">Control No.</TableHead>
                                                     <TableHead>HEI</TableHead>
                                                     <TableHead>Academic Year</TableHead>
-                                                    <TableHead>Amount</TableHead>
+                                                    <TableHead>Total Disbursements</TableHead>
                                                     <TableHead>Status</TableHead>
                                                     <TableHead className="pr-6">Date</TableHead>
                                                 </TableRow>
@@ -1490,7 +1510,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                                     <TableHead className="pl-6">Control No.</TableHead>
                                                     <TableHead>HEI</TableHead>
                                                     <TableHead>Academic Year</TableHead>
-                                                    <TableHead>Amount</TableHead>
+                                                    <TableHead>Total Disbursements</TableHead>
                                                     <TableHead>Status</TableHead>
                                                     <TableHead className="pr-6">Date</TableHead>
                                                 </TableRow>
