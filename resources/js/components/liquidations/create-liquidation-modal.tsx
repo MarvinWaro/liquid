@@ -52,6 +52,7 @@ const DOCUMENT_STATUSES = [
     { value: 'COMPLETE', label: 'Complete Submission' },
 ];
 
+// Matches the Excel list provided
 const RC_NOTES_OPTIONS = [
     { value: 'For Review', label: 'For Review' },
     { value: 'For Compliance', label: 'For Compliance' },
@@ -70,6 +71,7 @@ export function CreateLiquidationModal({
     const [isLookingUp, setIsLookingUp] = useState(false);
     const [heiLookup, setHeiLookup] = useState<HEILookup | null>(null);
     const [lookupError, setLookupError] = useState<string | null>(null);
+    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
     const [formData, setFormData] = useState({
         program_id: '',
@@ -107,6 +109,7 @@ export function CreateLiquidationModal({
             });
             setHeiLookup(null);
             setLookupError(null);
+            setFieldErrors({});
         }
     }, [isOpen]);
 
@@ -154,13 +157,22 @@ export function CreateLiquidationModal({
 
     const handleInputChange = (field: string, value: string) => {
         setFormData(prev => ({ ...prev, [field]: value }));
+        // Clear field error when user starts typing
+        if (fieldErrors[field]) {
+            setFieldErrors(prev => {
+                const updated = { ...prev };
+                delete updated[field];
+                return updated;
+            });
+        }
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setFieldErrors({});
 
         if (!heiLookup) {
-            toast.error('Please enter a valid UII');
+            setFieldErrors({ uii: 'Please enter a valid UII' });
             return;
         }
 
@@ -175,13 +187,16 @@ export function CreateLiquidationModal({
                 onClose();
             }
         } catch (error: any) {
-            const message = error.response?.data?.message || 'Failed to create liquidation';
-            toast.error(message);
-
             if (error.response?.data?.errors) {
-                Object.values(error.response.data.errors).flat().forEach((err: any) => {
-                    toast.error(err);
+                // Map Laravel validation errors to field errors
+                const errors: Record<string, string> = {};
+                Object.entries(error.response.data.errors).forEach(([field, messages]: [string, any]) => {
+                    errors[field] = Array.isArray(messages) ? messages[0] : messages;
                 });
+                setFieldErrors(errors);
+            } else {
+                const message = error.response?.data?.message || 'Failed to create liquidation';
+                toast.error(message);
             }
         } finally {
             setIsSubmitting(false);
@@ -204,7 +219,7 @@ export function CreateLiquidationModal({
                                 value={formData.program_id}
                                 onValueChange={(value) => handleInputChange('program_id', value)}
                             >
-                                <SelectTrigger>
+                                <SelectTrigger className={fieldErrors.program_id ? 'border-red-500' : ''}>
                                     <SelectValue placeholder="Select program" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -215,6 +230,9 @@ export function CreateLiquidationModal({
                                     ))}
                                 </SelectContent>
                             </Select>
+                            {fieldErrors.program_id && (
+                                <p className="text-sm text-red-500">{fieldErrors.program_id}</p>
+                            )}
                         </div>
 
                         {/* UII with auto-fill */}
@@ -226,16 +244,16 @@ export function CreateLiquidationModal({
                                     value={formData.uii}
                                     onChange={(e) => handleInputChange('uii', e.target.value)}
                                     placeholder="Enter UII"
-                                    className={`pr-10 ${heiLookup ? 'border-green-500' : lookupError ? 'border-red-500' : ''}`}
+                                    className={`pr-10 ${heiLookup ? 'border-green-500' : (lookupError || fieldErrors.uii) ? 'border-red-500' : ''}`}
                                 />
                                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
                                     {isLookingUp && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                                     {!isLookingUp && heiLookup && <CheckCircle2 className="h-4 w-4 text-green-500" />}
-                                    {!isLookingUp && lookupError && <XCircle className="h-4 w-4 text-red-500" />}
+                                    {!isLookingUp && (lookupError || fieldErrors.uii) && <XCircle className="h-4 w-4 text-red-500" />}
                                 </div>
                             </div>
-                            {lookupError && (
-                                <p className="text-sm text-red-500">{lookupError}</p>
+                            {(lookupError || fieldErrors.uii) && (
+                                <p className="text-sm text-red-500">{lookupError || fieldErrors.uii}</p>
                             )}
                         </div>
 
@@ -259,7 +277,11 @@ export function CreateLiquidationModal({
                                 type="date"
                                 value={formData.date_fund_released}
                                 onChange={(e) => handleInputChange('date_fund_released', e.target.value)}
+                                className={fieldErrors.date_fund_released ? 'border-red-500' : ''}
                             />
+                            {fieldErrors.date_fund_released && (
+                                <p className="text-sm text-red-500">{fieldErrors.date_fund_released}</p>
+                            )}
                         </div>
 
                         {/* Due Date */}
@@ -270,7 +292,11 @@ export function CreateLiquidationModal({
                                 type="date"
                                 value={formData.due_date}
                                 onChange={(e) => handleInputChange('due_date', e.target.value)}
+                                className={fieldErrors.due_date ? 'border-red-500' : ''}
                             />
+                            {fieldErrors.due_date && (
+                                <p className="text-sm text-red-500">{fieldErrors.due_date}</p>
+                            )}
                         </div>
 
                         {/* Academic Year */}
@@ -281,7 +307,11 @@ export function CreateLiquidationModal({
                                 value={formData.academic_year}
                                 onChange={(e) => handleInputChange('academic_year', e.target.value)}
                                 placeholder="e.g., 2024-2025"
+                                className={fieldErrors.academic_year ? 'border-red-500' : ''}
                             />
+                            {fieldErrors.academic_year && (
+                                <p className="text-sm text-red-500">{fieldErrors.academic_year}</p>
+                            )}
                         </div>
 
                         {/* Semester */}
@@ -291,7 +321,7 @@ export function CreateLiquidationModal({
                                 value={formData.semester}
                                 onValueChange={(value) => handleInputChange('semester', value)}
                             >
-                                <SelectTrigger>
+                                <SelectTrigger className={fieldErrors.semester ? 'border-red-500' : ''}>
                                     <SelectValue placeholder="Select semester" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -302,6 +332,9 @@ export function CreateLiquidationModal({
                                     ))}
                                 </SelectContent>
                             </Select>
+                            {fieldErrors.semester && (
+                                <p className="text-sm text-red-500">{fieldErrors.semester}</p>
+                            )}
                         </div>
 
                         {/* Batch No */}
@@ -315,7 +348,11 @@ export function CreateLiquidationModal({
                                 value={formData.batch_no}
                                 onChange={(e) => handleInputChange('batch_no', e.target.value)}
                                 placeholder="e.g., 1, 2, 3"
+                                className={fieldErrors.batch_no ? 'border-red-500' : ''}
                             />
+                            {fieldErrors.batch_no && (
+                                <p className="text-sm text-red-500">{fieldErrors.batch_no}</p>
+                            )}
                         </div>
 
                         {/* DV Control No */}
@@ -326,7 +363,11 @@ export function CreateLiquidationModal({
                                 value={formData.dv_control_no}
                                 onChange={(e) => handleInputChange('dv_control_no', e.target.value)}
                                 placeholder="e.g., 2025-0001"
+                                className={fieldErrors.dv_control_no ? 'border-red-500' : ''}
                             />
+                            {fieldErrors.dv_control_no && (
+                                <p className="text-sm text-red-500">{fieldErrors.dv_control_no}</p>
+                            )}
                         </div>
 
                         {/* Number of Grantees */}
@@ -339,7 +380,11 @@ export function CreateLiquidationModal({
                                 value={formData.number_of_grantees}
                                 onChange={(e) => handleInputChange('number_of_grantees', e.target.value)}
                                 placeholder="Enter number"
+                                className={fieldErrors.number_of_grantees ? 'border-red-500' : ''}
                             />
+                            {fieldErrors.number_of_grantees && (
+                                <p className="text-sm text-red-500">{fieldErrors.number_of_grantees}</p>
+                            )}
                         </div>
 
                         {/* Total Disbursements */}
@@ -353,7 +398,11 @@ export function CreateLiquidationModal({
                                 value={formData.total_disbursements}
                                 onChange={(e) => handleInputChange('total_disbursements', e.target.value)}
                                 placeholder="Enter amount"
+                                className={fieldErrors.total_disbursements ? 'border-red-500' : ''}
                             />
+                            {fieldErrors.total_disbursements && (
+                                <p className="text-sm text-red-500">{fieldErrors.total_disbursements}</p>
+                            )}
                         </div>
 
                         {/* Total Amount Liquidated */}
@@ -367,7 +416,11 @@ export function CreateLiquidationModal({
                                 value={formData.total_amount_liquidated}
                                 onChange={(e) => handleInputChange('total_amount_liquidated', e.target.value)}
                                 placeholder="Enter amount (default: 0)"
+                                className={fieldErrors.total_amount_liquidated ? 'border-red-500' : ''}
                             />
+                            {fieldErrors.total_amount_liquidated && (
+                                <p className="text-sm text-red-500">{fieldErrors.total_amount_liquidated}</p>
+                            )}
                         </div>
 
                         {/* Status of Documents */}
@@ -377,7 +430,7 @@ export function CreateLiquidationModal({
                                 value={formData.document_status}
                                 onValueChange={(value) => handleInputChange('document_status', value)}
                             >
-                                <SelectTrigger>
+                                <SelectTrigger className={fieldErrors.document_status ? 'border-red-500' : ''}>
                                     <SelectValue placeholder="Select status" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -388,17 +441,20 @@ export function CreateLiquidationModal({
                                     ))}
                                 </SelectContent>
                             </Select>
+                            {fieldErrors.document_status && (
+                                <p className="text-sm text-red-500">{fieldErrors.document_status}</p>
+                            )}
                         </div>
 
-                        {/* RC Notes */}
-                        <div className="space-y-2 col-span-2">
-                            <Label htmlFor="rc_notes">RC Notes</Label>
+                        {/* Regional Coordinator's Note (Previously RC Notes) */}
+                        <div className="space-y-2">
+                            <Label htmlFor="rc_notes">Regional Coordinator's Note</Label>
                             <Select
                                 value={formData.rc_notes}
                                 onValueChange={(value) => handleInputChange('rc_notes', value)}
                             >
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select RC notes (optional)" />
+                                <SelectTrigger className={fieldErrors.rc_notes ? 'border-red-500' : ''}>
+                                    <SelectValue placeholder="Select note (optional)" />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {RC_NOTES_OPTIONS.map((option) => (
@@ -408,6 +464,9 @@ export function CreateLiquidationModal({
                                     ))}
                                 </SelectContent>
                             </Select>
+                            {fieldErrors.rc_notes && (
+                                <p className="text-sm text-red-500">{fieldErrors.rc_notes}</p>
+                            )}
                         </div>
                     </div>
 

@@ -6,6 +6,8 @@ use App\Models\Permission;
 use App\Models\Role;
 use Illuminate\Database\Seeder;
 
+// php artisan db:seed --class=PermissionSeeder
+
 class PermissionSeeder extends Seeder
 {
     public function run(): void

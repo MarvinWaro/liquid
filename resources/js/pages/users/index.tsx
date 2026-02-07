@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import AppLayout from '@/layouts/app-layout';
 import { Head, router } from '@inertiajs/react';
+import { type BreadcrumbItem } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { UserModal } from '@/components/users/user-modal';
@@ -77,6 +78,10 @@ interface Props {
     canChangeStatus: boolean;
 }
 
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'User Management', href: route('users.index') },
+];
+
 export default function Index({ auth, users, roles, regions, heis, canCreate, canEdit, canDelete, canChangeStatus }: Props) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -118,7 +123,7 @@ export default function Index({ auth, users, roles, regions, heis, canCreate, ca
     };
 
     return (
-        <AppLayout>
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="User Management" />
 
             <UserModal

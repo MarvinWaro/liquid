@@ -5,6 +5,8 @@ namespace Database\Seeders;
 use App\Models\Region;
 use Illuminate\Database\Seeder;
 
+// php artisan db:seed --class=RegionSeeder 
+
 class RegionSeeder extends Seeder
 {
     /**

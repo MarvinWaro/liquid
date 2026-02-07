@@ -78,6 +78,9 @@ class Liquidation extends Model
         // COA Endorsement
         'coa_endorsed_by',
         'coa_endorsed_at',
+
+        // Liquidation status
+        'liquidation_status',
     ];
 
     /**
@@ -113,6 +116,13 @@ class Liquidation extends Model
     public const STATUS_ENDORSED_TO_COA = 'endorsed_to_coa';
     public const STATUS_APPROVED = 'approved';
     public const STATUS_REJECTED = 'rejected';
+
+    /**
+     * Liquidation status constants.
+     */
+    public const LIQUIDATION_STATUS_UNLIQUIDATED = 'Unliquidated';
+    public const LIQUIDATION_STATUS_PARTIALLY = 'Partially Liquidated - Endorsed to Accounting';
+    public const LIQUIDATION_STATUS_FULLY = 'Fully Liquidated - Endorsed to Accounting';
 
     // ========================================
     // RELATIONSHIPS - Core Entities

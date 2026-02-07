@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import AppLayout from '@/layouts/app-layout';
 import { Head, router } from '@inertiajs/react';
+import { type BreadcrumbItem } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RegionModal } from '@/components/regions/region-modal';
@@ -44,6 +45,10 @@ interface Props {
     canDelete: boolean;
 }
 
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'Region Management', href: route('regions.index') },
+];
+
 export default function Index({ auth, regions, canCreate, canEdit, canDelete }: Props) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
@@ -72,7 +77,7 @@ export default function Index({ auth, regions, canCreate, canEdit, canDelete }: 
     };
 
     return (
-        <AppLayout>
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Region Management" />
 
             <RegionModal

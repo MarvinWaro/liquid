@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/table';
 import AppLayout from '@/layouts/app-layout';
 import { Head, router } from '@inertiajs/react';
+import { type BreadcrumbItem } from '@/types';
 import { Lock, Pencil, Plus, Search, Shield } from 'lucide-react';
 import { useState } from 'react';
 
@@ -41,6 +42,10 @@ interface Props {
     canEdit: boolean;
     canDelete: boolean;
 }
+
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'Role Management', href: route('roles.index') },
+];
 
 export default function Index({
     auth,
@@ -81,7 +86,7 @@ export default function Index({
     };
 
     return (
-        <AppLayout>
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Roles & Permissions" />
 
             <RoleModal

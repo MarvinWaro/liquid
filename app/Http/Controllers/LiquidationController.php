@@ -240,9 +240,9 @@ class LiquidationController extends Controller
     }
 
     /**
-     * Get liquidation details with beneficiaries.
+     * Display liquidation details page.
      */
-    public function show(Request $request, Liquidation $liquidation): JsonResponse
+    public function show(Request $request, Liquidation $liquidation): InertiaResponse
     {
         $user = $request->user();
 
@@ -258,7 +258,18 @@ class LiquidationController extends Controller
             'reviews', 'transmittal.endorser', 'compliance'
         ]);
 
-        return response()->json($this->formatLiquidationDetails($liquidation));
+        return Inertia::render('liquidation/show', [
+            'liquidation' => $this->formatLiquidationDetails($liquidation),
+            'userHei' => $this->formatUserHei($user->hei),
+            'regionalCoordinators' => $this->cacheService->getRegionalCoordinators(),
+            'accountants' => $this->cacheService->getAccountants(),
+            'permissions' => [
+                'review' => $user->hasPermission('review_liquidation'),
+                'submit' => $user->hei !== null,
+                'edit' => $user->hasPermission('edit_liquidation'),
+            ],
+            'userRole' => $user->role->name,
+        ]);
     }
 
     /**
@@ -577,8 +588,8 @@ class LiquidationController extends Controller
             default => 'No Submission',
         };
 
-        // Determine Status of Liquidation (different from workflow status)
-        $liquidationStatus = $this->determineLiquidationStatus($liquidation, $percentageLiquidation);
+        // Use the stored liquidation_status from database
+        $liquidationStatus = $liquidation->liquidation_status ?? Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED;
 
         return [
             'id' => $liquidation->id,
@@ -609,30 +620,6 @@ class LiquidationController extends Controller
             'status_label' => $liquidation->getStatusLabel(),
             'status_badge' => $liquidation->getStatusBadgeClass(),
         ];
-    }
-
-    /**
-     * Determine the liquidation status based on workflow status and percentage.
-     */
-    private function determineLiquidationStatus(Liquidation $liquidation, float $percentageLiquidation): string
-    {
-        $status = $liquidation->status;
-
-        // If endorsed to COA, it's fully liquidated
-        if ($status === Liquidation::STATUS_ENDORSED_TO_COA) {
-            return 'Fully Liquidated - Endorsed to COA';
-        }
-
-        // If endorsed to accounting
-        if ($status === Liquidation::STATUS_ENDORSED_TO_ACCOUNTING) {
-            if ($percentageLiquidation >= 100) {
-                return 'Fully Liquidated - Endorsed to Accounting';
-            }
-            return 'Partially Liquidated - Endorsed to Accounting';
-        }
-
-        // All other statuses (draft, for_initial_review, returned_to_hei, returned_to_rc)
-        return 'Unliquidated';
     }
 
     private function formatLiquidationForEdit(Liquidation $liquidation): array
@@ -828,6 +815,7 @@ class LiquidationController extends Controller
             'semester_id' => $semesterId,
             'batch_no' => trim($row[8] ?? ''),
             'status' => Liquidation::STATUS_DRAFT,
+            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
             'document_status_id' => $documentStatusId,
             'remarks' => !empty($remarks) ? $remarks : null,
             'created_by' => $user->id,
@@ -932,12 +920,13 @@ class LiquidationController extends Controller
 
     /**
      * Parse document status from import value.
-     * Accepts: COMPLETE, PARTIAL, NONE, or empty
+     * Accepts: COMPLETE, PARTIAL, NONE, or empty (defaults to NONE)
      */
     private function parseDocumentStatus($value): ?string
     {
+        // Default to NONE if empty
         if (empty($value)) {
-            return null;
+            return DocumentStatus::findByCode(DocumentStatus::CODE_NONE)?->id;
         }
 
         $normalized = strtoupper(trim($value));
@@ -953,12 +942,8 @@ class LiquidationController extends Controller
             'NA' => DocumentStatus::CODE_NONE,
         ];
 
-        $code = $statusMap[$normalized] ?? null;
+        $code = $statusMap[$normalized] ?? DocumentStatus::CODE_NONE;
 
-        if ($code) {
-            return DocumentStatus::findByCode($code)?->id;
-        }
-
-        return null;
+        return DocumentStatus::findByCode($code)?->id;
     }
 }

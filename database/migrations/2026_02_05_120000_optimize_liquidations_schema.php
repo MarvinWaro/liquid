@@ -132,6 +132,7 @@ return new class extends Migration
             $table->foreign('liquidation_id')->references('id')->on('liquidations')->onDelete('cascade');
 
             $table->date('date_fund_released')->nullable();
+            $table->date('due_date')->nullable();
             $table->string('fund_source', 100)->nullable();
             $table->decimal('amount_received', 15, 2)->default(0);
             $table->decimal('amount_disbursed', 15, 2)->default(0);
@@ -160,6 +161,7 @@ return new class extends Migration
 
     /**
      * Migrate existing data.
+     * For fresh migrations, this creates financial records from legacy columns if they exist.
      */
     private function migrateExistingData(): void
     {
@@ -176,40 +178,36 @@ return new class extends Migration
             $docStatusMap[$status->name] = $status->id;
         }
 
+        // Check if legacy columns exist (for fresh migrations they won't have data)
+        $hasLegacyColumns = Schema::hasColumn('liquidations', 'amount_received');
+
+        if (!$hasLegacyColumns) {
+            return; // Fresh migration, no data to migrate
+        }
+
         // Migrate each liquidation
         $liquidations = DB::table('liquidations')->get();
 
         foreach ($liquidations as $liq) {
-            // Create financial record
+            // Create financial record from legacy columns
             DB::table('liquidation_financials')->insert([
                 'id' => Str::uuid(),
                 'liquidation_id' => $liq->id,
-                'date_fund_released' => $liq->date_fund_released,
-                'fund_source' => $liq->fund_source,
                 'amount_received' => $liq->amount_received ?? 0,
-                'amount_disbursed' => $liq->disbursed_amount ?? 0,
-                'amount_liquidated' => $liq->liquidated_amount ?? 0,
+                'amount_disbursed' => $liq->amount_disbursed ?? 0,
                 'amount_refunded' => $liq->amount_refunded ?? 0,
-                'disbursement_date' => $liq->disbursement_date,
-                'number_of_grantees' => $liq->number_of_grantees,
-                'or_number' => $liq->or_number,
-                'purpose' => $liq->purpose,
+                'or_number' => $liq->or_number ?? null,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
 
-            // Update semester_id
-            $semesterId = $semesterMap[$liq->semester] ?? $semesterMap['1st Semester'] ?? null;
-
-            // Update document_status_id
-            $docStatusId = $docStatusMap[$liq->document_status] ?? $docStatusMap['No Submission'] ?? null;
-
-            DB::table('liquidations')
-                ->where('id', $liq->id)
-                ->update([
-                    'semester_id' => $semesterId,
-                    'document_status_id' => $docStatusId,
-                ]);
+            // Update semester_id from legacy semester column if it exists
+            if (Schema::hasColumn('liquidations', 'semester') && !empty($liq->semester)) {
+                $semesterId = $semesterMap[$liq->semester] ?? $semesterMap['1st Semester'] ?? null;
+                DB::table('liquidations')
+                    ->where('id', $liq->id)
+                    ->update(['semester_id' => $semesterId]);
+            }
         }
     }
 

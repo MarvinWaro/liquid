@@ -155,11 +155,9 @@ class LiquidationService
 
         $semesterId = $this->findSemesterId($data['semester']);
 
-        // Determine document status ID
-        $documentStatusId = null;
-        if (!empty($data['document_status'])) {
-            $documentStatusId = DocumentStatus::findByCode($data['document_status'])?->id;
-        }
+        // Determine document status ID - default to NONE if not provided
+        $documentStatusCode = !empty($data['document_status']) ? $data['document_status'] : 'NONE';
+        $documentStatusId = DocumentStatus::findByCode($documentStatusCode)?->id;
 
         $liquidation = Liquidation::create([
             'control_no' => $data['dv_control_no'],
@@ -171,6 +169,7 @@ class LiquidationService
             'document_status_id' => $documentStatusId,
             'remarks' => $data['rc_notes'] ?? null,
             'status' => Liquidation::STATUS_DRAFT,
+            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
             'created_by' => $creator->id,
         ]);
 
@@ -240,6 +239,7 @@ class LiquidationService
 
         $updateData = [
             'status' => Liquidation::STATUS_FOR_INITIAL_REVIEW,
+            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
             'date_submitted' => now(),
             'document_status_id' => $documentStatusId,
         ];
@@ -270,8 +270,12 @@ class LiquidationService
             ]);
         }
 
+        // Calculate liquidation status based on financial data
+        $liquidationStatus = $this->calculateLiquidationStatus($liquidation);
+
         $liquidation->update([
             'status' => Liquidation::STATUS_ENDORSED_TO_ACCOUNTING,
+            'liquidation_status' => $liquidationStatus,
             'reviewed_by' => $user->id,
             'reviewed_at' => now(),
         ]);
@@ -296,6 +300,7 @@ class LiquidationService
 
         $liquidation->update([
             'status' => Liquidation::STATUS_RETURNED_TO_HEI,
+            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
             'reviewed_by' => $user->id,
             'reviewed_at' => now(),
         ]);
@@ -318,8 +323,12 @@ class LiquidationService
             ]);
         }
 
+        // Calculate liquidation status based on financial data
+        $liquidationStatus = $this->calculateLiquidationStatus($liquidation);
+
         $liquidation->update([
             'status' => Liquidation::STATUS_ENDORSED_TO_COA,
+            'liquidation_status' => $liquidationStatus,
             'accountant_reviewed_by' => $user->id,
             'accountant_reviewed_at' => now(),
             'coa_endorsed_by' => $user->id,
@@ -338,6 +347,7 @@ class LiquidationService
 
         $liquidation->update([
             'status' => Liquidation::STATUS_RETURNED_TO_RC,
+            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
             'accountant_reviewed_by' => $user->id,
             'accountant_reviewed_at' => now(),
         ]);
@@ -471,5 +481,30 @@ class LiquidationService
         Cache::forget('document_statuses_all');
         Cache::forget('programs_active');
         Cache::forget('heis_active');
+    }
+
+    /**
+     * Calculate liquidation status based on financial data.
+     * Returns: Unliquidated, Partially Liquidated - Endorsed to Accounting, or Fully Liquidated - Endorsed to Accounting
+     */
+    public function calculateLiquidationStatus(Liquidation $liquidation): string
+    {
+        $financial = $liquidation->financial;
+
+        if (!$financial) {
+            return Liquidation::LIQUIDATION_STATUS_PARTIALLY;
+        }
+
+        $amountDisbursed = (float) ($financial->amount_disbursed ?? 0);
+        $amountLiquidated = (float) ($financial->amount_liquidated ?? 0);
+
+        // Calculate percentage
+        $percentage = $amountDisbursed > 0 ? ($amountLiquidated / $amountDisbursed) * 100 : 0;
+
+        if ($percentage >= 100) {
+            return Liquidation::LIQUIDATION_STATUS_FULLY;
+        }
+
+        return Liquidation::LIQUIDATION_STATUS_PARTIALLY;
     }
 }

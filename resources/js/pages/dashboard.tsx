@@ -254,7 +254,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Dashboard" />
             <div className="py-8 w-full">
-                <div className="w-full max-w-[95%] mx-auto space-y-6">
+                <div className="w-full max-w-[100%] mx-auto space-y-6">
 
                     {/* Page Header */}
                     <div>
