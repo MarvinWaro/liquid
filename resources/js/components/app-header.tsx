@@ -34,17 +34,13 @@ import {
 } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
 import {
-    Building2,
     Check,
     FileText,
     LayoutGrid,
-    MapPin,
     Menu,
     Monitor,
     Moon,
-    Shield,
     Sun,
-    Users,
 } from 'lucide-react';
 import { useMemo } from 'react';
 import AppLogoIcon from './app-logo-icon';
@@ -62,30 +58,6 @@ const allNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
         href: '/liquidation',
         icon: FileText,
         ability: 'canViewLiquidation',
-    },
-    {
-        title: 'Roles & Permissions',
-        href: '/roles',
-        icon: Shield,
-        ability: 'canViewRoles',
-    },
-    {
-        title: 'Users',
-        href: '/users',
-        icon: Users,
-        ability: 'canViewUsers',
-    },
-    {
-        title: 'HEI',
-        href: '/hei',
-        icon: Building2,
-        ability: 'canViewHEI',
-    },
-    {
-        title: 'Regions',
-        href: '/regions',
-        icon: MapPin,
-        ability: 'canViewRegions',
     },
 ];
 

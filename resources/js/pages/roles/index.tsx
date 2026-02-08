@@ -12,8 +12,9 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import AppLayout from '@/layouts/app-layout';
-import { Head, router } from '@inertiajs/react';
+import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
+import { Head, router } from '@inertiajs/react';
 import { Lock, Pencil, Plus, Search, Shield } from 'lucide-react';
 import { useState } from 'react';
 
@@ -44,7 +45,8 @@ interface Props {
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Role Management', href: route('roles.index') },
+    { title: 'Settings', href: '/settings/profile' },
+    { title: 'Roles & Permissions', href: '/roles' },
 ];
 
 export default function Index({
@@ -89,7 +91,8 @@ export default function Index({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Roles & Permissions" />
 
-            <RoleModal
+            <SettingsLayout wide>
+                <RoleModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 role={selectedRole}
@@ -265,6 +268,7 @@ export default function Index({
                     </Table>
                 </div>
             </div>
+            </SettingsLayout>
         </AppLayout>
     );
 }

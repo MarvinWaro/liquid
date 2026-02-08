@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import AppLayout from '@/layouts/app-layout';
-import { Head, router } from '@inertiajs/react';
+import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
+import { Head, router } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RegionModal } from '@/components/regions/region-modal';
@@ -46,7 +47,8 @@ interface Props {
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Region Management', href: route('regions.index') },
+    { title: 'Settings', href: '/settings/profile' },
+    { title: 'Regions', href: '/regions' },
 ];
 
 export default function Index({ auth, regions, canCreate, canEdit, canDelete }: Props) {
@@ -80,7 +82,8 @@ export default function Index({ auth, regions, canCreate, canEdit, canDelete }: 
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Region Management" />
 
-            <RegionModal
+            <SettingsLayout wide>
+                <RegionModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 region={selectedRegion}
@@ -211,6 +214,7 @@ export default function Index({ auth, regions, canCreate, canEdit, canDelete }: 
                     </Card>
                 </div>
             </div>
+            </SettingsLayout>
         </AppLayout>
     );
 }

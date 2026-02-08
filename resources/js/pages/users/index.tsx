@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/table';
 import { UserModal } from '@/components/users/user-modal';
 import AppLayout from '@/layouts/app-layout';
+import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
 import {
@@ -81,7 +82,8 @@ interface Props {
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'User Management', href: route('users.index') },
+    { title: 'Settings', href: '/settings/profile' },
+    { title: 'Users', href: '/users' },
 ];
 
 export default function Index({
@@ -171,7 +173,8 @@ export default function Index({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="User Management" />
 
-            <UserModal
+            <SettingsLayout wide>
+                <UserModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 user={selectedUser}
@@ -526,6 +529,7 @@ export default function Index({
                     </Table>
                 </div>
             </div>
+            </SettingsLayout>
         </AppLayout>
     );
 }
