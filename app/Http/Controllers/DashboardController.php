@@ -29,20 +29,16 @@ class DashboardController extends Controller
      */
     private function adminDashboard()
     {
-        // Summary per Academic Year (exclude drafts)
+        // Summary per Academic Year
         $summaryPerAY = $this->getSummaryPerAY();
 
-        // Summary per HEI (exclude drafts)
+        // Summary per HEI
         $summaryPerHEI = $this->getSummaryPerHEI();
 
-        // Status distribution for chart (exclude drafts)
-        $statusDistribution = Liquidation::select('status')
-            ->where('status', '!=', 'draft')
-            ->selectRaw('COUNT(*) as count')
-            ->groupBy('status')
-            ->get();
+        // Liquidation status distribution for chart
+        $statusDistribution = $this->getLiquidationStatusDistribution();
 
-        // Total statistics for cards (exclude drafts)
+        // Total statistics for cards
         $totalStats = $this->getTotalStats();
 
         return Inertia::render('dashboard', [
@@ -77,23 +73,23 @@ class DashboardController extends Controller
 
         // Role-specific queries
         if ($userRole === 'Regional Coordinator') {
-            $userStats = $this->getRCUserStats();
+            $userStats = $this->getRCUserStats($user);
             $rcTotalStats = $this->getTotalStats();
-            $rcStatusDistribution = $this->getStatusDistribution();
+            $rcStatusDistribution = $this->getLiquidationStatusDistribution();
             $rcSummaryPerAY = $this->getSummaryPerAY();
             $rcSummaryPerHEI = $this->getSummaryPerHEI();
 
         } elseif ($userRole === 'Accountant') {
             $userStats = $this->getAccountantUserStats();
             $rcTotalStats = $this->getTotalStats();
-            $rcStatusDistribution = $this->getStatusDistribution();
+            $rcStatusDistribution = $this->getLiquidationStatusDistribution();
             $rcSummaryPerAY = $this->getSummaryPerAY();
             $rcSummaryPerHEI = $this->getSummaryPerHEI();
 
         } elseif ($userRole === 'HEI' && $user->hei_id) {
             $userStats = $this->getHEIUserStats($user->hei_id);
             $rcTotalStats = $this->getHEITotalStats($user->hei_id);
-            $rcStatusDistribution = $this->getStatusDistribution($user->hei_id);
+            $rcStatusDistribution = $this->getLiquidationStatusDistribution($user->hei_id);
             $rcSummaryPerAY = $this->getSummaryPerAY($user->hei_id);
         }
 
@@ -120,7 +116,6 @@ class DashboardController extends Controller
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->leftJoin('liquidation_compliance', 'liquidations.id', '=', 'liquidation_compliance.liquidation_id')
-            ->where('liquidations.status', '!=', 'draft')
             ->whereNull('liquidations.deleted_at');
 
         if ($heiId) {
@@ -131,9 +126,9 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursements')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as liquidated_amount')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as unliquidated_amount')
-            ->selectRaw('COALESCE(SUM(CASE WHEN liquidations.status = "endorsed_to_accounting" THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) as for_endorsement')
+            ->selectRaw('COALESCE(SUM(CASE WHEN liquidations.reviewed_at IS NOT NULL AND liquidations.coa_endorsed_at IS NULL THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) as for_endorsement')
             ->selectRaw('COALESCE(SUM(CASE WHEN liquidation_compliance.id IS NOT NULL THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) as for_compliance')
-            ->selectRaw('ROUND((COALESCE(SUM(CASE WHEN liquidations.status = "endorsed_to_accounting" THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) + COALESCE(SUM(liquidation_financials.amount_liquidated), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_liquidation')
+            ->selectRaw('ROUND((COALESCE(SUM(CASE WHEN liquidations.reviewed_at IS NOT NULL THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) + COALESCE(SUM(liquidation_financials.amount_liquidated), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_liquidation')
             ->selectRaw('ROUND(COALESCE(SUM(CASE WHEN liquidation_compliance.id IS NOT NULL THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_compliance')
             ->selectRaw('ROUND((COUNT(*) / NULLIF(COUNT(*), 0)) * 100, 2) as percentage_submission')
             ->groupBy('liquidations.academic_year')
@@ -150,15 +145,14 @@ class DashboardController extends Controller
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->leftJoin('liquidation_compliance', 'liquidations.id', '=', 'liquidation_compliance.liquidation_id')
             ->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
-            ->where('liquidations.status', '!=', 'draft')
             ->whereNull('liquidations.deleted_at')
             ->select('liquidations.hei_id', 'heis.name as hei_name')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursements')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_amount_liquidated')
-            ->selectRaw('COALESCE(SUM(CASE WHEN liquidations.status = "endorsed_to_accounting" THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) as for_endorsement')
-            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(liquidation_financials.amount_liquidated), 0) - COALESCE(SUM(CASE WHEN liquidations.status = "endorsed_to_accounting" THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) as unliquidated_amount')
+            ->selectRaw('COALESCE(SUM(CASE WHEN liquidations.reviewed_at IS NOT NULL AND liquidations.coa_endorsed_at IS NULL THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) as for_endorsement')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(liquidation_financials.amount_liquidated), 0) - COALESCE(SUM(CASE WHEN liquidations.reviewed_at IS NOT NULL AND liquidations.coa_endorsed_at IS NULL THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) as unliquidated_amount')
             ->selectRaw('COALESCE(SUM(CASE WHEN liquidation_compliance.id IS NOT NULL THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) as for_compliance')
-            ->selectRaw('ROUND((COALESCE(SUM(CASE WHEN liquidations.status = "endorsed_to_accounting" THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) + COALESCE(SUM(liquidation_financials.amount_liquidated), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_liquidation')
+            ->selectRaw('ROUND((COALESCE(SUM(CASE WHEN liquidations.reviewed_at IS NOT NULL THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) + COALESCE(SUM(liquidation_financials.amount_liquidated), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_liquidation')
             ->selectRaw('ROUND((COUNT(*) / NULLIF(COUNT(*), 0)) * 100, 2) as percentage_submission')
             ->groupBy('liquidations.hei_id', 'heis.name')
             ->get()
@@ -184,7 +178,6 @@ class DashboardController extends Controller
     {
         $stats = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->where('liquidations.status', '!=', 'draft')
             ->whereNull('liquidations.deleted_at')
             ->selectRaw('COUNT(*) as total_liquidations')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursed')
@@ -192,7 +185,10 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_unliquidated')
             ->first();
 
-        $pendingReview = Liquidation::whereIn('status', ['for_initial_review', 'endorsed_to_accounting'])->count();
+        // Pending review = submitted but not yet endorsed to COA
+        $pendingReview = Liquidation::whereNotNull('date_submitted')
+            ->whereNull('coa_endorsed_at')
+            ->count();
 
         return [
             'total_liquidations' => $stats->total_liquidations ?? 0,
@@ -204,40 +200,50 @@ class DashboardController extends Controller
     }
 
     /**
-     * Get status distribution.
+     * Get liquidation status distribution (using liquidation_status column).
      */
-    private function getStatusDistribution(?string $heiId = null)
+    private function getLiquidationStatusDistribution(?string $heiId = null)
     {
-        $query = Liquidation::select('status')
-            ->where('status', '!=', 'draft')
+        $query = Liquidation::select('liquidation_status as status')
             ->selectRaw('COUNT(*) as count');
 
         if ($heiId) {
             $query->where('hei_id', $heiId);
         }
 
-        return $query->groupBy('status')->get();
+        return $query->groupBy('liquidation_status')->get();
     }
 
     /**
      * Get RC user stats.
      */
-    private function getRCUserStats(): array
+    private function getRCUserStats($user): array
     {
         $stats = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->where('liquidations.status', '!=', 'draft')
             ->whereNull('liquidations.deleted_at')
+            ->where(function ($q) use ($user) {
+                $q->where('liquidations.created_by', $user->id)
+                  ->orWhere('liquidations.reviewed_by', $user->id);
+            })
             ->selectRaw('COUNT(*) as my_liquidations')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_amount')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_liquidated')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_unliquidated')
             ->first();
 
+        // Pending action = submitted but not reviewed by RC
+        $pendingAction = Liquidation::whereNotNull('date_submitted')
+            ->whereNull('reviewed_at')
+            ->count();
+
+        // Completed = endorsed to accounting (reviewed by RC)
+        $completed = Liquidation::whereNotNull('reviewed_at')->count();
+
         return [
             'my_liquidations' => $stats->my_liquidations ?? 0,
-            'pending_action' => Liquidation::where('status', 'for_initial_review')->count(),
-            'completed' => Liquidation::where('status', 'endorsed_to_accounting')->count(),
+            'pending_action' => $pendingAction,
+            'completed' => $completed,
             'total_amount' => $stats->total_amount ?? 0,
             'total_liquidated' => $stats->total_liquidated ?? 0,
             'total_unliquidated' => $stats->total_unliquidated ?? 0,
@@ -251,26 +257,35 @@ class DashboardController extends Controller
     {
         $stats = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->whereIn('liquidations.status', ['endorsed_to_accounting', 'endorsed_to_coa', 'returned_to_rc'])
+            ->whereNotNull('liquidations.reviewed_at') // Endorsed by RC
             ->whereNull('liquidations.deleted_at')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_amount')
             ->first();
 
+        // My liquidations = those endorsed by RC
+        $myLiquidations = Liquidation::whereNotNull('reviewed_at')->count();
+
+        // Pending action = endorsed by RC but not yet by accountant
+        $pendingAction = Liquidation::whereNotNull('reviewed_at')
+            ->whereNull('accountant_reviewed_at')
+            ->count();
+
+        // Completed = endorsed to COA
+        $completed = Liquidation::whereNotNull('coa_endorsed_at')->count();
+
         return [
-            'my_liquidations' => Liquidation::whereIn('status', ['endorsed_to_accounting', 'returned_to_rc'])->count(),
-            'pending_action' => Liquidation::where('status', 'endorsed_to_accounting')->count(),
-            'completed' => Liquidation::where('status', 'endorsed_to_coa')->count(),
+            'my_liquidations' => $myLiquidations,
+            'pending_action' => $pendingAction,
+            'completed' => $completed,
             'total_amount' => $stats->total_amount ?? 0,
         ];
     }
 
     /**
      * Get HEI user stats.
-     * Note: HEI users see ALL their liquidations including drafts.
      */
     private function getHEIUserStats(string $heiId): array
     {
-        // Include all liquidations (including drafts) for HEI users
         $stats = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->where('liquidations.hei_id', $heiId)
@@ -282,12 +297,25 @@ class DashboardController extends Controller
         $totalAmount = $stats->total_amount ?? 0;
         $totalLiquidated = $stats->total_liquidated ?? 0;
 
+        // Pending action = not yet submitted or returned
+        $pendingAction = Liquidation::where('hei_id', $heiId)
+            ->where(function ($q) {
+                $q->whereNull('date_submitted') // Not yet submitted
+                  ->orWhereHas('reviews', function ($q2) {
+                      $q2->where('review_type', 'rc_return');
+                  });
+            })
+            ->count();
+
+        // Completed = endorsed to COA
+        $completed = Liquidation::where('hei_id', $heiId)
+            ->whereNotNull('coa_endorsed_at')
+            ->count();
+
         return [
             'my_liquidations' => Liquidation::where('hei_id', $heiId)->count(),
-            'pending_action' => Liquidation::where('hei_id', $heiId)
-                ->whereIn('status', ['draft', 'returned_to_hei'])->count(),
-            'completed' => Liquidation::where('hei_id', $heiId)
-                ->where('status', 'endorsed_to_coa')->count(),
+            'pending_action' => $pendingAction,
+            'completed' => $completed,
             'total_amount' => $totalAmount,
             'total_liquidated' => $totalLiquidated,
             'total_unliquidated' => $totalAmount - $totalLiquidated,
@@ -296,11 +324,9 @@ class DashboardController extends Controller
 
     /**
      * Get HEI total stats (for totalStats card display).
-     * Note: HEI users see ALL their liquidations including drafts.
      */
     private function getHEITotalStats(string $heiId): array
     {
-        // Include all liquidations (including drafts) for HEI users
         $stats = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->where('liquidations.hei_id', $heiId)
@@ -311,8 +337,10 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_unliquidated')
             ->first();
 
+        // Pending review = submitted but not endorsed to COA
         $pendingReview = Liquidation::where('hei_id', $heiId)
-            ->whereIn('status', ['for_initial_review', 'endorsed_to_accounting'])
+            ->whereNotNull('date_submitted')
+            ->whereNull('coa_endorsed_at')
             ->count();
 
         return [
@@ -332,11 +360,13 @@ class DashboardController extends Controller
         if ($userRole === 'Regional Coordinator') {
             return Liquidation::with(['hei:id,name', 'financial', 'semester'])
                 ->where(function ($q) use ($user) {
-                    $q->whereIn('status', ['for_initial_review', 'returned_to_rc'])
-                      ->orWhere(function ($q2) use ($user) {
-                          $q2->whereIn('status', ['endorsed_to_accounting', 'endorsed_to_coa'])
-                             ->where('reviewed_by', $user->id);
-                      });
+                    // Pending RC review (submitted but not reviewed)
+                    $q->where(function ($q2) {
+                        $q2->whereNotNull('date_submitted')
+                           ->whereNull('reviewed_at');
+                    })
+                    // Or already reviewed by this RC
+                    ->orWhere('reviewed_by', $user->id);
                 })
                 ->orderBy('created_at', 'desc')
                 ->limit(10)
@@ -346,7 +376,7 @@ class DashboardController extends Controller
 
         if ($userRole === 'Accountant') {
             return Liquidation::with(['hei:id,name', 'financial', 'semester'])
-                ->whereIn('status', ['endorsed_to_accounting', 'endorsed_to_coa', 'returned_to_rc'])
+                ->whereNotNull('reviewed_at') // Endorsed by RC
                 ->orderBy('created_at', 'desc')
                 ->limit(10)
                 ->get()
@@ -377,7 +407,7 @@ class DashboardController extends Controller
             'academic_year' => $liq->academic_year,
             'semester' => $liq->semester?->name ?? 'N/A',
             'amount_received' => (float) ($liq->financial?->amount_received ?? 0),
-            'status' => $liq->status,
+            'liquidation_status' => $liq->liquidation_status,
             'created_at' => $liq->created_at,
         ];
     }

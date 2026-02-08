@@ -21,8 +21,8 @@ class EndorseToAccountingRequest extends FormRequest
             return false;
         }
 
-        // Check if liquidation is in correct status for RC review
-        return in_array($liquidation->status, ['for_initial_review', 'returned_to_rc']);
+        // RC can endorse any liquidation they have access to
+        return true;
     }
 
     /**

@@ -6,6 +6,8 @@ use App\Models\HEI;
 use App\Models\Region;
 use Illuminate\Database\Seeder;
 
+ // php artisan db:seed --class=HEISeeder
+
 class HEISeeder extends Seeder
 {
     public function run(): void

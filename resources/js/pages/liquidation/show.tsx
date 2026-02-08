@@ -1,17 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { router } from '@inertiajs/react';
-import axios from 'axios';
+import AppLayout from '@/layouts/app-layout';
+import { Head, router, Link } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-} from '@/components/ui/dialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { FileText, Send, X, BarChart3, Pencil, ClipboardList, MapPin, FolderArchive, User, Calendar } from 'lucide-react';
+import { FileText, Send, X, BarChart3, Pencil, ClipboardList, MapPin, FolderArchive, User, Calendar, ArrowLeft } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -39,7 +32,8 @@ import {
     EndorseToCOAModal,
     ReturnToRCModal,
     EditLiquidationModal,
-} from './endorsement-modals';
+} from '@/components/liquidations/endorsement-modals';
+import { type BreadcrumbItem } from '@/types';
 
 interface Beneficiary {
     id: number;
@@ -69,7 +63,6 @@ interface ReviewHistoryEntry {
     returned_by_id?: number;
     review_remarks?: string;
     documents_for_compliance?: string | null;
-    // HEI Resubmission fields
     resubmitted_at?: string;
     resubmitted_by?: string;
     resubmitted_by_id?: number;
@@ -104,7 +97,6 @@ interface Liquidation {
     accountant_remarks?: string | null;
     beneficiaries: Beneficiary[];
     documents?: Document[];
-    // Endorsement details (from RC to Accounting)
     receiver_name?: string | null;
     document_location?: string | null;
     transmittal_reference_no?: string | null;
@@ -120,49 +112,53 @@ interface User {
     name: string;
 }
 
-interface Props {
-    isOpen: boolean;
-    onClose: () => void;
-    liquidation: Liquidation | null;
-    onDataChange?: (updatedLiquidation: Liquidation) => void;
-    canSubmit?: boolean;
-    canReview?: boolean;
-    userRole?: string;
-    regionalCoordinators?: User[];
-    accountants?: User[];
+interface HEI {
+    id: number;
+    name: string;
 }
 
-export function ViewLiquidationModal({
-    isOpen,
-    onClose,
+interface Props {
+    liquidation: Liquidation;
+    userHei: HEI | null;
+    regionalCoordinators: User[];
+    accountants: User[];
+    permissions: {
+        review: boolean;
+        submit: boolean;
+        edit: boolean;
+    };
+    userRole: string;
+}
+
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'Liquidation Management', href: route('liquidation.index') },
+    { title: 'Details', href: '#' },
+];
+
+export default function Show({
     liquidation,
-    onDataChange,
-    canSubmit = false,
-    canReview = false,
-    userRole = '',
-    regionalCoordinators = [],
-    accountants = []
+    userHei,
+    regionalCoordinators,
+    accountants,
+    permissions,
+    userRole,
 }: Props) {
     const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isEndorseModalOpen, setIsEndorseModalOpen] = useState(false);
     const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
-
-    // Accountant modals
     const [isEndorseToCOAModalOpen, setIsEndorseToCOAModalOpen] = useState(false);
     const [isReturnToRCModalOpen, setIsReturnToRCModalOpen] = useState(false);
-
-    // Edit modal state
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
 
-    // Open edit modal handler
+    const canSubmit = permissions.submit;
+    const canReview = permissions.review;
+
     const handleOpenEditModal = () => setIsEditModalOpen(true);
 
-    // Callback handlers - must be before early return for React Rules of Hooks
     const handleSubmitForReview = useCallback((remarks: string) => {
-        if (!liquidation) return;
         setIsSubmitting(true);
         router.post(route('liquidation.submit', liquidation.id), {
             remarks: remarks,
@@ -170,13 +166,12 @@ export function ViewLiquidationModal({
             onSuccess: () => {
                 setIsSubmitting(false);
                 setIsSubmitModalOpen(false);
-                onClose();
             },
             onError: () => {
                 setIsSubmitting(false);
             },
         });
-    }, [liquidation, onClose]);
+    }, [liquidation.id]);
 
     const handleEndorseToAccounting = useCallback((data: {
         reviewRemarks: string;
@@ -187,7 +182,6 @@ export function ViewLiquidationModal({
         folderLocationNumber: string;
         groupTransmittal: string;
     }) => {
-        if (!liquidation) return;
         setIsProcessing(true);
         router.post(route('liquidation.endorse-to-accounting', liquidation.id), {
             review_remarks: data.reviewRemarks,
@@ -201,20 +195,18 @@ export function ViewLiquidationModal({
             onSuccess: () => {
                 setIsProcessing(false);
                 setIsEndorseModalOpen(false);
-                onClose();
             },
             onError: () => {
                 setIsProcessing(false);
             },
         });
-    }, [liquidation, onClose]);
+    }, [liquidation.id]);
 
     const handleReturnToHEI = useCallback((data: {
         reviewRemarks: string;
         documentsForCompliance: string;
         receiverName: string;
     }) => {
-        if (!liquidation) return;
         setIsProcessing(true);
         router.post(route('liquidation.return-to-hei', liquidation.id), {
             review_remarks: data.reviewRemarks,
@@ -224,16 +216,14 @@ export function ViewLiquidationModal({
             onSuccess: () => {
                 setIsProcessing(false);
                 setIsReturnModalOpen(false);
-                onClose();
             },
             onError: () => {
                 setIsProcessing(false);
             },
         });
-    }, [liquidation, onClose]);
+    }, [liquidation.id]);
 
     const handleEndorseToCOA = useCallback((remarks: string) => {
-        if (!liquidation) return;
         setIsProcessing(true);
         router.post(route('liquidation.endorse-to-coa', liquidation.id), {
             accountant_remarks: remarks,
@@ -241,16 +231,14 @@ export function ViewLiquidationModal({
             onSuccess: () => {
                 setIsProcessing(false);
                 setIsEndorseToCOAModalOpen(false);
-                onClose();
             },
             onError: () => {
                 setIsProcessing(false);
             },
         });
-    }, [liquidation, onClose]);
+    }, [liquidation.id]);
 
     const handleReturnToRC = useCallback((remarks: string) => {
-        if (!liquidation) return;
         setIsProcessing(true);
         router.post(route('liquidation.return-to-rc', liquidation.id), {
             accountant_remarks: remarks,
@@ -258,39 +246,29 @@ export function ViewLiquidationModal({
             onSuccess: () => {
                 setIsProcessing(false);
                 setIsReturnToRCModalOpen(false);
-                onClose();
             },
             onError: () => {
                 setIsProcessing(false);
             },
         });
-    }, [liquidation, onClose]);
+    }, [liquidation.id]);
 
     const handleUpdateLiquidation = useCallback((amountReceived: string) => {
-        if (!liquidation) return;
         setIsUpdating(true);
         router.put(route('liquidation.update', liquidation.id), {
             amount_received: parseFloat(amountReceived),
         }, {
-            onSuccess: async () => {
-                try {
-                    const response = await axios.get(route('liquidation.show', liquidation.id));
-                    if (onDataChange) {
-                        onDataChange(response.data);
-                    }
-                } catch (error) {
-                    console.error('Error reloading liquidation:', error);
-                }
+            onSuccess: () => {
                 setIsUpdating(false);
                 setIsEditModalOpen(false);
+                router.reload();
             },
             onError: () => {
                 setIsUpdating(false);
             },
         });
-    }, [liquidation, onDataChange]);
+    }, [liquidation.id]);
 
-    // Helper function to get user initials
     const getInitials = (name: string) => {
         return name
             .split(' ')
@@ -300,41 +278,45 @@ export function ViewLiquidationModal({
             .slice(0, 2);
     };
 
-    if (!liquidation) return null;
-
     const isHEIUser = userRole === 'HEI';
 
     // Check if this is a resubmission by looking at review history
     const hasBeenReturned = (liquidation.review_history?.length ?? 0) > 0;
 
-    // Calculate % Age of Liquidation: (total_disbursed / amount_received) * 100
     const percentLiquidated = liquidation.amount_received > 0
         ? (liquidation.total_disbursed / liquidation.amount_received) * 100
         : 0;
 
-    // Check if HEI can edit
     const canEdit = canSubmit;
 
     return (
-        <>
-        <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="w-[80vw] max-w-[1200px] max-h-[90vh] overflow-hidden flex flex-col">
-                <DialogHeader className="flex-shrink-0">
-                    <div className="flex items-center justify-between">
-                        <DialogTitle className="text-2xl">{liquidation.control_no}</DialogTitle>
+        <AppLayout breadcrumbs={breadcrumbs}>
+            <Head title={`Liquidation - ${liquidation.control_no}`} />
+
+            <div className="py-6 px-4 max-w-7xl mx-auto">
+                {/* Back Button and Header */}
+                <div className="mb-6">
+                    <Button variant="ghost" size="sm" asChild className="mb-4">
+                        <Link href={route('liquidation.index')}>
+                            <ArrowLeft className="h-4 w-4 mr-2" />
+                            Back to List
+                        </Link>
+                    </Button>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                        <div>
+                            <h1 className="text-3xl font-bold tracking-tight">{liquidation.control_no}</h1>
+                            <p className="text-muted-foreground mt-1">{liquidation.hei_name}</p>
+                        </div>
                         {canEdit && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={handleOpenEditModal}
-                                className="me-5"
-                            >
+                            <Button variant="outline" onClick={handleOpenEditModal}>
                                 <Pencil className="h-4 w-4 mr-2" />
                                 Edit
                             </Button>
                         )}
                     </div>
-                    <div className="flex items-center gap-2 mt-3 flex-wrap">
+
+                    <div className="flex items-center gap-2 mt-4 flex-wrap">
                         <Badge className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 text-sm font-semibold border-0 shadow-sm">
                             {liquidation.program_name}
                         </Badge>
@@ -346,10 +328,11 @@ export function ViewLiquidationModal({
                             {liquidation.semester}
                         </Badge>
                     </div>
-                </DialogHeader>
+                </div>
 
-                <Tabs defaultValue="overview" className="flex-1 flex flex-col overflow-hidden">
-                    <TabsList variant="line" className="flex-shrink-0">
+                {/* Tabs Content */}
+                <Tabs defaultValue="overview" className="space-y-4">
+                    <TabsList variant="line">
                         <TabsTrigger value="overview">Overview & Files</TabsTrigger>
                         {liquidation.transmittal_reference_no && (
                             <TabsTrigger value="endorsement">Endorsement</TabsTrigger>
@@ -359,7 +342,7 @@ export function ViewLiquidationModal({
                     </TabsList>
 
                     {/* Overview & Files Tab */}
-                    <TabsContent value="overview" className="flex-1 overflow-y-auto mt-4 space-y-4 px-1">
+                    <TabsContent value="overview" className="space-y-4">
                         {/* Summary Cards */}
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                             <Card>
@@ -477,11 +460,10 @@ export function ViewLiquidationModal({
                                 </CardContent>
                             </Card>
                         )}
-
                     </TabsContent>
 
                     {/* History Tab */}
-                    <TabsContent value="history" className="flex-1 overflow-y-auto mt-4 space-y-4 px-1">
+                    <TabsContent value="history" className="space-y-4">
                         {/* RC Review History Section */}
                         {liquidation.review_history && liquidation.review_history.length > 0 && (() => {
                             const heiResubmissions = liquidation.review_history.filter(entry => entry.type === 'hei_resubmission');
@@ -492,96 +474,96 @@ export function ViewLiquidationModal({
                             const historyEntries = liquidation.review_history.filter((_, index) => index !== latestResubmissionIndex);
 
                             return historyEntries.length > 0 ? (
-                            <Card>
-                                <CardHeader className="pb-3">
-                                    <CardTitle className="text-base">Review & Resubmission History</CardTitle>
-                                    <CardDescription className="text-xs">
-                                        Past history of RC returns and HEI resubmissions
-                                    </CardDescription>
-                                </CardHeader>
-                                <CardContent className="pt-0">
-                                    <Accordion type="single" collapsible className="w-full">
-                                        {[...historyEntries].reverse().map((entry, displayIndex) => {
-                                            const isHEIResubmission = entry.type === 'hei_resubmission';
-                                            const entryNumber = historyEntries.length - displayIndex;
+                                <Card>
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-base">Review & Resubmission History</CardTitle>
+                                        <CardDescription className="text-xs">
+                                            Past history of RC returns and HEI resubmissions
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="pt-0">
+                                        <Accordion type="single" collapsible className="w-full">
+                                            {[...historyEntries].reverse().map((entry, displayIndex) => {
+                                                const isHEIResubmission = entry.type === 'hei_resubmission';
+                                                const entryNumber = historyEntries.length - displayIndex;
 
-                                            return (
-                                                <AccordionItem key={displayIndex} value={`review-item-${displayIndex}`}>
-                                                    <AccordionTrigger className="hover:no-underline">
-                                                        <div className="flex items-center justify-between w-full pr-2">
-                                                            <div className="flex items-center gap-2">
-                                                                <TooltipProvider>
-                                                                    <Tooltip>
-                                                                        <TooltipTrigger asChild>
-                                                                            <Avatar className="h-6 w-6">
-                                                                                <AvatarFallback className={`text-xs ${isHEIResubmission ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                                                                                    {getInitials(isHEIResubmission ? entry.resubmitted_by! : entry.returned_by!)}
-                                                                                </AvatarFallback>
-                                                                            </Avatar>
-                                                                        </TooltipTrigger>
-                                                                        <TooltipContent>
-                                                                            <p>{isHEIResubmission ? entry.resubmitted_by : entry.returned_by}</p>
-                                                                        </TooltipContent>
-                                                                    </Tooltip>
-                                                                </TooltipProvider>
-                                                                <Badge
-                                                                    variant={isHEIResubmission ? "secondary" : "outline"}
-                                                                    className={`text-xs ${isHEIResubmission ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' : ''}`}
-                                                                >
-                                                                    {isHEIResubmission ? `HEI Resubmission #${entryNumber}` : `RC Return #${entryNumber}`}
-                                                                </Badge>
+                                                return (
+                                                    <AccordionItem key={displayIndex} value={`review-item-${displayIndex}`}>
+                                                        <AccordionTrigger className="hover:no-underline">
+                                                            <div className="flex items-center justify-between w-full pr-2">
+                                                                <div className="flex items-center gap-2">
+                                                                    <TooltipProvider>
+                                                                        <Tooltip>
+                                                                            <TooltipTrigger asChild>
+                                                                                <Avatar className="h-6 w-6">
+                                                                                    <AvatarFallback className={`text-xs ${isHEIResubmission ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                                                                                        {getInitials(isHEIResubmission ? entry.resubmitted_by! : entry.returned_by!)}
+                                                                                    </AvatarFallback>
+                                                                                </Avatar>
+                                                                            </TooltipTrigger>
+                                                                            <TooltipContent>
+                                                                                <p>{isHEIResubmission ? entry.resubmitted_by : entry.returned_by}</p>
+                                                                            </TooltipContent>
+                                                                        </Tooltip>
+                                                                    </TooltipProvider>
+                                                                    <Badge
+                                                                        variant={isHEIResubmission ? "secondary" : "outline"}
+                                                                        className={`text-xs ${isHEIResubmission ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' : ''}`}
+                                                                    >
+                                                                        {isHEIResubmission ? `HEI Resubmission #${entryNumber}` : `RC Return #${entryNumber}`}
+                                                                    </Badge>
+                                                                </div>
+                                                                <span className="text-xs text-muted-foreground">
+                                                                    {new Date(isHEIResubmission ? entry.resubmitted_at! : entry.returned_at!).toLocaleString('en-US', {
+                                                                        year: 'numeric',
+                                                                        month: 'short',
+                                                                        day: 'numeric',
+                                                                        hour: '2-digit',
+                                                                        minute: '2-digit'
+                                                                    })}
+                                                                </span>
                                                             </div>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {new Date(isHEIResubmission ? entry.resubmitted_at! : entry.returned_at!).toLocaleString('en-US', {
-                                                                    year: 'numeric',
-                                                                    month: 'short',
-                                                                    day: 'numeric',
-                                                                    hour: '2-digit',
-                                                                    minute: '2-digit'
-                                                                })}
-                                                            </span>
-                                                        </div>
-                                                    </AccordionTrigger>
-                                                    <AccordionContent>
-                                                        <div className="space-y-3 pt-2">
-                                                            {isHEIResubmission ? (
-                                                                entry.hei_remarks && (
-                                                                    <div>
-                                                                        <Label className="text-xs font-semibold">HEI Remarks on Resubmission:</Label>
-                                                                        <div className="mt-1 p-2 bg-green-50 dark:bg-green-950/20 rounded text-xs border border-green-200">
-                                                                            <p>{entry.hei_remarks}</p>
-                                                                        </div>
-                                                                    </div>
-                                                                )
-                                                            ) : (
-                                                                <>
-                                                                    {entry.documents_for_compliance && (
+                                                        </AccordionTrigger>
+                                                        <AccordionContent>
+                                                            <div className="space-y-3 pt-2">
+                                                                {isHEIResubmission ? (
+                                                                    entry.hei_remarks && (
                                                                         <div>
-                                                                            <Label className="text-xs font-semibold">Documents Required:</Label>
-                                                                            <div className="mt-1 p-2 bg-muted/50 rounded text-xs">
-                                                                                <pre className="whitespace-pre-wrap font-sans">{entry.documents_for_compliance}</pre>
+                                                                            <Label className="text-xs font-semibold">HEI Remarks on Resubmission:</Label>
+                                                                            <div className="mt-1 p-2 bg-green-50 dark:bg-green-950/20 rounded text-xs border border-green-200">
+                                                                                <p>{entry.hei_remarks}</p>
                                                                             </div>
                                                                         </div>
-                                                                    )}
+                                                                    )
+                                                                ) : (
+                                                                    <>
+                                                                        {entry.documents_for_compliance && (
+                                                                            <div>
+                                                                                <Label className="text-xs font-semibold">Documents Required:</Label>
+                                                                                <div className="mt-1 p-2 bg-muted/50 rounded text-xs">
+                                                                                    <pre className="whitespace-pre-wrap font-sans">{entry.documents_for_compliance}</pre>
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
 
-                                                                    {entry.review_remarks && (
-                                                                        <div>
-                                                                            <Label className="text-xs font-semibold">RC Remarks:</Label>
-                                                                            <div className="mt-1 p-2 bg-muted/50 rounded text-xs">
-                                                                                <p>{entry.review_remarks}</p>
+                                                                        {entry.review_remarks && (
+                                                                            <div>
+                                                                                <Label className="text-xs font-semibold">RC Remarks:</Label>
+                                                                                <div className="mt-1 p-2 bg-muted/50 rounded text-xs">
+                                                                                    <p>{entry.review_remarks}</p>
+                                                                                </div>
                                                                             </div>
-                                                                        </div>
-                                                                    )}
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    </AccordionContent>
-                                                </AccordionItem>
-                                            );
-                                        })}
-                                    </Accordion>
-                                </CardContent>
-                            </Card>
+                                                                        )}
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        </AccordionContent>
+                                                    </AccordionItem>
+                                                );
+                                            })}
+                                        </Accordion>
+                                    </CardContent>
+                                </Card>
                             ) : (
                                 <Card>
                                     <CardContent className="pt-6 text-center text-muted-foreground">
@@ -668,7 +650,7 @@ export function ViewLiquidationModal({
                     </TabsContent>
 
                     {/* Analytics Tab */}
-                    <TabsContent value="analytics" className="flex-1 overflow-y-auto mt-4 space-y-4 px-1">
+                    <TabsContent value="analytics" className="space-y-4">
                         <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -698,7 +680,7 @@ export function ViewLiquidationModal({
                                 </div>
 
                                 {/* Statistics Grid */}
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                     <div className="p-4 border rounded-lg">
                                         <p className="text-xs text-muted-foreground mb-1">Total Beneficiaries</p>
                                         <p className="text-2xl font-bold">{liquidation.beneficiaries.length}</p>
@@ -749,7 +731,7 @@ export function ViewLiquidationModal({
                     </TabsContent>
 
                     {/* Endorsement Tab */}
-                    <TabsContent value="endorsement" className="flex-1 overflow-y-auto mt-4 space-y-4 px-1">
+                    <TabsContent value="endorsement" className="space-y-4">
                         <Card className="border-purple-200 bg-purple-50/50 dark:bg-purple-950/20">
                             <CardHeader className="pb-3">
                                 <CardTitle className="text-base flex items-center gap-2">
@@ -762,18 +744,18 @@ export function ViewLiquidationModal({
                             </CardHeader>
                             <CardContent>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    {/* Transmittal Reference */}
-                                    <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
-                                        <div className="p-2 rounded-md bg-purple-100 dark:bg-purple-900/30">
-                                            <FileText className="h-4 w-4 text-purple-600" />
+                                    {liquidation.transmittal_reference_no && (
+                                        <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
+                                            <div className="p-2 rounded-md bg-purple-100 dark:bg-purple-900/30">
+                                                <FileText className="h-4 w-4 text-purple-600" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs text-muted-foreground font-medium">Transmittal Reference No.</p>
+                                                <p className="text-sm font-semibold truncate">{liquidation.transmittal_reference_no}</p>
+                                            </div>
                                         </div>
-                                        <div className="min-w-0 flex-1">
-                                            <p className="text-xs text-muted-foreground font-medium">Transmittal Reference No.</p>
-                                            <p className="text-sm font-semibold truncate">{liquidation.transmittal_reference_no}</p>
-                                        </div>
-                                    </div>
+                                    )}
 
-                                    {/* Receiver */}
                                     {liquidation.receiver_name && (
                                         <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
                                             <div className="p-2 rounded-md bg-blue-100 dark:bg-blue-900/30">
@@ -786,7 +768,6 @@ export function ViewLiquidationModal({
                                         </div>
                                     )}
 
-                                    {/* Document Location */}
                                     {liquidation.document_location && (
                                         <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
                                             <div className="p-2 rounded-md bg-green-100 dark:bg-green-900/30">
@@ -799,7 +780,6 @@ export function ViewLiquidationModal({
                                         </div>
                                     )}
 
-                                    {/* Number of Folders */}
                                     {liquidation.number_of_folders && (
                                         <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
                                             <div className="p-2 rounded-md bg-amber-100 dark:bg-amber-900/30">
@@ -812,7 +792,6 @@ export function ViewLiquidationModal({
                                         </div>
                                     )}
 
-                                    {/* Folder Location Number */}
                                     {liquidation.folder_location_number && (
                                         <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
                                             <div className="p-2 rounded-md bg-cyan-100 dark:bg-cyan-900/30">
@@ -825,7 +804,6 @@ export function ViewLiquidationModal({
                                         </div>
                                     )}
 
-                                    {/* Group Transmittal */}
                                     {liquidation.group_transmittal && (
                                         <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
                                             <div className="p-2 rounded-md bg-indigo-100 dark:bg-indigo-900/30">
@@ -839,7 +817,6 @@ export function ViewLiquidationModal({
                                     )}
                                 </div>
 
-                                {/* Endorsed By Info */}
                                 {(liquidation.reviewed_by_name || liquidation.reviewed_at) && (
                                     <div className="mt-4 pt-4 border-t flex items-center gap-4 text-sm text-muted-foreground">
                                         {liquidation.reviewed_by_name && (
@@ -863,7 +840,6 @@ export function ViewLiquidationModal({
                                     </div>
                                 )}
 
-                                {/* RC Review Remarks */}
                                 {liquidation.review_remarks && (
                                     <div className="mt-4 pt-4 border-t">
                                         <Label className="text-sm font-semibold">RC Review Remarks</Label>
@@ -877,120 +853,116 @@ export function ViewLiquidationModal({
                     </TabsContent>
                 </Tabs>
 
-                {/* Sticky Footer */}
+                {/* Action Buttons */}
                 {(
                     (canSubmit && isHEIUser) ||
                     (canReview && userRole === 'Regional Coordinator') ||
                     (canReview && userRole === 'Accountant')
                 ) && (
-                    <div className="flex-shrink-0 border-t bg-background pt-4 pb-2 px-1">
-                        {/* HEI Submit/Resubmit Button */}
-                        {canSubmit && isHEIUser && (
-                            <div className="flex justify-end gap-2">
-                                <Button
-                                    onClick={() => setIsSubmitModalOpen(true)}
-                                    disabled={liquidation.beneficiaries.length === 0}
-                                >
-                                    <Send className="h-4 w-4 mr-2" />
-                                    {hasBeenReturned ? 'Resubmit to RC' : 'Submit for Review'}
-                                </Button>
-                            </div>
-                        )}
+                    <Card className="mt-6">
+                        <CardContent className="pt-6">
+                            {/* HEI Submit/Resubmit Button */}
+                            {canSubmit && isHEIUser && (
+                                <div className="flex justify-end gap-2">
+                                    <Button
+                                        onClick={() => setIsSubmitModalOpen(true)}
+                                        disabled={liquidation.beneficiaries.length === 0}
+                                    >
+                                        <Send className="h-4 w-4 mr-2" />
+                                        {hasBeenReturned ? 'Resubmit to RC' : 'Submit for Review'}
+                                    </Button>
+                                </div>
+                            )}
 
-                        {/* Regional Coordinator Actions */}
-                        {canReview && userRole === 'Regional Coordinator' && (
-                            <div className="flex justify-end gap-2">
-                                <Button
-                                    variant="outline"
-                                    onClick={() => setIsReturnModalOpen(true)}
-                                >
-                                    <X className="h-4 w-4 mr-2" />
-                                    Return to HEI
-                                </Button>
-                                <Button
-                                    onClick={() => setIsEndorseModalOpen(true)}
-                                >
-                                    <Send className="h-4 w-4 mr-2" />
-                                    Endorse to Accounting
-                                </Button>
-                            </div>
-                        )}
+                            {/* Regional Coordinator Actions */}
+                            {canReview && userRole === 'Regional Coordinator' && (
+                                <div className="flex justify-end gap-2">
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => setIsReturnModalOpen(true)}
+                                    >
+                                        <X className="h-4 w-4 mr-2" />
+                                        Return to HEI
+                                    </Button>
+                                    <Button
+                                        onClick={() => setIsEndorseModalOpen(true)}
+                                    >
+                                        <Send className="h-4 w-4 mr-2" />
+                                        Endorse to Accounting
+                                    </Button>
+                                </div>
+                            )}
 
-                        {/* Accountant Actions */}
-                        {canReview && userRole === 'Accountant' && (
-                            <div className="flex justify-end gap-2">
-                                <Button
-                                    variant="outline"
-                                    onClick={() => setIsReturnToRCModalOpen(true)}
-                                >
-                                    <X className="h-4 w-4 mr-2" />
-                                    Return to RC
-                                </Button>
-                                <Button
-                                    onClick={() => setIsEndorseToCOAModalOpen(true)}
-                                >
-                                    <Send className="h-4 w-4 mr-2" />
-                                    Endorse to COA
-                                </Button>
-                            </div>
-                        )}
-                    </div>
+                            {/* Accountant Actions */}
+                            {canReview && userRole === 'Accountant' && (
+                                <div className="flex justify-end gap-2">
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => setIsReturnToRCModalOpen(true)}
+                                    >
+                                        <X className="h-4 w-4 mr-2" />
+                                        Return to RC
+                                    </Button>
+                                    <Button
+                                        onClick={() => setIsEndorseToCOAModalOpen(true)}
+                                    >
+                                        <Send className="h-4 w-4 mr-2" />
+                                        Endorse to COA
+                                    </Button>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
                 )}
-            </DialogContent>
-        </Dialog>
+            </div>
 
-        {/* Submit Confirmation Modal */}
-        <SubmitForReviewModal
-            isOpen={isSubmitModalOpen}
-            onClose={() => setIsSubmitModalOpen(false)}
-            onSubmit={handleSubmitForReview}
-            isProcessing={isSubmitting}
-            isResubmission={hasBeenReturned}
-        />
+            {/* Modals */}
+            <SubmitForReviewModal
+                isOpen={isSubmitModalOpen}
+                onClose={() => setIsSubmitModalOpen(false)}
+                onSubmit={handleSubmitForReview}
+                isProcessing={isSubmitting}
+                isResubmission={hasBeenReturned}
+            />
 
-        {/* Endorse to Accounting Modal */}
-        <EndorseToAccountingModal
-            isOpen={isEndorseModalOpen}
-            onClose={() => setIsEndorseModalOpen(false)}
-            onSubmit={handleEndorseToAccounting}
-            isProcessing={isProcessing}
-            accountants={accountants}
-        />
+            <EndorseToAccountingModal
+                isOpen={isEndorseModalOpen}
+                onClose={() => setIsEndorseModalOpen(false)}
+                onSubmit={handleEndorseToAccounting}
+                isProcessing={isProcessing}
+                accountants={accountants}
+            />
 
-        {/* Return to HEI Modal */}
-        <ReturnToHEIModal
-            isOpen={isReturnModalOpen}
-            onClose={() => setIsReturnModalOpen(false)}
-            onSubmit={handleReturnToHEI}
-            isProcessing={isProcessing}
-            regionalCoordinators={regionalCoordinators}
-        />
+            <ReturnToHEIModal
+                isOpen={isReturnModalOpen}
+                onClose={() => setIsReturnModalOpen(false)}
+                onSubmit={handleReturnToHEI}
+                isProcessing={isProcessing}
+                regionalCoordinators={regionalCoordinators}
+            />
 
-        {/* Accountant: Endorse to COA Modal */}
-        <EndorseToCOAModal
-            isOpen={isEndorseToCOAModalOpen}
-            onClose={() => setIsEndorseToCOAModalOpen(false)}
-            onSubmit={handleEndorseToCOA}
-            isProcessing={isProcessing}
-        />
+            <EndorseToCOAModal
+                isOpen={isEndorseToCOAModalOpen}
+                onClose={() => setIsEndorseToCOAModalOpen(false)}
+                onSubmit={handleEndorseToCOA}
+                isProcessing={isProcessing}
+            />
 
-        {/* Accountant: Return to RC Modal */}
-        <ReturnToRCModal
-            isOpen={isReturnToRCModalOpen}
-            onClose={() => setIsReturnToRCModalOpen(false)}
-            onSubmit={handleReturnToRC}
-            isProcessing={isProcessing}
-        />
+            <ReturnToRCModal
+                isOpen={isReturnToRCModalOpen}
+                onClose={() => setIsReturnToRCModalOpen(false)}
+                onSubmit={handleReturnToRC}
+                isProcessing={isProcessing}
+            />
 
-        {/* Edit Liquidation Modal */}
-        <EditLiquidationModal
-            isOpen={isEditModalOpen}
-            onClose={() => setIsEditModalOpen(false)}
-            onSubmit={handleUpdateLiquidation}
-            isProcessing={isUpdating}
-            initialAmount={liquidation?.amount_received?.toString() || '0'}
-            totalDisbursed={liquidation?.total_disbursed || 0}
-        />
-    </>
+            <EditLiquidationModal
+                isOpen={isEditModalOpen}
+                onClose={() => setIsEditModalOpen(false)}
+                onSubmit={handleUpdateLiquidation}
+                isProcessing={isUpdating}
+                initialAmount={liquidation.amount_received?.toString() || '0'}
+                totalDisbursed={liquidation.total_disbursed || 0}
+            />
+        </AppLayout>
     );
 }

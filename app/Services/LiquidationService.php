@@ -43,22 +43,12 @@ class LiquidationService
     {
         $roleName = $user->role->name;
 
+        // Regional Coordinator sees all liquidations they created or reviewed
         if ($roleName === 'Regional Coordinator') {
             $query->where(function ($q) use ($user) {
-                $q->where(function ($q2) use ($user) {
-                    $q2->where('status', 'draft')
-                       ->where('created_by', $user->id);
-                })
-                ->orWhereIn('status', ['for_initial_review', 'returned_to_rc'])
-                ->orWhere(function ($q2) use ($user) {
-                    $q2->whereIn('status', ['endorsed_to_accounting', 'endorsed_to_coa'])
-                       ->where('reviewed_by', $user->id);
-                });
+                $q->where('created_by', $user->id)
+                ->orWhere('reviewed_by', $user->id);
             });
-        }
-
-        if ($roleName === 'Accountant') {
-            $query->whereIn('status', ['endorsed_to_accounting', 'endorsed_to_coa']);
         }
 
         // HEI users see only their institution's liquidations
@@ -71,14 +61,10 @@ class LiquidationService
     }
 
     /**
-     * Apply search and status filters.
+     * Apply search and filters.
      */
     private function applyFilters(Builder $query, array $filters): void
     {
-        if (!empty($filters['status']) && $filters['status'] !== 'all') {
-            $query->where('status', $filters['status']);
-        }
-
         if (!empty($filters['program']) && $filters['program'] !== 'all') {
             $query->where('program_id', $filters['program']);
         }
@@ -110,35 +96,9 @@ class LiquidationService
             }
         }
 
-        // Filter by liquidation status (based on workflow status)
+        // Filter by liquidation status
         if (!empty($filters['liquidation_status']) && $filters['liquidation_status'] !== 'all') {
-            switch ($filters['liquidation_status']) {
-                case 'unliquidated':
-                    $query->whereIn('status', [
-                        Liquidation::STATUS_DRAFT,
-                        Liquidation::STATUS_FOR_INITIAL_REVIEW,
-                        Liquidation::STATUS_RETURNED_TO_HEI,
-                        Liquidation::STATUS_RETURNED_TO_RC,
-                    ]);
-                    break;
-                case 'partially_liquidated':
-                    $query->where('status', Liquidation::STATUS_ENDORSED_TO_ACCOUNTING)
-                        ->whereHas('financial', function ($q) {
-                            $q->whereRaw('amount_liquidated < amount_received');
-                        });
-                    break;
-                case 'fully_liquidated':
-                    $query->where(function ($q) {
-                        $q->where('status', Liquidation::STATUS_ENDORSED_TO_COA)
-                            ->orWhere(function ($q2) {
-                                $q2->where('status', Liquidation::STATUS_ENDORSED_TO_ACCOUNTING)
-                                    ->whereHas('financial', function ($q3) {
-                                        $q3->whereRaw('amount_liquidated >= amount_received');
-                                    });
-                            });
-                    });
-                    break;
-            }
+            $query->where('liquidation_status', $filters['liquidation_status']);
         }
     }
 
@@ -155,11 +115,9 @@ class LiquidationService
 
         $semesterId = $this->findSemesterId($data['semester']);
 
-        // Determine document status ID
-        $documentStatusId = null;
-        if (!empty($data['document_status'])) {
-            $documentStatusId = DocumentStatus::findByCode($data['document_status'])?->id;
-        }
+        // Determine document status ID - default to NONE if not provided
+        $documentStatusCode = !empty($data['document_status']) ? $data['document_status'] : 'NONE';
+        $documentStatusId = DocumentStatus::findByCode($documentStatusCode)?->id;
 
         $liquidation = Liquidation::create([
             'control_no' => $data['dv_control_no'],
@@ -170,7 +128,7 @@ class LiquidationService
             'batch_no' => $data['batch_no'] ?? null,
             'document_status_id' => $documentStatusId,
             'remarks' => $data['rc_notes'] ?? null,
-            'status' => Liquidation::STATUS_DRAFT,
+            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
             'created_by' => $creator->id,
         ]);
 
@@ -230,21 +188,24 @@ class LiquidationService
      */
     public function submitForReview(Liquidation $liquidation, User $user, ?string $remarks = null): Liquidation
     {
-        $isResubmission = $liquidation->status === Liquidation::STATUS_RETURNED_TO_HEI;
+        // Check if this is a resubmission based on review history
+        $hasBeenReturned = $liquidation->reviews()
+            ->where('review_type', LiquidationReview::TYPE_RC_RETURN)
+            ->exists();
 
-        if ($isResubmission && !empty($remarks)) {
+        if ($hasBeenReturned && !empty($remarks)) {
             $liquidation->addHEIResubmission($user, $remarks);
         }
 
         $documentStatusId = $this->determineDocumentStatus($liquidation);
 
         $updateData = [
-            'status' => Liquidation::STATUS_FOR_INITIAL_REVIEW,
+            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
             'date_submitted' => now(),
             'document_status_id' => $documentStatusId,
         ];
 
-        if (!$isResubmission) {
+        if (!$hasBeenReturned) {
             $updateData['remarks'] = $remarks ?? $liquidation->remarks;
         }
 
@@ -270,8 +231,11 @@ class LiquidationService
             ]);
         }
 
+        // Calculate liquidation status based on financial data
+        $liquidationStatus = $this->calculateLiquidationStatus($liquidation);
+
         $liquidation->update([
-            'status' => Liquidation::STATUS_ENDORSED_TO_ACCOUNTING,
+            'liquidation_status' => $liquidationStatus,
             'reviewed_by' => $user->id,
             'reviewed_at' => now(),
         ]);
@@ -295,7 +259,7 @@ class LiquidationService
         }
 
         $liquidation->update([
-            'status' => Liquidation::STATUS_RETURNED_TO_HEI,
+            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
             'reviewed_by' => $user->id,
             'reviewed_at' => now(),
         ]);
@@ -318,8 +282,11 @@ class LiquidationService
             ]);
         }
 
+        // Calculate liquidation status based on financial data
+        $liquidationStatus = $this->calculateLiquidationStatus($liquidation);
+
         $liquidation->update([
-            'status' => Liquidation::STATUS_ENDORSED_TO_COA,
+            'liquidation_status' => $liquidationStatus,
             'accountant_reviewed_by' => $user->id,
             'accountant_reviewed_at' => now(),
             'coa_endorsed_by' => $user->id,
@@ -337,7 +304,7 @@ class LiquidationService
         $liquidation->addAccountantReturn($user, $remarks);
 
         $liquidation->update([
-            'status' => Liquidation::STATUS_RETURNED_TO_RC,
+            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
             'accountant_reviewed_by' => $user->id,
             'accountant_reviewed_at' => now(),
         ]);
@@ -471,5 +438,30 @@ class LiquidationService
         Cache::forget('document_statuses_all');
         Cache::forget('programs_active');
         Cache::forget('heis_active');
+    }
+
+    /**
+     * Calculate liquidation status based on financial data.
+     * Returns: Unliquidated, Partially Liquidated - Endorsed to Accounting, or Fully Liquidated - Endorsed to Accounting
+     */
+    public function calculateLiquidationStatus(Liquidation $liquidation): string
+    {
+        $financial = $liquidation->financial;
+
+        if (!$financial) {
+            return Liquidation::LIQUIDATION_STATUS_PARTIALLY;
+        }
+
+        $amountDisbursed = (float) ($financial->amount_disbursed ?? 0);
+        $amountLiquidated = (float) ($financial->amount_liquidated ?? 0);
+
+        // Calculate percentage
+        $percentage = $amountDisbursed > 0 ? ($amountLiquidated / $amountDisbursed) * 100 : 0;
+
+        if ($percentage >= 100) {
+            return Liquidation::LIQUIDATION_STATUS_FULLY;
+        }
+
+        return Liquidation::LIQUIDATION_STATUS_PARTIALLY;
     }
 }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import AppLayout from '@/layouts/app-layout';
-import { Head, router } from '@inertiajs/react';
+import { Head, router, Link } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -24,17 +24,10 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Search, FileText, Eye, Download, Upload, Plus } from 'lucide-react';
-import { ViewLiquidationModal } from '@/components/liquidations/view-liquidation-modal';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
-import axios from 'axios';
 import { toast } from 'sonner';
-
-interface HEI {
-    id: number;
-    name: string;
-    code: string;
-    uii: string;
-}
+import axios from 'axios';
+import { type BreadcrumbItem } from '@/types';
 
 interface Program {
     id: string;
@@ -63,14 +56,6 @@ interface Liquidation {
     liquidation_status: string;
     percentage_liquidation: number;
     lapsing_period: number;
-    status: string;
-    status_label: string;
-    status_badge: string;
-}
-
-interface User {
-    id: number;
-    name: string;
 }
 
 interface Props {
@@ -79,9 +64,6 @@ interface Props {
         links: any[];
         meta: any;
     };
-    userHei: HEI | null;
-    regionalCoordinators: User[];
-    accountants: User[];
     programs: Program[];
     filters: {
         search?: string;
@@ -96,14 +78,16 @@ interface Props {
     userRole: string;
 }
 
-export default function Index({ liquidations, userHei, regionalCoordinators, accountants, programs, filters, permissions, userRole }: Props) {
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'Liquidation Management', href: route('liquidation.index') },
+];
+
+export default function Index({ liquidations, programs, filters, permissions, userRole }: Props) {
     const [searchQuery, setSearchQuery] = useState(filters.search || '');
     const [programFilter, setProgramFilter] = useState(filters.program || '');
     const [documentStatusFilter, setDocumentStatusFilter] = useState(filters.document_status || '');
     const [liquidationStatusFilter, setLiquidationStatusFilter] = useState(filters.liquidation_status || '');
-    const [isViewModalOpen, setIsViewModalOpen] = useState(false);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-    const [selectedLiquidation, setSelectedLiquidation] = useState<any>(null);
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -220,37 +204,9 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
         return 'bg-red-100 text-red-700 border-red-200';
     };
 
-    const handleViewLiquidation = async (liquidationId: number) => {
-        try {
-            const response = await axios.get(route('liquidation.show', liquidationId));
-            setSelectedLiquidation(response.data);
-            setIsViewModalOpen(true);
-        } catch (error) {
-            console.error('Error loading liquidation:', error);
-        }
-    };
-
     return (
-        <AppLayout>
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Liquidation Management" />
-
-            {/* View Liquidation Modal */}
-            <ViewLiquidationModal
-                isOpen={isViewModalOpen}
-                onClose={() => {
-                    setIsViewModalOpen(false);
-                    setSelectedLiquidation(null);
-                }}
-                liquidation={selectedLiquidation}
-                onDataChange={(updatedLiquidation) => {
-                    setSelectedLiquidation(updatedLiquidation);
-                }}
-                canSubmit={userHei !== null}
-                canReview={permissions.review}
-                userRole={userRole}
-                regionalCoordinators={regionalCoordinators}
-                accountants={accountants}
-            />
 
             {/* Create Liquidation Modal */}
             <CreateLiquidationModal
@@ -261,11 +217,11 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
             />
 
             <div className="py-8 w-full">
-                <div className="w-full max-w-[95%] mx-auto">
+                <div className="w-full max-w-[100%] mx-auto">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                         <div>
                             <h1 className="text-3xl font-bold tracking-tight">Liquidation Management</h1>
-                            <p className="text-muted-foreground mt-1">
+                            <p className="text-muted-foreground my-1">
                                 {userRole === 'Regional Coordinator' && 'Review and endorse liquidations to Accounting'}
                                 {userRole === 'Accountant' && 'Review and endorse liquidations to COA'}
                                 {!['Regional Coordinator', 'Accountant'].includes(userRole) && 'Manage liquidation records and submissions'}
@@ -382,7 +338,7 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                     <Button type="submit">Search</Button>
                                 </div>
                                 {/* Color Legend */}
-                                <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                                <div className="flex items-center gap-4 my-3 text-xs text-muted-foreground">
                                     <span className="flex items-center gap-1">
                                         <span className="w-2 h-2 rounded-full bg-red-500"></span>
                                         Needs Attention
@@ -402,13 +358,13 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                 </div>
                             </form>
 
-                            <div className="rounded-md border overflow-x-auto">
+                            <div className="rounded-t-md border border-b-0 overflow-x-auto">
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
-                                            <TableHead className="w-[50px]">SEQ</TableHead>
+                                            <TableHead className="w-[50px] pl-4">SEQ</TableHead>
                                             <TableHead>Program</TableHead>
-                                            <TableHead>HEI</TableHead>
+                                            <TableHead className="max-w-[300px]">HEI</TableHead>
                                             <TableHead>Period</TableHead>
                                             <TableHead>Dates</TableHead>
                                             <TableHead>Batch</TableHead>
@@ -417,17 +373,17 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                             <TableHead className="text-right">Disbursements</TableHead>
                                             <TableHead className="text-right">Liquidated</TableHead>
                                             <TableHead className="text-right">Unliquidated</TableHead>
-                                            <TableHead>Documents</TableHead>
+                                            <TableHead>Documents Status</TableHead>
                                             <TableHead>RC Notes</TableHead>
                                             <TableHead>Liquidation Status</TableHead>
                                             <TableHead className="text-right">%</TableHead>
                                             <TableHead className="text-right">Lapsing</TableHead>
-                                            <TableHead className="text-right">Actions</TableHead>
+                                            <TableHead className="text-right pr-4">Actions</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {liquidations.data.length === 0 ? (
-                                            <TableRow>
+                                            <TableRow className="hover:bg-transparent">
                                                 <TableCell colSpan={17} className="text-center py-8 text-muted-foreground">
                                                     <FileText className="mx-auto h-12 w-12 mb-2 opacity-50" />
                                                     <p>No liquidation records found</p>
@@ -435,11 +391,11 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                             </TableRow>
                                         ) : (
                                             liquidations.data.map((liquidation, index) => (
-                                                <TableRow key={liquidation.id}>
-                                                    <TableCell className="font-medium text-center">
+                                                <TableRow key={liquidation.id} className="hover:bg-transparent">
+                                                    <TableCell className="font-medium text-center pl-4 py-3">
                                                         {index + 1}
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="py-3">
                                                         {liquidation.program ? (
                                                             <Badge variant="outline" className="font-normal">
                                                                 {liquidation.program.code || liquidation.program.name}
@@ -449,44 +405,49 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                                         )}
                                                     </TableCell>
                                                     {/* Combined: HEI Name + UII */}
-                                                    <TableCell>
-                                                        <div className="font-medium text-sm">{liquidation.hei_name}</div>
+                                                    <TableCell className="max-w-[250px] py-3">
+                                                        <div
+                                                            className="font-medium text-sm truncate"
+                                                            title={liquidation.hei_name}
+                                                        >
+                                                            {liquidation.hei_name}
+                                                        </div>
                                                         <div className="text-xs text-muted-foreground font-mono">{liquidation.uii}</div>
                                                     </TableCell>
                                                     {/* Combined: Academic Year + Semester */}
-                                                    <TableCell>
+                                                    <TableCell className="py-3">
                                                         <div className="text-sm">{liquidation.academic_year || '-'}</div>
                                                         <div className="text-xs text-muted-foreground">{liquidation.semester || '-'}</div>
                                                     </TableCell>
                                                     {/* Combined: Fund Released + Due Date */}
-                                                    <TableCell>
+                                                    <TableCell className="py-3">
                                                         <div className="text-sm">{liquidation.date_fund_released || '-'}</div>
                                                         <div className="text-xs text-muted-foreground">Due: {liquidation.due_date || '-'}</div>
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="py-3">
                                                         {liquidation.batch_no || <span className="text-muted-foreground">-</span>}
                                                     </TableCell>
-                                                    <TableCell className="font-medium text-sm">
+                                                    <TableCell className="font-medium text-sm py-3">
                                                         {liquidation.dv_control_no}
                                                     </TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell className="text-right py-3">
                                                         {liquidation.number_of_grantees ?? <span className="text-muted-foreground">-</span>}
                                                     </TableCell>
-                                                    <TableCell className="text-right font-medium">
+                                                    <TableCell className="text-right font-medium py-3">
                                                         ₱{liquidation.total_disbursements}
                                                     </TableCell>
-                                                    <TableCell className="text-right font-medium">
+                                                    <TableCell className="text-right font-medium py-3">
                                                         ₱{liquidation.total_amount_liquidated ?? '0.00'}
                                                     </TableCell>
-                                                    <TableCell className="text-right font-medium">
+                                                    <TableCell className="text-right font-medium py-3">
                                                         ₱{liquidation.total_unliquidated_amount ?? '0.00'}
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="py-3">
                                                         <Badge className={`${getDocumentStatusColor(liquidation.document_status)} shadow-none border font-normal text-xs`}>
                                                             {liquidation.document_status}
                                                         </Badge>
                                                     </TableCell>
-                                                    <TableCell className="max-w-[100px]">
+                                                    <TableCell className="max-w-[100px] py-3">
                                                         {liquidation.rc_notes ? (
                                                             <span className="text-xs truncate block" title={liquidation.rc_notes}>
                                                                 {liquidation.rc_notes}
@@ -495,30 +456,32 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                                             <span className="text-muted-foreground">-</span>
                                                         )}
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="py-3">
                                                         <Badge className={`${getLiquidationStatusColor(liquidation.liquidation_status)} shadow-none border font-normal text-xs whitespace-nowrap`}>
                                                             {liquidation.liquidation_status}
                                                         </Badge>
                                                     </TableCell>
-                                                    <TableCell className="text-right font-medium">
+                                                    <TableCell className="text-right font-medium py-3">
                                                         {(liquidation.percentage_liquidation ?? 0).toFixed(0)}%
                                                     </TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell className="text-right py-3">
                                                         {(liquidation.lapsing_period ?? 0) > 0 ? (
                                                             <span className="text-red-600 font-medium">{liquidation.lapsing_period}</span>
                                                         ) : (
                                                             <span className="text-green-600 font-medium">0</span>
                                                         )}
                                                     </TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell className="text-right pr-4 py-3">
                                                         <Button
                                                             variant="ghost"
                                                             size="sm"
-                                                            onClick={() => handleViewLiquidation(liquidation.id)}
+                                                            asChild
                                                             className="text-green-600 hover:text-green-700 hover:bg-green-50"
                                                         >
-                                                            <Eye className="h-4 w-4" />
-                                                            View
+                                                            <Link href={route('liquidation.show', liquidation.id)}>
+                                                                <Eye className="h-4 w-4" />
+                                                                View
+                                                            </Link>
                                                         </Button>
                                                     </TableCell>
                                                 </TableRow>
@@ -528,20 +491,51 @@ export default function Index({ liquidations, userHei, regionalCoordinators, acc
                                 </Table>
                             </div>
 
-                            {liquidations.data.length > 0 && liquidations.links && (
-                                <div className="flex items-center justify-center gap-2 mt-4">
-                                    {liquidations.links.map((link: any, index: number) => (
-                                        <Button
-                                            key={index}
-                                            variant={link.active ? "default" : "outline"}
-                                            size="sm"
-                                            onClick={() => link.url && router.visit(link.url)}
-                                            disabled={!link.url}
-                                            dangerouslySetInnerHTML={{ __html: link.label }}
-                                        />
-                                    ))}
+                            {/* Table Footer with Record Counter and Pagination */}
+                            <div className="flex items-center justify-between px-4 py-3 bg-blue-100 dark:bg-blue-950/20 border rounded-b-md">
+                                {/* Record Counter - Left Side */}
+                                <div className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                                    {liquidations.data.length > 0 ? (
+                                        <>
+                                            Showing{' '}
+                                            <span className="font-semibold">
+                                                {((liquidations.meta?.current_page || 1) - 1) * (liquidations.meta?.per_page || 15) + 1}
+                                            </span>
+                                            {' '}-{' '}
+                                            <span className="font-semibold">
+                                                {Math.min(
+                                                    (liquidations.meta?.current_page || 1) * (liquidations.meta?.per_page || 15),
+                                                    liquidations.meta?.total || liquidations.data.length
+                                                )}
+                                            </span>
+                                            {' '}of{' '}
+                                            <span className="font-semibold">
+                                                {liquidations.meta?.total || liquidations.data.length}
+                                            </span>
+                                            {' '}records
+                                        </>
+                                    ) : (
+                                        <span>No records found</span>
+                                    )}
                                 </div>
-                            )}
+
+                                {/* Pagination - Right Side */}
+                                {liquidations.data.length > 0 && liquidations.links && (
+                                    <div className="flex items-center gap-1">
+                                        {liquidations.links.map((link: any, index: number) => (
+                                            <Button
+                                                key={index}
+                                                variant={link.active ? "default" : "outline"}
+                                                size="sm"
+                                                onClick={() => link.url && router.visit(link.url)}
+                                                disabled={!link.url}
+                                                dangerouslySetInnerHTML={{ __html: link.label }}
+                                                className="h-8 min-w-[32px]"
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         </CardContent>
 
                 </div>

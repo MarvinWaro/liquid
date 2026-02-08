@@ -67,8 +67,6 @@ interface Liquidation {
     liquidated_amount: number;
     purpose: string | null;
     remarks: string | null;
-    status: string;
-    status_label: string;
     review_remarks: string | null;
     accountant_remarks: string | null;
     documents: Document[];
@@ -321,9 +319,6 @@ export default function Edit({ auth, liquidation, heis, can }: Props) {
                                     {liquidation.hei.name} ({liquidation.hei.code})
                                 </p>
                             </div>
-                            <Badge variant="default" className="text-base px-4 py-2">
-                                {liquidation.status_label}
-                            </Badge>
                         </div>
                     </div>
 
@@ -562,12 +557,12 @@ export default function Edit({ auth, liquidation, heis, can }: Props) {
                                             onClick={() => openActionDialog('submit')}
                                         >
                                             <Send className="mr-2 h-4 w-4" />
-                                            Submit for Initial Review
+                                            Submit for Review
                                         </Button>
                                     )}
 
                                     {/* Regional Coordinator actions */}
-                                    {(liquidation.status === 'for_initial_review' || liquidation.status === 'returned_to_rc') && (userRole === 'Regional Coordinator' || auth.user.role?.name === 'Super Admin') && (
+                                    {(userRole === 'Regional Coordinator' || auth.user.role?.name === 'Super Admin') && (
                                         <>
                                             <Button
                                                 className="w-full"
@@ -588,7 +583,7 @@ export default function Edit({ auth, liquidation, heis, can }: Props) {
                                     )}
 
                                     {/* Accountant actions */}
-                                    {liquidation.status === 'endorsed_to_accounting' && (userRole === 'Accountant' || auth.user.role?.name === 'Super Admin') && (
+                                    {(userRole === 'Accountant' || auth.user.role?.name === 'Super Admin') && (
                                         <>
                                             <Button
                                                 className="w-full"
@@ -608,12 +603,9 @@ export default function Edit({ auth, liquidation, heis, can }: Props) {
                                         </>
                                     )}
 
-                                    {!liquidation.can_submit &&
-                                        liquidation.status !== 'for_initial_review' &&
-                                        liquidation.status !== 'returned_to_rc' &&
-                                        liquidation.status !== 'endorsed_to_accounting' && (
+                                    {!liquidation.can_submit && userRole !== 'Regional Coordinator' && userRole !== 'Accountant' && auth.user.role?.name !== 'Super Admin' && (
                                         <p className="text-sm text-muted-foreground text-center py-4">
-                                            No actions available for current status
+                                            No actions available
                                         </p>
                                     )}
                                 </CardContent>

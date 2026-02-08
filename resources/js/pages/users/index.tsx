@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import AppLayout from '@/layouts/app-layout';
 import { Head, router } from '@inertiajs/react';
+import { type BreadcrumbItem } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { UserModal } from '@/components/users/user-modal';
@@ -77,6 +78,10 @@ interface Props {
     canChangeStatus: boolean;
 }
 
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'User Management', href: route('users.index') },
+];
+
 export default function Index({ auth, users, roles, regions, heis, canCreate, canEdit, canDelete, canChangeStatus }: Props) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -118,7 +123,7 @@ export default function Index({ auth, users, roles, regions, heis, canCreate, ca
     };
 
     return (
-        <AppLayout>
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="User Management" />
 
             <UserModal
@@ -221,20 +226,21 @@ export default function Index({ auth, users, roles, regions, heis, canCreate, ca
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>
-                                                    {user.role?.name === 'Regional Coordinator' && user.region ? (
-                                                        <Badge
-                                                            variant="outline"
-                                                            className={`${
-                                                                user.region === 'region_12'
-                                                                    ? 'border-blue-200 bg-blue-50 text-blue-900'
-                                                                    : 'border-purple-200 bg-purple-50 text-purple-900'
-                                                            } font-medium`}
-                                                        >
-                                                            {getRegionLabel(user.region)}
-                                                        </Badge>
-                                                    ) : (
-                                                        <span className="text-sm text-muted-foreground">-</span>
-                                                    )}
+                                                    {(() => {
+                                                        // Get region from user directly or from their HEI
+                                                        const region = user.region || user.hei?.region;
+                                                        if (region) {
+                                                            return (
+                                                                <Badge
+                                                                    variant="outline"
+                                                                    className="border-blue-200 bg-blue-50 text-blue-900 font-medium"
+                                                                >
+                                                                    {getRegionLabel(region)}
+                                                                </Badge>
+                                                            );
+                                                        }
+                                                        return <span className="text-sm text-muted-foreground">-</span>;
+                                                    })()}
                                                 </TableCell>
                                                 <TableCell>
                                                     {user.hei ? (

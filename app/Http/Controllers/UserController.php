@@ -21,7 +21,7 @@ class UserController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        $users = User::with(['role', 'hei', 'region'])
+        $users = User::with(['role', 'hei.region', 'region'])
             ->join('roles', 'users.role_id', '=', 'roles.id')
             ->select('users.*')
             ->orderByRaw("CASE WHEN roles.name = 'Super Admin' THEN 0 ELSE 1 END")

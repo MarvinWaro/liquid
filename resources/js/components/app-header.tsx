@@ -279,7 +279,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
 
             {/* Navigation Bar */}
             <div className="border-b border-sidebar-border/70">
-                <div className="px-4 md:px-24">
+                <div className="px-4 md:px-20">
                     <div className="hidden h-14 items-center lg:flex">
                         <NavigationMenu className="flex h-full items-stretch">
                             <NavigationMenuList className="flex h-full items-stretch space-x-1">
