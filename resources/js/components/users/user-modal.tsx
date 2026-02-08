@@ -181,7 +181,17 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis }: UserM
                             <Label htmlFor="role">Role *</Label>
                             <Select
                                 value={data.role_id}
-                                onValueChange={(value) => setData('role_id', value)}
+                                onValueChange={(value) => {
+                                    // Clear role-specific fields when role changes
+                                    const newRole = roles.find(r => r.id.toString() === value);
+                                    if (newRole?.name === 'HEI') {
+                                        setData(data => ({ ...data, role_id: value, region_id: '' }));
+                                    } else if (newRole?.name === 'Regional Coordinator') {
+                                        setData(data => ({ ...data, role_id: value, hei_id: '' }));
+                                    } else {
+                                        setData(data => ({ ...data, role_id: value, hei_id: '', region_id: '' }));
+                                    }
+                                }}
                             >
                                 <SelectTrigger className={errors.role_id ? 'border-destructive' : ''}>
                                     <SelectValue placeholder="Select role" />
@@ -219,47 +229,15 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis }: UserM
                         </div>
                     </div>
 
-                    {/* HEI Selection - Always visible, required only for HEI role */}
-                    <div className="space-y-1.5">
-                        <Label htmlFor="hei_id">
-                            Institution {isHEIRole ? <span className="text-destructive">*</span> : <span className="text-muted-foreground text-xs">(Optional)</span>}
-                        </Label>
-                        <HEISelector
-                            heis={heis}
-                            regions={regions}
-                            value={data.hei_id}
-                            onChange={(value) => {
-                                // Auto-populate region when HEI is selected
-                                const selectedHEI = heis.find(h => h.id === value);
-                                if (selectedHEI?.region_id) {
-                                    setData(data => ({
-                                        ...data,
-                                        hei_id: value,
-                                        region_id: selectedHEI.region_id,
-                                    }));
-                                } else {
-                                    setData('hei_id', value);
-                                }
-                            }}
-                            error={!!errors.hei_id}
-                            placeholder="Search institution..."
-                        />
-                        {errors.hei_id && (
-                            <p className="text-sm text-destructive">{errors.hei_id}</p>
-                        )}
-                    </div>
-
-                    {/* Region Selection - For Regional Coordinators (editable) or HEI users (auto-populated, read-only) */}
-                    {(isRegionalCoordinator || isHEIRole) && (
+                    {/* Region Selection - For Regional Coordinators only */}
+                    {isRegionalCoordinator && (
                         <div className="space-y-1.5">
                             <Label htmlFor="region_id">
-                                Region {isRegionalCoordinator && <span className="text-destructive">*</span>}
-                                {isHEIRole && <span className="text-muted-foreground text-xs"> (Auto-populated from HEI)</span>}
+                                Region <span className="text-destructive">*</span>
                             </Label>
                             <Select
                                 value={data.region_id || undefined}
                                 onValueChange={(value) => setData('region_id', value)}
-                                disabled={isHEIRole}
                             >
                                 <SelectTrigger className={errors.region_id ? 'border-destructive' : ''}>
                                     <SelectValue placeholder="Select region" />
@@ -274,6 +252,38 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis }: UserM
                             </Select>
                             {errors.region_id && (
                                 <p className="text-sm text-destructive">{errors.region_id}</p>
+                            )}
+                        </div>
+                    )}
+
+                    {/* HEI Selection - Only visible for HEI role */}
+                    {isHEIRole && (
+                        <div className="space-y-1.5">
+                            <Label htmlFor="hei_id">
+                                Institution <span className="text-destructive">*</span>
+                            </Label>
+                            <HEISelector
+                                heis={heis}
+                                regions={regions}
+                                value={data.hei_id}
+                                onChange={(value) => {
+                                    // Auto-populate region when HEI is selected
+                                    const selectedHEI = heis.find(h => h.id === value);
+                                    if (selectedHEI?.region_id) {
+                                        setData(data => ({
+                                            ...data,
+                                            hei_id: value,
+                                            region_id: selectedHEI.region_id,
+                                        }));
+                                    } else {
+                                        setData('hei_id', value);
+                                    }
+                                }}
+                                error={!!errors.hei_id}
+                                placeholder="Search institution..."
+                            />
+                            {errors.hei_id && (
+                                <p className="text-sm text-destructive">{errors.hei_id}</p>
                             )}
                         </div>
                     )}
