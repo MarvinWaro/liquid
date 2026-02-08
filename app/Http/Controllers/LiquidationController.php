@@ -43,7 +43,7 @@ class LiquidationController extends Controller
         }
 
         $user = $request->user();
-        $filters = $request->only(['search', 'status', 'program', 'document_status', 'liquidation_status']);
+        $filters = $request->only(['search', 'program', 'document_status', 'liquidation_status']);
 
         $liquidations = $this->liquidationService
             ->getPaginatedLiquidations($user, $filters)
@@ -367,7 +367,7 @@ class LiquidationController extends Controller
         $user = $request->user();
 
         if (!$user->isSuperAdmin() && $user->role->name !== 'Admin') {
-            if ($liquidation->created_by !== $user->id || !$liquidation->isEditableByHEI()) {
+            if ($liquidation->created_by !== $user->id) {
                 abort(403, 'You cannot delete this document.');
             }
         }
@@ -388,10 +388,6 @@ class LiquidationController extends Controller
     {
         if (!$request->user()->hasPermission('delete_liquidation')) {
             abort(403, 'Unauthorized action.');
-        }
-
-        if (!in_array($liquidation->status, ['draft', 'returned_to_hei'])) {
-            return redirect()->back()->with('error', 'Cannot delete liquidation in this status.');
         }
 
         foreach ($liquidation->documents as $document) {
@@ -418,7 +414,7 @@ class LiquidationController extends Controller
         }
 
         if (!$user->isSuperAdmin() && $user->role->name !== 'Admin') {
-            if ($liquidation->created_by !== $user->id || !$liquidation->isEditableByHEI()) {
+            if ($liquidation->created_by !== $user->id) {
                 abort(403, 'You cannot edit this liquidation.');
             }
         }
@@ -616,9 +612,6 @@ class LiquidationController extends Controller
             'liquidation_status' => $liquidationStatus,
             'percentage_liquidation' => $percentageLiquidation,
             'lapsing_period' => $financial?->lapsing_period ?? 0,
-            'status' => $liquidation->status,
-            'status_label' => $liquidation->getStatusLabel(),
-            'status_badge' => $liquidation->getStatusBadgeClass(),
         ];
     }
 
@@ -641,8 +634,6 @@ class LiquidationController extends Controller
             'liquidated_amount' => $financial?->amount_liquidated,
             'purpose' => $financial?->purpose,
             'remarks' => $liquidation->remarks,
-            'status' => $liquidation->status,
-            'status_label' => $liquidation->getStatusLabel(),
             'review_remarks' => $liquidation->getLatestReviewRemarks(),
             'accountant_remarks' => $liquidation->getLatestAccountantRemarks(),
             'documents' => $liquidation->documents->map(fn ($doc) => [
@@ -654,8 +645,8 @@ class LiquidationController extends Controller
                 'uploaded_by' => $doc->uploader->name,
                 'uploaded_at' => $doc->created_at->format('M d, Y H:i'),
             ]),
-            'can_edit' => $liquidation->isEditableByHEI(),
-            'can_submit' => $liquidation->canBeSubmitted(),
+            'can_edit' => true,
+            'can_submit' => true,
         ];
     }
 
@@ -693,8 +684,6 @@ class LiquidationController extends Controller
             'amount_received' => $financial?->amount_received ?? 0,
             'total_disbursed' => $totalDisbursed,
             'remaining_amount' => ($financial?->amount_received ?? 0) - $totalDisbursed,
-            'status' => $liquidation->status,
-            'status_label' => $liquidation->getStatusLabel(),
             'remarks' => $liquidation->remarks,
             'review_remarks' => $liquidation->getLatestReviewRemarks(),
             'documents_for_compliance' => $liquidation->compliance?->documents_required,
@@ -814,7 +803,6 @@ class LiquidationController extends Controller
             'academic_year' => trim($row[6] ?? ''),
             'semester_id' => $semesterId,
             'batch_no' => trim($row[8] ?? ''),
-            'status' => Liquidation::STATUS_DRAFT,
             'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
             'document_status_id' => $documentStatusId,
             'remarks' => !empty($remarks) ? $remarks : null,

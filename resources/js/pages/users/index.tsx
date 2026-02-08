@@ -226,20 +226,21 @@ export default function Index({ auth, users, roles, regions, heis, canCreate, ca
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>
-                                                    {user.role?.name === 'Regional Coordinator' && user.region ? (
-                                                        <Badge
-                                                            variant="outline"
-                                                            className={`${
-                                                                user.region === 'region_12'
-                                                                    ? 'border-blue-200 bg-blue-50 text-blue-900'
-                                                                    : 'border-purple-200 bg-purple-50 text-purple-900'
-                                                            } font-medium`}
-                                                        >
-                                                            {getRegionLabel(user.region)}
-                                                        </Badge>
-                                                    ) : (
-                                                        <span className="text-sm text-muted-foreground">-</span>
-                                                    )}
+                                                    {(() => {
+                                                        // Get region from user directly or from their HEI
+                                                        const region = user.region || user.hei?.region;
+                                                        if (region) {
+                                                            return (
+                                                                <Badge
+                                                                    variant="outline"
+                                                                    className="border-blue-200 bg-blue-50 text-blue-900 font-medium"
+                                                                >
+                                                                    {getRegionLabel(region)}
+                                                                </Badge>
+                                                            );
+                                                        }
+                                                        return <span className="text-sm text-muted-foreground">-</span>;
+                                                    })()}
                                                 </TableCell>
                                                 <TableCell>
                                                     {user.hei ? (

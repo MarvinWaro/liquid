@@ -32,7 +32,6 @@ import {
     TabsTrigger,
     TabsContent,
 } from '@/components/ui/tabs';
-import { Stepper } from '@/components/ui/stepper';
 import {
     EndorseToAccountingModal,
     ReturnToHEIModal,
@@ -96,8 +95,6 @@ interface Liquidation {
     amount_received: number;
     total_disbursed: number;
     remaining_amount: number;
-    status: string;
-    status_label: string;
     remarks?: string | null;
     review_remarks?: string | null;
     documents_for_compliance?: string | null;
@@ -303,86 +300,20 @@ export function ViewLiquidationModal({
             .slice(0, 2);
     };
 
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            // Draft - gray
-            case 'draft':
-            case 'Draft':
-                return 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-200';
-
-            // For RC Review - black/dark gray
-            case 'for_initial_review':
-                return 'bg-gray-800 text-gray-100 hover:bg-gray-900 border-gray-800';
-
-            // Endorsed to Accounting - purple/violet
-            case 'endorsed_to_accounting':
-                return 'bg-purple-100 text-purple-700 hover:bg-purple-200 border-purple-200';
-
-            // Endorsed to COA - green (success)
-            case 'endorsed_to_coa':
-            case 'Endorsed to COA':
-                return 'bg-green-100 text-green-700 hover:bg-green-200 border-green-200';
-
-            // Returned to HEI or RC - red (destructive)
-            case 'returned_to_hei':
-            case 'returned_to_rc':
-            case 'Returned':
-                return 'bg-red-100 text-red-700 hover:bg-red-200 border-red-200';
-
-            // Old statuses for backward compatibility
-            case 'Submitted': return 'bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-200';
-            case 'Verified': return 'bg-amber-100 text-amber-700 hover:bg-amber-200 border-amber-200';
-            case 'Cleared': return 'bg-green-100 text-green-700 hover:bg-green-200 border-green-200';
-
-            default: return 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-200';
-        }
-    };
-
     if (!liquidation) return null;
 
     const isHEIUser = userRole === 'HEI';
 
-    // HEI only sees steps 1–2; RC/Accountant/Admin see the full 4-step flow
-    const workflowSteps = isHEIUser ? [
-        { label: 'HEI Submission', description: 'Draft & Submit' },
-        { label: 'RC Review', description: 'Regional Coordinator' },
-    ] : [
-        { label: 'HEI Submission', description: 'Draft & Submit' },
-        { label: 'RC Review', description: 'Regional Coordinator' },
-        { label: 'Accounting Review', description: 'Financial Verification' },
-        { label: 'COA Endorsement', description: 'Final Approval' },
-    ];
-
-    // Map status to current step
-    const getCurrentStep = (status: string): number => {
-        switch (status) {
-            case 'draft':
-            case 'returned_to_hei':
-                return 1;
-            case 'for_initial_review':
-            case 'returned_to_rc':
-                return 2;
-            case 'endorsed_to_accounting':
-                return isHEIUser ? 2 : 3;
-            case 'endorsed_to_coa':
-                return isHEIUser ? 2 : 4;
-            default:
-                return 1;
-        }
-    };
-
-    const currentStep = getCurrentStep(liquidation.status);
-    const isFullyCompleted = isHEIUser
-        ? ['endorsed_to_accounting', 'endorsed_to_coa'].includes(liquidation.status)
-        : liquidation.status === 'endorsed_to_coa';
+    // Check if this is a resubmission by looking at review history
+    const hasBeenReturned = (liquidation.review_history?.length ?? 0) > 0;
 
     // Calculate % Age of Liquidation: (total_disbursed / amount_received) * 100
     const percentLiquidated = liquidation.amount_received > 0
         ? (liquidation.total_disbursed / liquidation.amount_received) * 100
         : 0;
 
-    // Check if HEI can edit (only in draft or returned_to_hei status)
-    const canEdit = canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status);
+    // Check if HEI can edit
+    const canEdit = canSubmit;
 
     return (
         <>
@@ -414,22 +345,13 @@ export function ViewLiquidationModal({
                         <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-900 px-3 py-1 text-sm font-medium">
                             {liquidation.semester}
                         </Badge>
-                        <span className="text-muted-foreground">·</span>
-                        <Badge className={`${getStatusColor(liquidation.status)} shadow-none border px-3 py-1 text-sm font-medium`}>
-                            {liquidation.status_label}
-                        </Badge>
                     </div>
                 </DialogHeader>
-
-                {/* Workflow Stepper */}
-                <div className={`flex-shrink-0 px-6 py-4 border-y ${isFullyCompleted ? 'bg-green-50/50 dark:bg-green-950/10' : 'bg-muted/20'}`}>
-                    <Stepper steps={workflowSteps} currentStep={currentStep} isFullyCompleted={isFullyCompleted} />
-                </div>
 
                 <Tabs defaultValue="overview" className="flex-1 flex flex-col overflow-hidden">
                     <TabsList variant="line" className="flex-shrink-0">
                         <TabsTrigger value="overview">Overview & Files</TabsTrigger>
-                        {['endorsed_to_accounting', 'endorsed_to_coa'].includes(liquidation.status) && liquidation.transmittal_reference_no && (
+                        {liquidation.transmittal_reference_no && (
                             <TabsTrigger value="endorsement">Endorsement</TabsTrigger>
                         )}
                         <TabsTrigger value="history">History</TabsTrigger>
@@ -498,8 +420,8 @@ export function ViewLiquidationModal({
                             ) : null;
                         })()}
 
-                        {/* RC Review Remarks - Show when returned to HEI */}
-                        {liquidation.status === 'returned_to_hei' && (liquidation.review_remarks || liquidation.documents_for_compliance) && (
+                        {/* RC Review Remarks - Show when there are compliance requirements */}
+                        {(liquidation.review_remarks || liquidation.documents_for_compliance) && (
                             <Card className="border-destructive bg-destructive/5">
                                 <CardHeader>
                                     <CardTitle className="text-destructive flex items-center gap-2">
@@ -531,8 +453,8 @@ export function ViewLiquidationModal({
                             </Card>
                         )}
 
-                        {/* Accountant Review Remarks - Show when returned to RC */}
-                        {liquidation.status === 'returned_to_rc' && liquidation.accountant_remarks && (
+                        {/* Accountant Review Remarks */}
+                        {liquidation.accountant_remarks && (
                             <Card className="border-destructive bg-destructive/5">
                                 <CardHeader>
                                     <CardTitle className="text-destructive flex items-center gap-2">
@@ -957,39 +879,26 @@ export function ViewLiquidationModal({
 
                 {/* Sticky Footer */}
                 {(
-                    (canSubmit && ['draft', 'returned_to_hei'].includes(liquidation.status)) ||
-                    (canReview && userRole === 'Regional Coordinator' && ['for_initial_review', 'returned_to_rc'].includes(liquidation.status)) ||
-                    (canReview && userRole === 'Accountant' && liquidation.status === 'endorsed_to_accounting')
+                    (canSubmit && isHEIUser) ||
+                    (canReview && userRole === 'Regional Coordinator') ||
+                    (canReview && userRole === 'Accountant')
                 ) && (
                     <div className="flex-shrink-0 border-t bg-background pt-4 pb-2 px-1">
-                        {/* Submit Button */}
-                        {canSubmit && liquidation.status === 'draft' && (
+                        {/* HEI Submit/Resubmit Button */}
+                        {canSubmit && isHEIUser && (
                             <div className="flex justify-end gap-2">
                                 <Button
                                     onClick={() => setIsSubmitModalOpen(true)}
                                     disabled={liquidation.beneficiaries.length === 0}
                                 >
                                     <Send className="h-4 w-4 mr-2" />
-                                    Submit for Review
-                                </Button>
-                            </div>
-                        )}
-
-                        {/* Resubmit to RC Button */}
-                        {canSubmit && liquidation.status === 'returned_to_hei' && (
-                            <div className="flex justify-end gap-2">
-                                <Button
-                                    onClick={() => setIsSubmitModalOpen(true)}
-                                    disabled={liquidation.beneficiaries.length === 0}
-                                >
-                                    <Send className="h-4 w-4 mr-2" />
-                                    Resubmit to RC
+                                    {hasBeenReturned ? 'Resubmit to RC' : 'Submit for Review'}
                                 </Button>
                             </div>
                         )}
 
                         {/* Regional Coordinator Actions */}
-                        {canReview && userRole === 'Regional Coordinator' && ['for_initial_review', 'returned_to_rc'].includes(liquidation.status) && (
+                        {canReview && userRole === 'Regional Coordinator' && (
                             <div className="flex justify-end gap-2">
                                 <Button
                                     variant="outline"
@@ -1008,7 +917,7 @@ export function ViewLiquidationModal({
                         )}
 
                         {/* Accountant Actions */}
-                        {canReview && userRole === 'Accountant' && liquidation.status === 'endorsed_to_accounting' && (
+                        {canReview && userRole === 'Accountant' && (
                             <div className="flex justify-end gap-2">
                                 <Button
                                     variant="outline"
@@ -1036,7 +945,7 @@ export function ViewLiquidationModal({
             onClose={() => setIsSubmitModalOpen(false)}
             onSubmit={handleSubmitForReview}
             isProcessing={isSubmitting}
-            isResubmission={liquidation?.status === 'returned_to_hei'}
+            isResubmission={hasBeenReturned}
         />
 
         {/* Endorse to Accounting Modal */}

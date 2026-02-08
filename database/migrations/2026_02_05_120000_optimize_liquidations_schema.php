@@ -155,7 +155,7 @@ return new class extends Migration
     {
         Schema::table('liquidations', function (Blueprint $table) {
             $table->uuid('semester_id')->nullable()->after('academic_year');
-            $table->uuid('document_status_id')->nullable()->after('status');
+            $table->uuid('document_status_id')->nullable()->after('liquidation_status');
         });
     }
 
@@ -264,14 +264,11 @@ return new class extends Migration
     {
         Schema::table('liquidations', function (Blueprint $table) {
             // Single column indexes
-            $table->index('status', 'idx_liquidations_status');
-            $table->index('created_by', 'idx_liquidations_created_by');
             $table->index('semester_id', 'idx_liquidations_semester');
             $table->index('document_status_id', 'idx_liquidations_doc_status');
 
             // Composite indexes
             $table->index(['hei_id', 'academic_year'], 'idx_liquidations_hei_year');
-            $table->index(['status', 'created_at'], 'idx_liquidations_status_date');
 
             // Add foreign key constraints
             $table->foreign('semester_id')->references('id')->on('semesters')->onDelete('set null');
@@ -288,12 +285,9 @@ return new class extends Migration
         Schema::table('liquidations', function (Blueprint $table) {
             $table->dropForeign(['semester_id']);
             $table->dropForeign(['document_status_id']);
-            $table->dropIndex('idx_liquidations_status');
-            $table->dropIndex('idx_liquidations_created_by');
             $table->dropIndex('idx_liquidations_semester');
             $table->dropIndex('idx_liquidations_doc_status');
             $table->dropIndex('idx_liquidations_hei_year');
-            $table->dropIndex('idx_liquidations_status_date');
         });
 
         // Restore old columns

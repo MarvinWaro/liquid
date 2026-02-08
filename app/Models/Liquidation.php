@@ -26,8 +26,8 @@ use Illuminate\Database\Eloquent\Builder;
  * @property string $academic_year
  * @property string|null $semester_id
  * @property string|null $batch_no
- * @property string $status
  * @property string|null $document_status_id
+ * @property string $liquidation_status
  * @property \Carbon\Carbon|null $date_submitted
  * @property string|null $remarks
  * @property string $created_by
@@ -59,8 +59,8 @@ class Liquidation extends Model
         'batch_no',
 
         // Status tracking
-        'status',
         'document_status_id',
+        'liquidation_status',
         'date_submitted',
         'remarks',
 
@@ -78,9 +78,6 @@ class Liquidation extends Model
         // COA Endorsement
         'coa_endorsed_by',
         'coa_endorsed_at',
-
-        // Liquidation status
-        'liquidation_status',
     ];
 
     /**
@@ -104,18 +101,6 @@ class Liquidation extends Model
      * @var array<string>
      */
     protected $appends = ['days_lapsed'];
-
-    /**
-     * Status constants.
-     */
-    public const STATUS_DRAFT = 'draft';
-    public const STATUS_FOR_INITIAL_REVIEW = 'for_initial_review';
-    public const STATUS_RETURNED_TO_HEI = 'returned_to_hei';
-    public const STATUS_ENDORSED_TO_ACCOUNTING = 'endorsed_to_accounting';
-    public const STATUS_RETURNED_TO_RC = 'returned_to_rc';
-    public const STATUS_ENDORSED_TO_COA = 'endorsed_to_coa';
-    public const STATUS_APPROVED = 'approved';
-    public const STATUS_REJECTED = 'rejected';
 
     /**
      * Liquidation status constants.
@@ -464,112 +449,8 @@ class Liquidation extends Model
     }
 
     // ========================================
-    // STATUS CHECKS
-    // ========================================
-
-    /**
-     * Check if liquidation is editable by HEI.
-     */
-    public function isEditableByHEI(): bool
-    {
-        return in_array($this->status, [self::STATUS_DRAFT, self::STATUS_RETURNED_TO_HEI]);
-    }
-
-    /**
-     * Check if liquidation can be submitted for review.
-     */
-    public function canBeSubmitted(): bool
-    {
-        return in_array($this->status, [self::STATUS_DRAFT, self::STATUS_RETURNED_TO_HEI]);
-    }
-
-    /**
-     * Check if liquidation is pending Regional Coordinator review.
-     */
-    public function isPendingRCReview(): bool
-    {
-        return in_array($this->status, [self::STATUS_FOR_INITIAL_REVIEW, self::STATUS_RETURNED_TO_RC]);
-    }
-
-    /**
-     * Check if liquidation is pending Accountant review.
-     */
-    public function isPendingAccountantReview(): bool
-    {
-        return $this->status === self::STATUS_ENDORSED_TO_ACCOUNTING;
-    }
-
-    /**
-     * Get status badge color.
-     */
-    public function getStatusBadgeClass(): string
-    {
-        return match ($this->status) {
-            self::STATUS_DRAFT => 'secondary',
-            self::STATUS_FOR_INITIAL_REVIEW => 'warning',
-            self::STATUS_RETURNED_TO_HEI => 'destructive',
-            self::STATUS_ENDORSED_TO_ACCOUNTING => 'info',
-            self::STATUS_RETURNED_TO_RC => 'destructive',
-            self::STATUS_ENDORSED_TO_COA => 'success',
-            self::STATUS_APPROVED => 'success',
-            self::STATUS_REJECTED => 'destructive',
-            default => 'secondary',
-        };
-    }
-
-    /**
-     * Get human-readable status.
-     */
-    public function getStatusLabel(): string
-    {
-        return match ($this->status) {
-            self::STATUS_DRAFT => 'Draft',
-            self::STATUS_FOR_INITIAL_REVIEW => 'For Initial Review (RC)',
-            self::STATUS_RETURNED_TO_HEI => 'Returned to HEI',
-            self::STATUS_ENDORSED_TO_ACCOUNTING => 'Endorsed to Accounting',
-            self::STATUS_RETURNED_TO_RC => 'Returned to RC',
-            self::STATUS_ENDORSED_TO_COA => 'Endorsed to COA',
-            self::STATUS_APPROVED => 'Approved',
-            self::STATUS_REJECTED => 'Rejected',
-            default => ucfirst(str_replace('_', ' ', $this->status)),
-        };
-    }
-
-    // ========================================
     // SCOPES
     // ========================================
-
-    /**
-     * Scope to filter by status.
-     */
-    public function scopeStatus(Builder $query, string $status): Builder
-    {
-        return $query->where('status', $status);
-    }
-
-    /**
-     * Scope to filter drafts.
-     */
-    public function scopeDraft(Builder $query): Builder
-    {
-        return $query->where('status', self::STATUS_DRAFT);
-    }
-
-    /**
-     * Scope to filter pending RC review.
-     */
-    public function scopePendingRCReview(Builder $query): Builder
-    {
-        return $query->whereIn('status', [self::STATUS_FOR_INITIAL_REVIEW, self::STATUS_RETURNED_TO_RC]);
-    }
-
-    /**
-     * Scope to filter pending Accountant review.
-     */
-    public function scopePendingAccountantReview(Builder $query): Builder
-    {
-        return $query->where('status', self::STATUS_ENDORSED_TO_ACCOUNTING);
-    }
 
     /**
      * Scope to filter by HEI.

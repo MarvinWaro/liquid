@@ -28,18 +28,6 @@ return new class extends Migration
             $table->decimal('amount_refunded', 15, 2)->default(0); // Unused fund returned
             $table->string('or_number')->nullable(); // Receipt for refund
 
-            // Status Tracking (workflow statuses)
-            $table->enum('status', [
-                'draft',
-                'for_initial_review',
-                'returned_to_hei',
-                'endorsed_to_accounting',
-                'returned_to_rc',
-                'endorsed_to_coa',
-                'approved',
-                'rejected'
-            ])->default('draft');
-
             // Liquidation Status (stored enum with 3 options)
             $table->enum('liquidation_status', [
                 'Unliquidated',
@@ -74,8 +62,7 @@ return new class extends Migration
             $table->foreign('coa_endorsed_by')->references('id')->on('users')->onDelete('set null');
 
             // Indexes for faster searching
-            $table->index(['hei_id', 'status']);
-            $table->index('status');
+            $table->index('hei_id');
             $table->index('liquidation_status');
             $table->index('created_by');
         });

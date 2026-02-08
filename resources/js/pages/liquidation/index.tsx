@@ -56,9 +56,6 @@ interface Liquidation {
     liquidation_status: string;
     percentage_liquidation: number;
     lapsing_period: number;
-    status: string;
-    status_label: string;
-    status_badge: string;
 }
 
 interface Props {
@@ -376,7 +373,7 @@ export default function Index({ liquidations, programs, filters, permissions, us
                                             <TableHead className="text-right">Disbursements</TableHead>
                                             <TableHead className="text-right">Liquidated</TableHead>
                                             <TableHead className="text-right">Unliquidated</TableHead>
-                                            <TableHead>Documents</TableHead>
+                                            <TableHead>Documents Status</TableHead>
                                             <TableHead>RC Notes</TableHead>
                                             <TableHead>Liquidation Status</TableHead>
                                             <TableHead className="text-right">%</TableHead>
