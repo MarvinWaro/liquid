@@ -60,7 +60,7 @@ class Liquidation extends Model
 
         // Status tracking
         'document_status_id',
-        'liquidation_status',
+        'liquidation_status_id',
         'date_submitted',
         'remarks',
 
@@ -103,11 +103,11 @@ class Liquidation extends Model
     protected $appends = ['days_lapsed'];
 
     /**
-     * Liquidation status constants.
+     * Liquidation status code constants (matching liquidation_statuses.code).
      */
-    public const LIQUIDATION_STATUS_UNLIQUIDATED = 'Unliquidated';
-    public const LIQUIDATION_STATUS_PARTIALLY = 'Partially Liquidated - Endorsed to Accounting';
-    public const LIQUIDATION_STATUS_FULLY = 'Fully Liquidated - Endorsed to Accounting';
+    public const LIQUIDATION_STATUS_UNLIQUIDATED = 'UNLIQUIDATED';
+    public const LIQUIDATION_STATUS_PARTIALLY = 'PARTIALLY_LIQUIDATED';
+    public const LIQUIDATION_STATUS_FULLY = 'FULLY_LIQUIDATED';
 
     // ========================================
     // RELATIONSHIPS - Core Entities
@@ -143,6 +143,14 @@ class Liquidation extends Model
     public function documentStatus(): BelongsTo
     {
         return $this->belongsTo(DocumentStatus::class);
+    }
+
+    /**
+     * Get the liquidation status for this liquidation.
+     */
+    public function liquidationStatus(): BelongsTo
+    {
+        return $this->belongsTo(LiquidationStatus::class);
     }
 
     // ========================================
@@ -251,6 +259,22 @@ class Liquidation extends Model
     public function compliance(): HasOne
     {
         return $this->hasOne(LiquidationCompliance::class);
+    }
+
+    /**
+     * Get the tracking entries for this liquidation.
+     */
+    public function trackingEntries(): HasMany
+    {
+        return $this->hasMany(LiquidationTrackingEntry::class);
+    }
+
+    /**
+     * Get the running data entries for this liquidation.
+     */
+    public function runningData(): HasMany
+    {
+        return $this->hasMany(LiquidationRunningData::class)->orderBy('sort_order');
     }
 
     // ========================================
@@ -446,6 +470,19 @@ class Liquidation extends Model
         }
 
         return ($this->getTotalBeneficiaryDisbursements() / $amountReceived) * 100;
+    }
+
+    // ========================================
+    // HELPER METHODS - Editability
+    // ========================================
+
+    /**
+     * Check if the liquidation is editable by the HEI user who created it.
+     * HEI can edit when it hasn't been endorsed yet (still Unliquidated).
+     */
+    public function isEditableByHEI(): bool
+    {
+        return $this->liquidationStatus?->code === self::LIQUIDATION_STATUS_UNLIQUIDATED;
     }
 
     // ========================================

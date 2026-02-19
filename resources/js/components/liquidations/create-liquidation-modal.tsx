@@ -237,7 +237,7 @@ export function CreateLiquidationModal({
 
                         {/* UII with auto-fill */}
                         <div className="space-y-2">
-                            <Label htmlFor="uii">UII (Unique Institutional Identifier) *</Label>
+                            <Label htmlFor="uii">UII*</Label>
                             <div className="relative">
                                 <Input
                                     id="uii"

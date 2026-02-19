@@ -8,6 +8,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
 import { Form, Head } from '@inertiajs/react';
+import { useEffect, useMemo, useState } from "react";
+import Particles, { initParticlesEngine } from "@tsparticles/react";
+import { loadSlim } from "@tsparticles/slim";
 
 interface LoginProps {
     status?: string;
@@ -18,12 +21,77 @@ export default function Login({
     status,
     canResetPassword,
 }: LoginProps) {
+    const [init, setInit] = useState(false);
+
+    useEffect(() => {
+        initParticlesEngine(async (engine) => {
+            await loadSlim(engine);
+        }).then(() => {
+            setInit(true);
+        });
+    }, []);
+
+    const particlesOptions = useMemo(() => ({
+        background: { color: { value: "transparent" } },
+        fpsLimit: 120,
+        interactivity: {
+            events: {
+                onClick: { enable: true, mode: "push" },
+                onHover: { enable: true, mode: "repulse" },
+            },
+            modes: {
+                push: { quantity: 4 },
+                repulse: { distance: 100, duration: 0.4 },
+            },
+        },
+        particles: {
+            color: { value: "#4a90e2" },
+            links: {
+                color: "#4a90e2",
+                distance: 150,
+                enable: true,
+                opacity: 0.25,
+                width: 1.5,
+            },
+            move: {
+                enable: true,
+                speed: 1.5,
+                direction: "none" as const,
+                outModes: { default: "bounce" as const },
+                random: true,
+                straight: false,
+            },
+            number: {
+                density: { enable: true },
+                value: 50
+            },
+            opacity: {
+                value: 0.5,
+                animation: {
+                    enable: true,
+                    speed: 1,
+                    minimumValue: 0.2,
+                }
+            },
+            shape: { type: "circle" },
+            size: {
+                value: { min: 1, max: 3 },
+                animation: {
+                    enable: true,
+                    speed: 2,
+                    minimumValue: 0.5,
+                }
+            },
+        },
+        detectRetina: true,
+    }), []);
+
     return (
         <div className="relative min-h-svh flex flex-col items-center justify-center p-6 md:p-10 overflow-hidden bg-background">
             <Head title="Log in" />
 
             {/* BACKGROUND LAYER 1: Image Texture */}
-            <div className="absolute inset-0 z-0">
+            <div className="absolute inset-0 z-[5]">
                 <img
                     src="/assets/img/unifastbg.jpg"
                     alt=""
@@ -32,10 +100,19 @@ export default function Login({
             </div>
 
             {/* BACKGROUND LAYER 2: Gradient Overlay (Light Blue/White theme) */}
-            <div className="absolute inset-0 z-10 bg-gradient-to-br from-blue-50/90 via-white/80 to-blue-100/50 dark:from-gray-900/90 dark:via-gray-950/80 dark:to-gray-900/50 mix-blend-overlay dark:mix-blend-normal" />
+            <div className="absolute inset-0 z-[10] bg-gradient-to-br from-blue-50/70 via-white/60 to-blue-100/40 dark:from-gray-900/90 dark:via-gray-950/80 dark:to-gray-900/50 mix-blend-overlay dark:mix-blend-normal" />
+
+            {/* Particles Background - Above gradient */}
+            {init && (
+                <Particles
+                    id="tsparticles-login"
+                    options={particlesOptions}
+                    className="absolute inset-0 z-[20] pointer-events-none"
+                />
+            )}
 
             {/* CONTENT LAYER */}
-            <div className="relative z-20 w-full max-w-sm md:max-w-4xl">
+            <div className="relative z-[30] w-full max-w-sm md:max-w-4xl">
                 <Card className="overflow-hidden shadow-2xl border-0 rounded-2xl">
                     <CardContent className="grid p-0 md:grid-cols-2 h-full">
 

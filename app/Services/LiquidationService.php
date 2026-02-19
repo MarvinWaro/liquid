@@ -8,6 +8,7 @@ use App\Models\DocumentStatus;
 use App\Models\HEI;
 use App\Models\Liquidation;
 use App\Models\LiquidationReview;
+use App\Models\LiquidationStatus;
 use App\Models\Program;
 use App\Models\Semester;
 use App\Models\User;
@@ -27,7 +28,7 @@ class LiquidationService
      */
     public function getPaginatedLiquidations(User $user, array $filters = []): LengthAwarePaginator
     {
-        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'program', 'documentStatus'])
+        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'program', 'documentStatus', 'liquidationStatus'])
             ->orderBy('control_no', 'asc');
 
         $this->applyRoleFilter($query, $user);
@@ -98,7 +99,10 @@ class LiquidationService
 
         // Filter by liquidation status
         if (!empty($filters['liquidation_status']) && $filters['liquidation_status'] !== 'all') {
-            $query->where('liquidation_status', $filters['liquidation_status']);
+            $liquidationStatus = LiquidationStatus::findByCode(strtoupper($filters['liquidation_status']));
+            if ($liquidationStatus) {
+                $query->where('liquidation_status_id', $liquidationStatus->id);
+            }
         }
     }
 
@@ -128,7 +132,7 @@ class LiquidationService
             'batch_no' => $data['batch_no'] ?? null,
             'document_status_id' => $documentStatusId,
             'remarks' => $data['rc_notes'] ?? null,
-            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
+            'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
             'created_by' => $creator->id,
         ]);
 
@@ -151,6 +155,27 @@ class LiquidationService
     {
         $liquidationFields = array_intersect_key($data, array_flip(['hei_id', 'remarks']));
 
+        // Handle liquidation_status → liquidation_status_id lookup
+        if (isset($data['liquidation_status'])) {
+            $liquidationStatus = LiquidationStatus::where('name', $data['liquidation_status'])->first();
+            if ($liquidationStatus) {
+                $liquidationFields['liquidation_status_id'] = $liquidationStatus->id;
+            }
+        }
+
+        // Handle review_remarks → remarks mapping
+        if (array_key_exists('review_remarks', $data)) {
+            $liquidationFields['remarks'] = $data['review_remarks'];
+        }
+
+        // Handle document_status → document_status_id lookup
+        if (isset($data['document_status'])) {
+            $documentStatus = DocumentStatus::where('name', $data['document_status'])->first();
+            if ($documentStatus) {
+                $liquidationFields['document_status_id'] = $documentStatus->id;
+            }
+        }
+
         $financialFieldsMap = [
             'amount_received' => 'amount_received',
             'disbursed_amount' => 'amount_disbursed',
@@ -158,6 +183,9 @@ class LiquidationService
             'fund_source' => 'fund_source',
             'liquidated_amount' => 'amount_liquidated',
             'purpose' => 'purpose',
+            'date_fund_released' => 'date_fund_released',
+            'due_date' => 'due_date',
+            'number_of_grantees' => 'number_of_grantees',
         ];
 
         $financialData = [];
@@ -200,7 +228,7 @@ class LiquidationService
         $documentStatusId = $this->determineDocumentStatus($liquidation);
 
         $updateData = [
-            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
+            'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
             'date_submitted' => now(),
             'document_status_id' => $documentStatusId,
         ];
@@ -232,10 +260,10 @@ class LiquidationService
         }
 
         // Calculate liquidation status based on financial data
-        $liquidationStatus = $this->calculateLiquidationStatus($liquidation);
+        $liquidationStatusId = $this->calculateLiquidationStatusId($liquidation);
 
         $liquidation->update([
-            'liquidation_status' => $liquidationStatus,
+            'liquidation_status_id' => $liquidationStatusId,
             'reviewed_by' => $user->id,
             'reviewed_at' => now(),
         ]);
@@ -259,7 +287,7 @@ class LiquidationService
         }
 
         $liquidation->update([
-            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
+            'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
             'reviewed_by' => $user->id,
             'reviewed_at' => now(),
         ]);
@@ -283,10 +311,10 @@ class LiquidationService
         }
 
         // Calculate liquidation status based on financial data
-        $liquidationStatus = $this->calculateLiquidationStatus($liquidation);
+        $liquidationStatusId = $this->calculateLiquidationStatusId($liquidation);
 
         $liquidation->update([
-            'liquidation_status' => $liquidationStatus,
+            'liquidation_status_id' => $liquidationStatusId,
             'accountant_reviewed_by' => $user->id,
             'accountant_reviewed_at' => now(),
             'coa_endorsed_by' => $user->id,
@@ -304,7 +332,7 @@ class LiquidationService
         $liquidation->addAccountantReturn($user, $remarks);
 
         $liquidation->update([
-            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
+            'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
             'accountant_reviewed_by' => $user->id,
             'accountant_reviewed_at' => now(),
         ]);
@@ -436,32 +464,41 @@ class LiquidationService
     {
         Cache::forget('semesters_all');
         Cache::forget('document_statuses_all');
+        Cache::forget('liquidation_statuses_all');
         Cache::forget('programs_active');
         Cache::forget('heis_active');
     }
 
     /**
-     * Calculate liquidation status based on financial data.
-     * Returns: Unliquidated, Partially Liquidated - Endorsed to Accounting, or Fully Liquidated - Endorsed to Accounting
+     * Calculate liquidation status ID based on financial data.
      */
-    public function calculateLiquidationStatus(Liquidation $liquidation): string
+    public function calculateLiquidationStatusId(Liquidation $liquidation): ?string
     {
         $financial = $liquidation->financial;
 
         if (!$financial) {
-            return Liquidation::LIQUIDATION_STATUS_PARTIALLY;
+            return LiquidationStatus::partiallyLiquidated()?->id;
         }
 
         $amountDisbursed = (float) ($financial->amount_disbursed ?? 0);
         $amountLiquidated = (float) ($financial->amount_liquidated ?? 0);
 
-        // Calculate percentage
         $percentage = $amountDisbursed > 0 ? ($amountLiquidated / $amountDisbursed) * 100 : 0;
 
         if ($percentage >= 100) {
-            return Liquidation::LIQUIDATION_STATUS_FULLY;
+            return LiquidationStatus::fullyLiquidated()?->id;
         }
 
-        return Liquidation::LIQUIDATION_STATUS_PARTIALLY;
+        return LiquidationStatus::partiallyLiquidated()?->id;
+    }
+
+    /**
+     * Get cached liquidation statuses.
+     */
+    public function getCachedLiquidationStatuses()
+    {
+        return Cache::remember('liquidation_statuses_all', self::CACHE_TTL, function () {
+            return LiquidationStatus::active()->ordered()->get();
+        });
     }
 }

@@ -26,6 +26,11 @@ class UpdateLiquidationRequest extends FormRequest
             return true;
         }
 
+        // Regional Coordinators can edit liquidations in their region
+        if ($user->isRegionalCoordinator()) {
+            return true;
+        }
+
         // Regular users can only edit their own editable liquidations
         return $liquidation->created_by === $user->id && $liquidation->isEditableByHEI();
     }
@@ -46,6 +51,12 @@ class UpdateLiquidationRequest extends FormRequest
             'liquidated_amount' => 'nullable|numeric|min:0',
             'purpose' => 'nullable|string',
             'remarks' => 'nullable|string',
+            'date_fund_released' => 'nullable|date',
+            'due_date' => 'nullable|date',
+            'number_of_grantees' => 'nullable|integer|min:0',
+            'document_status' => 'nullable|string',
+            'liquidation_status' => 'nullable|string',
+            'review_remarks' => 'nullable|string',
         ];
     }
 }

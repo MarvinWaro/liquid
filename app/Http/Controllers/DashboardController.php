@@ -200,18 +200,19 @@ class DashboardController extends Controller
     }
 
     /**
-     * Get liquidation status distribution (using liquidation_status column).
+     * Get liquidation status distribution (using liquidation_statuses lookup table).
      */
     private function getLiquidationStatusDistribution(?string $heiId = null)
     {
-        $query = Liquidation::select('liquidation_status as status')
+        $query = Liquidation::join('liquidation_statuses', 'liquidations.liquidation_status_id', '=', 'liquidation_statuses.id')
+            ->select('liquidation_statuses.name as status')
             ->selectRaw('COUNT(*) as count');
 
         if ($heiId) {
-            $query->where('hei_id', $heiId);
+            $query->where('liquidations.hei_id', $heiId);
         }
 
-        return $query->groupBy('liquidation_status')->get();
+        return $query->groupBy('liquidation_statuses.name')->get();
     }
 
     /**
@@ -358,7 +359,7 @@ class DashboardController extends Controller
     private function getRecentLiquidations($user, ?string $userRole)
     {
         if ($userRole === 'Regional Coordinator') {
-            return Liquidation::with(['hei:id,name', 'financial', 'semester'])
+            return Liquidation::with(['hei:id,name', 'financial', 'semester', 'liquidationStatus'])
                 ->where(function ($q) use ($user) {
                     // Pending RC review (submitted but not reviewed)
                     $q->where(function ($q2) {
@@ -375,7 +376,7 @@ class DashboardController extends Controller
         }
 
         if ($userRole === 'Accountant') {
-            return Liquidation::with(['hei:id,name', 'financial', 'semester'])
+            return Liquidation::with(['hei:id,name', 'financial', 'semester', 'liquidationStatus'])
                 ->whereNotNull('reviewed_at') // Endorsed by RC
                 ->orderBy('created_at', 'desc')
                 ->limit(10)
@@ -384,7 +385,7 @@ class DashboardController extends Controller
         }
 
         if ($userRole === 'HEI' && $user->hei_id) {
-            return Liquidation::with(['hei:id,name', 'financial', 'semester'])
+            return Liquidation::with(['hei:id,name', 'financial', 'semester', 'liquidationStatus'])
                 ->where('hei_id', $user->hei_id)
                 ->orderBy('created_at', 'desc')
                 ->limit(10)
@@ -407,7 +408,7 @@ class DashboardController extends Controller
             'academic_year' => $liq->academic_year,
             'semester' => $liq->semester?->name ?? 'N/A',
             'amount_received' => (float) ($liq->financial?->amount_received ?? 0),
-            'liquidation_status' => $liq->liquidation_status,
+            'liquidation_status' => $liq->liquidationStatus?->name ?? 'Unliquidated',
             'created_at' => $liq->created_at,
         ];
     }

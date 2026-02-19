@@ -73,6 +73,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('liquidation/rc-template/download', [LiquidationController::class, 'downloadRCTemplate'])->name('liquidation.download-rc-template');
     Route::post('liquidation/bulk-import', [LiquidationController::class, 'bulkImportLiquidations'])->name('liquidation.bulk-import');
 
+    // Liquidation Tracking Entry Routes
+    Route::post('liquidation/{liquidation}/tracking-entries', [LiquidationController::class, 'saveTrackingEntries'])->name('liquidation.save-tracking-entries');
+    Route::post('liquidation/{liquidation}/running-data', [LiquidationController::class, 'saveRunningData'])->name('liquidation.save-running-data');
+
     // Liquidation Beneficiary Routes
     Route::get('liquidation/{liquidation}', [LiquidationController::class, 'show'])->name('liquidation.show');
     Route::get('liquidation/{liquidation}/beneficiary-template', [LiquidationController::class, 'downloadBeneficiaryTemplate'])->name('liquidation.download-beneficiary-template');

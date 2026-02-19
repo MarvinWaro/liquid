@@ -12,10 +12,14 @@ use App\Http\Requests\Liquidation\ReturnToRCRequest;
 use App\Http\Requests\Liquidation\StoreLiquidationRequest;
 use App\Http\Requests\Liquidation\SubmitLiquidationRequest;
 use App\Http\Requests\Liquidation\UpdateLiquidationRequest;
+use App\Models\DocumentLocation;
 use App\Models\DocumentStatus;
 use App\Models\Liquidation;
 use App\Models\LiquidationDocument;
 use App\Models\LiquidationReview;
+use App\Models\LiquidationRunningData;
+use App\Models\LiquidationStatus;
+use App\Models\LiquidationTrackingEntry;
 use App\Services\CacheService;
 use App\Services\LiquidationService;
 use Illuminate\Http\JsonResponse;
@@ -255,7 +259,10 @@ class LiquidationController extends Controller
         $liquidation->load([
             'hei', 'program', 'semester', 'financial',
             'beneficiaries', 'documents', 'reviewer',
-            'reviews', 'transmittal.endorser', 'compliance'
+            'reviews', 'transmittal.endorser', 'compliance',
+            'documentStatus', 'liquidationStatus', 'creator',
+            'trackingEntries',
+            'runningData'
         ]);
 
         return Inertia::render('liquidation/show', [
@@ -263,6 +270,7 @@ class LiquidationController extends Controller
             'userHei' => $this->formatUserHei($user->hei),
             'regionalCoordinators' => $this->cacheService->getRegionalCoordinators(),
             'accountants' => $this->cacheService->getAccountants(),
+            'documentLocations' => DocumentLocation::orderBy('sort_order')->pluck('name'),
             'permissions' => [
                 'review' => $user->hasPermission('review_liquidation'),
                 'submit' => $user->hei !== null,
@@ -405,6 +413,159 @@ class LiquidationController extends Controller
     /**
      * Import beneficiaries from Excel file.
      */
+    /**
+     * Save tracking entries for a liquidation.
+     */
+    public function saveTrackingEntries(Request $request, Liquidation $liquidation): RedirectResponse
+    {
+        $user = $request->user();
+
+        if (!$user->hasPermission('view_liquidation')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $validated = $request->validate([
+            'entries' => 'required|array',
+            'entries.*.id' => 'nullable|string',
+            'entries.*.document_status' => 'required|string',
+            'entries.*.received_by' => 'nullable|string|max:255',
+            'entries.*.date_received' => 'nullable|date',
+            'entries.*.document_location' => 'nullable|string|max:255',
+            'entries.*.reviewed_by' => 'nullable|string|max:255',
+            'entries.*.date_reviewed' => 'nullable|date',
+            'entries.*.rc_note' => 'nullable|string|max:255',
+            'entries.*.date_endorsement' => 'nullable|date',
+            'entries.*.liquidation_status' => 'required|string',
+        ]);
+
+        // Get existing entry IDs
+        $existingIds = $liquidation->trackingEntries()->pluck('id')->toArray();
+        $incomingIds = array_filter(array_column($validated['entries'], 'id'));
+
+        // Delete removed entries
+        $toDelete = array_diff($existingIds, $incomingIds);
+        if (!empty($toDelete)) {
+            $liquidation->trackingEntries()->whereIn('id', $toDelete)->delete();
+        }
+
+        // Upsert entries
+        foreach ($validated['entries'] as $entryData) {
+            $data = [
+                'liquidation_id' => $liquidation->id,
+                'document_status' => $entryData['document_status'],
+                'received_by' => $entryData['received_by'] ?? null,
+                'date_received' => $entryData['date_received'] ?? null,
+                'document_location' => $entryData['document_location'] ?? null,
+                'reviewed_by' => $entryData['reviewed_by'] ?? null,
+                'date_reviewed' => $entryData['date_reviewed'] ?? null,
+                'rc_note' => $entryData['rc_note'] ?? null,
+                'date_endorsement' => $entryData['date_endorsement'] ?? null,
+                'liquidation_status' => $entryData['liquidation_status'],
+            ];
+
+            if (!empty($entryData['id'])) {
+                $liquidation->trackingEntries()->where('id', $entryData['id'])->update($data);
+            } else {
+                $liquidation->trackingEntries()->create($data);
+            }
+        }
+
+        // Sync the LATEST tracking entry's statuses to the liquidation record
+        $latestEntry = end($validated['entries']);
+        if ($latestEntry) {
+            // Map document_status display text → lookup code
+            $docStatusCode = match ($latestEntry['document_status']) {
+                'Complete Submission' => DocumentStatus::CODE_COMPLETE,
+                'Partial Submission'  => DocumentStatus::CODE_PARTIAL,
+                default               => DocumentStatus::CODE_NONE,
+            };
+
+            // Map liquidation_status display text → lookup code
+            $liqStatusCode = match ($latestEntry['liquidation_status']) {
+                'Fully Liquidated'    => LiquidationStatus::CODE_FULLY_LIQUIDATED,
+                'Partially Liquidated' => LiquidationStatus::CODE_PARTIALLY_LIQUIDATED,
+                default               => LiquidationStatus::CODE_UNLIQUIDATED,
+            };
+
+            $docStatus = DocumentStatus::findByCode($docStatusCode);
+            $liqStatus = LiquidationStatus::findByCode($liqStatusCode);
+
+            $liquidation->update(array_filter([
+                'document_status_id'   => $docStatus?->id,
+                'liquidation_status_id' => $liqStatus?->id,
+            ]));
+        }
+
+        return redirect()->back()->with('success', 'Tracking entries saved successfully.');
+    }
+
+    /**
+     * Save running data entries for a liquidation.
+     */
+    public function saveRunningData(Request $request, Liquidation $liquidation): RedirectResponse
+    {
+        $user = $request->user();
+
+        if (!$user->hasPermission('view_liquidation')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $validated = $request->validate([
+            'entries' => 'required|array',
+            'entries.*.id' => 'nullable|string',
+            'entries.*.grantees_liquidated' => 'nullable|integer|min:0',
+            'entries.*.amount_complete_docs' => 'nullable|numeric|min:0',
+            'entries.*.amount_refunded' => 'nullable|numeric|min:0',
+            'entries.*.refund_or_no' => 'nullable|string|max:100',
+            'entries.*.total_amount_liquidated' => 'nullable|numeric|min:0',
+            'entries.*.transmittal_ref_no' => 'nullable|string|max:255',
+            'entries.*.group_transmittal_ref_no' => 'nullable|string|max:255',
+        ]);
+
+        $existingIds = $liquidation->runningData()->pluck('id')->toArray();
+        $incomingIds = array_filter(array_column($validated['entries'], 'id'));
+
+        // Delete removed entries
+        $toDelete = array_diff($existingIds, $incomingIds);
+        if (!empty($toDelete)) {
+            $liquidation->runningData()->whereIn('id', $toDelete)->delete();
+        }
+
+        // Upsert entries
+        foreach ($validated['entries'] as $index => $entryData) {
+            $data = [
+                'liquidation_id' => $liquidation->id,
+                'grantees_liquidated' => $entryData['grantees_liquidated'] ?? null,
+                'amount_complete_docs' => $entryData['amount_complete_docs'] ?? null,
+                'amount_refunded' => $entryData['amount_refunded'] ?? null,
+                'refund_or_no' => $entryData['refund_or_no'] ?? null,
+                'total_amount_liquidated' => $entryData['total_amount_liquidated'] ?? null,
+                'transmittal_ref_no' => $entryData['transmittal_ref_no'] ?? null,
+                'group_transmittal_ref_no' => $entryData['group_transmittal_ref_no'] ?? null,
+                'sort_order' => $index,
+            ];
+
+            if (!empty($entryData['id'])) {
+                $liquidation->runningData()->where('id', $entryData['id'])->update($data);
+            } else {
+                $liquidation->runningData()->create($data);
+            }
+        }
+
+        // Sync computed totals to liquidation_financials so index/dashboard reflect the latest data
+        $totalLiquidated = $liquidation->runningData()->sum('total_amount_liquidated');
+        $totalRefunded = $liquidation->runningData()->sum('amount_refunded');
+
+        if ($liquidation->financial) {
+            $liquidation->financial->update([
+                'amount_liquidated' => $totalLiquidated,
+                'amount_refunded' => $totalRefunded,
+            ]);
+        }
+
+        return redirect()->back()->with('success', 'Running data saved successfully.');
+    }
+
     public function importBeneficiaries(Request $request, Liquidation $liquidation): RedirectResponse
     {
         $user = $request->user();
@@ -584,8 +745,8 @@ class LiquidationController extends Controller
             default => 'No Submission',
         };
 
-        // Use the stored liquidation_status from database
-        $liquidationStatus = $liquidation->liquidation_status ?? Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED;
+        // Use the stored liquidation_status from lookup table
+        $liquidationStatus = $liquidation->liquidationStatus?->name ?? 'Unliquidated';
 
         return [
             'id' => $liquidation->id,
@@ -681,11 +842,12 @@ class LiquidationController extends Controller
             'academic_year' => $liquidation->academic_year,
             'semester' => $liquidation->semester?->name ?? 'N/A',
             'batch_no' => $liquidation->batch_no,
+            'dv_control_no' => $liquidation->control_no,
             'amount_received' => $financial?->amount_received ?? 0,
             'total_disbursed' => $totalDisbursed,
-            'remaining_amount' => ($financial?->amount_received ?? 0) - $totalDisbursed,
+            'remaining_amount' => ($financial?->amount_received ?? 0) - ($financial?->amount_liquidated ?? 0),
             'remarks' => $liquidation->remarks,
-            'review_remarks' => $liquidation->getLatestReviewRemarks(),
+            'review_remarks' => $liquidation->remarks ?? $liquidation->getLatestReviewRemarks(),
             'documents_for_compliance' => $liquidation->compliance?->documents_required,
             'compliance_status' => $liquidation->compliance?->getStatusLabel(),
             'review_history' => $reviewHistory,
@@ -700,8 +862,15 @@ class LiquidationController extends Controller
             'reviewed_by_name' => $liquidation->reviewer?->name ?? $transmittal?->endorser?->name,
             'reviewed_at' => $liquidation->reviewed_at?->format('Y-m-d H:i:s') ?? $transmittal?->endorsed_at?->format('Y-m-d H:i:s'),
             'date_fund_released' => $financial?->date_fund_released?->format('Y-m-d'),
+            'due_date' => $financial?->due_date?->format('Y-m-d'),
             'fund_source' => $financial?->fund_source,
             'number_of_grantees' => $financial?->number_of_grantees,
+            'amount_liquidated' => $financial?->amount_liquidated ?? 0,
+            'lapsing_period' => $financial?->lapsing_period ?? 0,
+            'document_status' => $liquidation->documentStatus?->name ?? 'N/A',
+            'liquidation_status' => $liquidation->liquidationStatus?->name ?? 'Unliquidated',
+            'date_submitted' => $liquidation->date_submitted?->format('Y-m-d H:i:s'),
+            'created_by_name' => $liquidation->creator?->name,
             'beneficiaries' => $liquidation->beneficiaries->map(fn ($b) => [
                 'id' => $b->id,
                 'student_no' => $b->student_no,
@@ -721,6 +890,29 @@ class LiquidationController extends Controller
                 'uploaded_at' => $doc->created_at->format('Y-m-d H:i:s'),
                 'is_gdrive' => $doc->is_gdrive ?? false,
                 'gdrive_link' => $doc->gdrive_link,
+            ]),
+            'tracking_entries' => $liquidation->trackingEntries->map(fn ($entry) => [
+                'id' => $entry->id,
+                'document_status' => $entry->document_status,
+                'received_by' => $entry->received_by,
+                'date_received' => $entry->date_received?->format('Y-m-d'),
+                'document_location' => $entry->document_location,
+                'reviewed_by' => $entry->reviewed_by,
+                'date_reviewed' => $entry->date_reviewed?->format('Y-m-d'),
+                'rc_note' => $entry->rc_note,
+                'date_endorsement' => $entry->date_endorsement?->format('Y-m-d'),
+                'liquidation_status' => $entry->liquidation_status,
+            ]),
+            'running_data' => $liquidation->runningData->map(fn ($rd) => [
+                'id' => $rd->id,
+                'grantees_liquidated' => $rd->grantees_liquidated,
+                'amount_complete_docs' => $rd->amount_complete_docs,
+                'amount_refunded' => $rd->amount_refunded,
+                'refund_or_no' => $rd->refund_or_no,
+                'total_amount_liquidated' => $rd->total_amount_liquidated,
+                'transmittal_ref_no' => $rd->transmittal_ref_no,
+                'group_transmittal_ref_no' => $rd->group_transmittal_ref_no,
+                'sort_order' => $rd->sort_order,
             ]),
         ];
     }
