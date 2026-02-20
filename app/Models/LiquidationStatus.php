@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Liquidation Status lookup model.
@@ -87,11 +88,14 @@ class LiquidationStatus extends Model
     }
 
     /**
-     * Find status by code.
+     * Find status by code (cached for 24 hours — this data never changes).
      */
     public static function findByCode(string $code): ?self
     {
-        return static::where('code', strtoupper($code))->first();
+        $upper = strtoupper($code);
+        return Cache::remember("liquidation_status:code:{$upper}", 86400, function () use ($upper) {
+            return static::where('code', $upper)->first();
+        });
     }
 
     /**

@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Traits\HasUuid;
+use App\Models\ComplianceStatus;
+use App\Models\DocumentLocation;
+use App\Models\ReviewType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -231,7 +234,10 @@ class Liquidation extends Model
     public function rcReviews(): HasMany
     {
         return $this->hasMany(LiquidationReview::class)
-            ->whereIn('review_type', [LiquidationReview::TYPE_RC_RETURN, LiquidationReview::TYPE_HEI_RESUBMISSION])
+            ->whereHas('reviewType', fn($q) => $q->whereIn('code', [
+                LiquidationReview::TYPE_RC_RETURN,
+                LiquidationReview::TYPE_HEI_RESUBMISSION,
+            ]))
             ->orderBy('performed_at', 'asc');
     }
 
@@ -241,7 +247,7 @@ class Liquidation extends Model
     public function accountantReviews(): HasMany
     {
         return $this->hasMany(LiquidationReview::class)
-            ->where('review_type', LiquidationReview::TYPE_ACCOUNTANT_RETURN)
+            ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_ACCOUNTANT_RETURN))
             ->orderBy('performed_at', 'asc');
     }
 
@@ -307,7 +313,7 @@ class Liquidation extends Model
     public function addRCReturn(User $user, string $remarks, ?string $documentsForCompliance = null): LiquidationReview
     {
         return $this->reviews()->create([
-            'review_type' => LiquidationReview::TYPE_RC_RETURN,
+            'review_type_id' => ReviewType::findByCode(LiquidationReview::TYPE_RC_RETURN)?->id,
             'performed_by' => $user->id,
             'performed_by_name' => $user->name,
             'remarks' => $remarks,
@@ -322,7 +328,7 @@ class Liquidation extends Model
     public function addHEIResubmission(User $user, ?string $remarks = null): LiquidationReview
     {
         return $this->reviews()->create([
-            'review_type' => LiquidationReview::TYPE_HEI_RESUBMISSION,
+            'review_type_id' => ReviewType::findByCode(LiquidationReview::TYPE_HEI_RESUBMISSION)?->id,
             'performed_by' => $user->id,
             'performed_by_name' => $user->name,
             'remarks' => $remarks,
@@ -336,7 +342,7 @@ class Liquidation extends Model
     public function addAccountantReturn(User $user, string $remarks): LiquidationReview
     {
         return $this->reviews()->create([
-            'review_type' => LiquidationReview::TYPE_ACCOUNTANT_RETURN,
+            'review_type_id' => ReviewType::findByCode(LiquidationReview::TYPE_ACCOUNTANT_RETURN)?->id,
             'performed_by' => $user->id,
             'performed_by_name' => $user->name,
             'remarks' => $remarks,
@@ -350,7 +356,7 @@ class Liquidation extends Model
     public function getLatestHEIResubmission(): ?LiquidationReview
     {
         return $this->reviews()
-            ->where('review_type', LiquidationReview::TYPE_HEI_RESUBMISSION)
+            ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_HEI_RESUBMISSION))
             ->orderBy('performed_at', 'desc')
             ->first();
     }
@@ -361,7 +367,7 @@ class Liquidation extends Model
     public function getLatestReviewRemarks(): ?string
     {
         $latestReview = $this->reviews()
-            ->where('review_type', LiquidationReview::TYPE_RC_RETURN)
+            ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_RC_RETURN))
             ->orderBy('performed_at', 'desc')
             ->first();
 
@@ -374,7 +380,7 @@ class Liquidation extends Model
     public function getLatestAccountantRemarks(): ?string
     {
         $latestReview = $this->reviews()
-            ->where('review_type', LiquidationReview::TYPE_ACCOUNTANT_RETURN)
+            ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_ACCOUNTANT_RETURN))
             ->orderBy('performed_at', 'desc')
             ->first();
 
@@ -394,8 +400,8 @@ class Liquidation extends Model
             ['liquidation_id' => $this->id],
             [
                 'transmittal_reference_no' => $data['transmittal_reference_no'],
-                'receiver_name' => $data['receiver_name'] ?? null,
-                'document_location' => $data['document_location'] ?? null,
+                'receiver_name'            => $data['receiver_name'] ?? null,
+                'document_location_id'     => DocumentLocation::where('name', $data['document_location'] ?? '')->value('id'),
                 'number_of_folders' => $data['number_of_folders'] ?? null,
                 'folder_location_number' => $data['folder_location_number'] ?? null,
                 'group_transmittal' => $data['group_transmittal'] ?? null,
@@ -419,9 +425,9 @@ class Liquidation extends Model
         return $this->compliance()->updateOrCreate(
             ['liquidation_id' => $this->id],
             [
-                'documents_required' => $documentsRequired,
-                'compliance_status' => LiquidationCompliance::STATUS_PENDING_HEI_REVIEW,
-                'concerns_emailed_at' => now(),
+                'documents_required'   => $documentsRequired,
+                'compliance_status_id' => ComplianceStatus::findByCode(LiquidationCompliance::STATUS_PENDING_HEI_REVIEW)?->id,
+                'concerns_emailed_at'  => now(),
             ]
         );
     }

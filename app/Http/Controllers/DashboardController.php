@@ -303,7 +303,7 @@ class DashboardController extends Controller
             ->where(function ($q) {
                 $q->whereNull('date_submitted') // Not yet submitted
                   ->orWhereHas('reviews', function ($q2) {
-                      $q2->where('review_type', 'rc_return');
+                      $q2->whereHas('reviewType', fn($q) => $q->where('code', 'rc_return'));
                   });
             })
             ->count();

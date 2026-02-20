@@ -58,7 +58,7 @@ export function HEIModal({ isOpen, onClose, hei, regions }: HEIModalProps) {
         if (hei) {
             setData({
                 uii: hei.uii || '',
-                name: hei.name || '',
+                name: (hei.name || '').toUpperCase(),
                 type: hei.type || '',
                 region_id: hei.region_id || '',
                 status: hei.status || 'active',
@@ -99,7 +99,7 @@ export function HEIModal({ isOpen, onClose, hei, regions }: HEIModalProps) {
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <Label htmlFor="uii">UII (Unique Institutional Identifier) *</Label>
+                            <Label htmlFor="uii">UII *</Label>
                             <Input
                                 id="uii"
                                 value={data.uii}
@@ -117,7 +117,7 @@ export function HEIModal({ isOpen, onClose, hei, regions }: HEIModalProps) {
                             <Input
                                 id="name"
                                 value={data.name}
-                                onChange={(e) => setData('name', e.target.value)}
+                                onChange={(e) => setData('name', e.target.value.toUpperCase())}
                                 placeholder="Enter HEI name"
                                 className={errors.name ? 'border-red-500' : ''}
                             />

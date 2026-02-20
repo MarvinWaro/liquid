@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Models\ComplianceStatus;
 use App\Models\DocumentStatus;
 use App\Models\HEI;
+use App\Models\LiquidationStatus;
 use App\Models\Program;
+use App\Models\ReviewType;
 use App\Models\Semester;
 use App\Models\User;
 use Illuminate\Support\Collection;
@@ -107,7 +110,7 @@ class CacheService
                 $q->where('name', 'Regional Coordinator');
             })->where('status', 'active')
               ->orderBy('name')
-              ->get(['id', 'name']);
+              ->get(['id', 'name', 'avatar']);
         });
     }
 
@@ -121,7 +124,37 @@ class CacheService
                 $q->where('name', 'Accountant');
             })->where('status', 'active')
               ->orderBy('name')
-              ->get(['id', 'name']);
+              ->get(['id', 'name', 'avatar']);
+        });
+    }
+
+    /**
+     * Get all active review types (cached for 24 hours — lookup data never changes).
+     */
+    public function getReviewTypes(): Collection
+    {
+        return Cache::remember('lookup:review_types', self::TTL_LONG, function () {
+            return ReviewType::active()->ordered()->get();
+        });
+    }
+
+    /**
+     * Get all active compliance statuses (cached for 24 hours).
+     */
+    public function getComplianceStatuses(): Collection
+    {
+        return Cache::remember('lookup:compliance_statuses', self::TTL_LONG, function () {
+            return ComplianceStatus::active()->ordered()->get();
+        });
+    }
+
+    /**
+     * Get all active liquidation statuses (cached for 24 hours).
+     */
+    public function getLiquidationStatuses(): Collection
+    {
+        return Cache::remember('lookup:liquidation_statuses', self::TTL_LONG, function () {
+            return LiquidationStatus::active()->ordered()->get();
         });
     }
 
@@ -135,6 +168,9 @@ class CacheService
             'lookup:document_statuses',
             'lookup:programs',
             'lookup:heis',
+            'lookup:review_types',
+            'lookup:compliance_statuses',
+            'lookup:liquidation_statuses',
             'users:regional_coordinators',
             'users:accountants',
         ];
@@ -176,5 +212,8 @@ class CacheService
         $this->getHEIs();
         $this->getRegionalCoordinators();
         $this->getAccountants();
+        $this->getReviewTypes();
+        $this->getComplianceStatuses();
+        $this->getLiquidationStatuses();
     }
 }

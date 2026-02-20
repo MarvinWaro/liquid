@@ -26,7 +26,11 @@
       "Bash(ls:*)",
       "Bash(npx shadcn@latest add context-menu:*)",
       "Bash(npx vite build:*)",
-      "Bash(npx shadcn@latest add:*)"
+      "Bash(npx shadcn@latest add:*)",
+      "Bash(awk:*)",
+      "Bash(find:*)",
+      "Bash(powershell -c:*)",
+      "Bash(1:*)"
     ]
   }
 }

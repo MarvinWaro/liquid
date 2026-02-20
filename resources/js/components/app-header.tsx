@@ -95,7 +95,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
     return (
         <>
             {/* Top Bar - Logo and User Section */}
-            <div className="bg-[#2c3e50]">
+            <div className="bg-[#1A3263]">
                 <div className="flex h-16 items-center border-b border-white/10 px-4 md:px-24">
                     {/* Mobile Menu */}
                     <div className="lg:hidden">
@@ -180,7 +180,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                 >
                                     <Avatar className="size-8 overflow-hidden rounded-full">
                                         <AvatarImage
-                                            src={auth.user.avatar}
+                                            src={auth.user.avatar_url}
                                             alt={auth.user.name}
                                         />
                                         <AvatarFallback className="rounded-full border border-white/30 bg-white/20 text-white">
@@ -277,7 +277,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                             {item.title}
                                         </Link>
                                         {urlIsActive(item.href) && (
-                                            <div className="absolute bottom-0 left-0 h-0.5 w-full bg-[#2c3e50]"></div>
+                                            <div className="absolute bottom-0 left-0 h-0.5 w-full bg-[#FAB95B]"></div>
                                         )}
                                     </NavigationMenuItem>
                                 ))}

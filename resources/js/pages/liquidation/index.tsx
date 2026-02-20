@@ -58,6 +58,12 @@ interface Liquidation {
     lapsing_period: number;
 }
 
+interface HEIOption {
+    id: string;
+    name: string;
+    uii: string;
+}
+
 interface Props {
     liquidations: {
         data: Liquidation[];
@@ -65,6 +71,7 @@ interface Props {
         meta: any;
     };
     programs: Program[];
+    heis: HEIOption[];
     filters: {
         search?: string;
         program?: string;
@@ -82,7 +89,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Liquidation Management', href: route('liquidation.index') },
 ];
 
-export default function Index({ liquidations, programs, filters, permissions, userRole }: Props) {
+export default function Index({ liquidations, programs, heis, filters, permissions, userRole }: Props) {
     const [searchQuery, setSearchQuery] = useState(filters.search || '');
     const [programFilter, setProgramFilter] = useState(filters.program || '');
     const [documentStatusFilter, setDocumentStatusFilter] = useState(filters.document_status || '');
@@ -213,6 +220,7 @@ export default function Index({ liquidations, programs, filters, permissions, us
                 isOpen={isCreateModalOpen}
                 onClose={() => setIsCreateModalOpen(false)}
                 programs={programs}
+                heis={heis}
                 onSuccess={() => router.reload()}
             />
 
@@ -492,9 +500,9 @@ export default function Index({ liquidations, programs, filters, permissions, us
                             </div>
 
                             {/* Table Footer with Record Counter and Pagination */}
-                            <div className="flex items-center justify-between px-4 py-3 bg-blue-100 dark:bg-blue-950/20 border rounded-b-md">
+                            <div className="flex items-center justify-between px-4 py-3 bg-[#1A3263]/10 dark:bg-[#1A3263] border rounded-b-md">
                                 {/* Record Counter - Left Side */}
-                                <div className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                                <div className="text-sm font-medium text-[#1A3263] dark:text-[#FAB95B]">
                                     {liquidations.data.length > 0 ? (
                                         <>
                                             Showing{' '}

@@ -53,12 +53,22 @@ class LiquidationController extends Controller
             ->getPaginatedLiquidations($user, $filters)
             ->through(fn ($liquidation) => $this->formatLiquidationForList($liquidation));
 
+        // For RC create modal: only HEIs in their region; admins get all
+        $heis = \App\Models\HEI::where('status', 'active')
+            ->when(
+                $user->role->name === 'Regional Coordinator' && $user->region_id,
+                fn ($q) => $q->where('region_id', $user->region_id)
+            )
+            ->orderBy('name')
+            ->get(['id', 'name', 'uii']);
+
         return Inertia::render('liquidation/index', [
             'liquidations' => $liquidations,
             'userHei' => $this->formatUserHei($user->hei),
             'regionalCoordinators' => $this->cacheService->getRegionalCoordinators(),
             'accountants' => $this->cacheService->getAccountants(),
             'programs' => $this->cacheService->getPrograms(),
+            'heis' => $heis,
             'filters' => $filters,
             'permissions' => [
                 'review' => $user->hasPermission('review_liquidation'),
@@ -104,11 +114,15 @@ class LiquidationController extends Controller
      */
     public function submit(SubmitLiquidationRequest $request, Liquidation $liquidation): RedirectResponse
     {
-        $this->liquidationService->submitForReview(
-            $liquidation,
-            $request->user(),
-            $request->validated('remarks')
-        );
+        try {
+            $this->liquidationService->submitForReview(
+                $liquidation,
+                $request->user(),
+                $request->validated('remarks')
+            );
+        } catch (\InvalidArgumentException $e) {
+            return redirect()->back()->with('error', $e->getMessage());
+        }
 
         return redirect()->route('liquidation.index')
             ->with('success', 'Liquidation submitted for initial review by Regional Coordinator.');
@@ -119,11 +133,15 @@ class LiquidationController extends Controller
      */
     public function endorseToAccounting(EndorseToAccountingRequest $request, Liquidation $liquidation): RedirectResponse
     {
-        $this->liquidationService->endorseToAccounting(
-            $liquidation,
-            $request->user(),
-            $request->validated()
-        );
+        try {
+            $this->liquidationService->endorseToAccounting(
+                $liquidation,
+                $request->user(),
+                $request->validated()
+            );
+        } catch (\InvalidArgumentException $e) {
+            return redirect()->back()->with('error', $e->getMessage());
+        }
 
         return redirect()->route('liquidation.index')
             ->with('success', 'Liquidation endorsed to Accounting successfully.');
@@ -134,11 +152,15 @@ class LiquidationController extends Controller
      */
     public function returnToHEI(ReturnToHEIRequest $request, Liquidation $liquidation): RedirectResponse
     {
-        $this->liquidationService->returnToHEI(
-            $liquidation,
-            $request->user(),
-            $request->validated()
-        );
+        try {
+            $this->liquidationService->returnToHEI(
+                $liquidation,
+                $request->user(),
+                $request->validated()
+            );
+        } catch (\InvalidArgumentException $e) {
+            return redirect()->back()->with('error', $e->getMessage());
+        }
 
         return redirect()->route('liquidation.index')
             ->with('success', 'Liquidation returned to HEI for corrections.');
@@ -149,11 +171,15 @@ class LiquidationController extends Controller
      */
     public function endorseToCOA(EndorseToCOARequest $request, Liquidation $liquidation): RedirectResponse
     {
-        $this->liquidationService->endorseToCOA(
-            $liquidation,
-            $request->user(),
-            $request->validated('accountant_remarks')
-        );
+        try {
+            $this->liquidationService->endorseToCOA(
+                $liquidation,
+                $request->user(),
+                $request->validated('accountant_remarks')
+            );
+        } catch (\InvalidArgumentException $e) {
+            return redirect()->back()->with('error', $e->getMessage());
+        }
 
         return redirect()->route('liquidation.index')
             ->with('success', 'Liquidation endorsed to COA successfully.');
@@ -164,11 +190,15 @@ class LiquidationController extends Controller
      */
     public function returnToRC(ReturnToRCRequest $request, Liquidation $liquidation): RedirectResponse
     {
-        $this->liquidationService->returnToRC(
-            $liquidation,
-            $request->user(),
-            $request->validated('accountant_remarks')
-        );
+        try {
+            $this->liquidationService->returnToRC(
+                $liquidation,
+                $request->user(),
+                $request->validated('accountant_remarks')
+            );
+        } catch (\InvalidArgumentException $e) {
+            return redirect()->back()->with('error', $e->getMessage());
+        }
 
         return redirect()->route('liquidation.index')
             ->with('success', 'Liquidation returned to Regional Coordinator for review.');
@@ -259,9 +289,12 @@ class LiquidationController extends Controller
         $liquidation->load([
             'hei', 'program', 'semester', 'financial',
             'beneficiaries', 'documents', 'reviewer',
-            'reviews', 'transmittal.endorser', 'compliance',
+            'reviews.reviewType', 'transmittal.endorser', 'transmittal.location',
+            'compliance.complianceStatus',
             'documentStatus', 'liquidationStatus', 'creator',
-            'trackingEntries',
+            'trackingEntries.documentStatus',
+            'trackingEntries.liquidationStatus',
+            'trackingEntries.locations',
             'runningData'
         ]);
 
@@ -425,76 +458,88 @@ class LiquidationController extends Controller
         }
 
         $validated = $request->validate([
-            'entries' => 'required|array',
-            'entries.*.id' => 'nullable|string',
-            'entries.*.document_status' => 'required|string',
-            'entries.*.received_by' => 'nullable|string|max:255',
-            'entries.*.date_received' => 'nullable|date',
-            'entries.*.document_location' => 'nullable|string|max:255',
-            'entries.*.reviewed_by' => 'nullable|string|max:255',
-            'entries.*.date_reviewed' => 'nullable|date',
-            'entries.*.rc_note' => 'nullable|string|max:255',
-            'entries.*.date_endorsement' => 'nullable|date',
-            'entries.*.liquidation_status' => 'required|string',
+            'entries'                       => 'required|array',
+            'entries.*.id'                  => 'nullable|string',
+            'entries.*.document_status'     => 'required|string',
+            'entries.*.received_by'         => 'nullable|string|max:255',
+            'entries.*.date_received'       => 'nullable|date',
+            'entries.*.document_location'   => 'nullable|string|max:255',
+            'entries.*.reviewed_by'         => 'nullable|string|max:255',
+            'entries.*.date_reviewed'       => 'nullable|date',
+            'entries.*.rc_note'             => 'nullable|string|max:255',
+            'entries.*.date_endorsement'    => 'nullable|date',
+            'entries.*.liquidation_status'  => 'required|string',
         ]);
 
-        // Get existing entry IDs
-        $existingIds = $liquidation->trackingEntries()->pluck('id')->toArray();
-        $incomingIds = array_filter(array_column($validated['entries'], 'id'));
+        // Pre-load lookup maps (name → id) to avoid N+1 on each iteration
+        $docStatusMap  = DocumentStatus::pluck('id', 'name')->toArray();
+        $liqStatusMap  = LiquidationStatus::pluck('id', 'name')->toArray();
+        $locationMap   = DocumentLocation::pluck('id', 'name')->toArray();
+
+        $noneId         = DocumentStatus::where('code', DocumentStatus::CODE_NONE)->value('id');
+        $unliquidatedId = LiquidationStatus::where('code', LiquidationStatus::CODE_UNLIQUIDATED)->value('id');
 
         // Delete removed entries
-        $toDelete = array_diff($existingIds, $incomingIds);
+        $existingIds = $liquidation->trackingEntries()->pluck('id')->toArray();
+        $incomingIds = array_filter(array_column($validated['entries'], 'id'));
+        $toDelete    = array_diff($existingIds, $incomingIds);
         if (!empty($toDelete)) {
             $liquidation->trackingEntries()->whereIn('id', $toDelete)->delete();
         }
 
-        // Upsert entries
+        // Upsert entries and sync location pivot
+        $latestDocStatusId  = $noneId;
+        $latestLiqStatusId  = $unliquidatedId;
+
         foreach ($validated['entries'] as $entryData) {
+            $docStatusId = $docStatusMap[$entryData['document_status']]    ?? $noneId;
+            $liqStatusId = $liqStatusMap[$entryData['liquidation_status']] ?? $unliquidatedId;
+
             $data = [
-                'liquidation_id' => $liquidation->id,
-                'document_status' => $entryData['document_status'],
-                'received_by' => $entryData['received_by'] ?? null,
-                'date_received' => $entryData['date_received'] ?? null,
-                'document_location' => $entryData['document_location'] ?? null,
-                'reviewed_by' => $entryData['reviewed_by'] ?? null,
-                'date_reviewed' => $entryData['date_reviewed'] ?? null,
-                'rc_note' => $entryData['rc_note'] ?? null,
-                'date_endorsement' => $entryData['date_endorsement'] ?? null,
-                'liquidation_status' => $entryData['liquidation_status'],
+                'liquidation_id'      => $liquidation->id,
+                'document_status_id'  => $docStatusId,
+                'received_by'         => $entryData['received_by'] ?? null,
+                'date_received'       => $entryData['date_received'] ?? null,
+                'reviewed_by'         => $entryData['reviewed_by'] ?? null,
+                'date_reviewed'       => $entryData['date_reviewed'] ?? null,
+                'rc_note'             => $entryData['rc_note'] ?? null,
+                'date_endorsement'    => $entryData['date_endorsement'] ?? null,
+                'liquidation_status_id' => $liqStatusId,
             ];
 
             if (!empty($entryData['id'])) {
                 $liquidation->trackingEntries()->where('id', $entryData['id'])->update($data);
+                $entry = $liquidation->trackingEntries()->find($entryData['id']);
             } else {
-                $liquidation->trackingEntries()->create($data);
+                $entry = $liquidation->trackingEntries()->create($data);
             }
+
+            // Sync location pivot: split comma-separated names → location IDs
+            if ($entry) {
+                $locationNames = array_values(array_filter(
+                    array_map('trim', explode(',', $entryData['document_location'] ?? ''))
+                ));
+
+                $syncData = [];
+                foreach ($locationNames as $sortOrder => $name) {
+                    if (!isset($locationMap[$name])) {
+                        $newLocation         = DocumentLocation::create(['name' => $name, 'sort_order' => 999]);
+                        $locationMap[$name]  = $newLocation->id;
+                    }
+                    $syncData[$locationMap[$name]] = ['sort_order' => $sortOrder];
+                }
+                $entry->locations()->sync($syncData);
+            }
+
+            $latestDocStatusId = $docStatusId;
+            $latestLiqStatusId = $liqStatusId;
         }
 
-        // Sync the LATEST tracking entry's statuses to the liquidation record
-        $latestEntry = end($validated['entries']);
-        if ($latestEntry) {
-            // Map document_status display text → lookup code
-            $docStatusCode = match ($latestEntry['document_status']) {
-                'Complete Submission' => DocumentStatus::CODE_COMPLETE,
-                'Partial Submission'  => DocumentStatus::CODE_PARTIAL,
-                default               => DocumentStatus::CODE_NONE,
-            };
-
-            // Map liquidation_status display text → lookup code
-            $liqStatusCode = match ($latestEntry['liquidation_status']) {
-                'Fully Liquidated'    => LiquidationStatus::CODE_FULLY_LIQUIDATED,
-                'Partially Liquidated' => LiquidationStatus::CODE_PARTIALLY_LIQUIDATED,
-                default               => LiquidationStatus::CODE_UNLIQUIDATED,
-            };
-
-            $docStatus = DocumentStatus::findByCode($docStatusCode);
-            $liqStatus = LiquidationStatus::findByCode($liqStatusCode);
-
-            $liquidation->update(array_filter([
-                'document_status_id'   => $docStatus?->id,
-                'liquidation_status_id' => $liqStatus?->id,
-            ]));
-        }
+        // Sync the latest entry's statuses up to the liquidation record
+        $liquidation->update([
+            'document_status_id'    => $latestDocStatusId,
+            'liquidation_status_id' => $latestLiqStatusId,
+        ]);
 
         return redirect()->back()->with('success', 'Tracking entries saved successfully.');
     }
@@ -604,15 +649,15 @@ class LiquidationController extends Controller
                 try {
                     \App\Models\LiquidationBeneficiary::create([
                         'liquidation_id' => $liquidation->id,
-                        'student_no' => trim($row[0] ?? ''),
-                        'last_name' => trim($row[1] ?? ''),
-                        'first_name' => trim($row[2] ?? ''),
-                        'middle_name' => !empty(trim($row[3] ?? '')) ? trim($row[3]) : null,
+                        'student_no'     => trim($row[0] ?? ''),
+                        'last_name'      => trim($row[1] ?? ''),
+                        'first_name'     => trim($row[2] ?? ''),
+                        'middle_name'    => !empty(trim($row[3] ?? '')) ? trim($row[3]) : null,
                         'extension_name' => !empty(trim($row[4] ?? '')) ? trim($row[4]) : null,
-                        'award_no' => trim($row[5] ?? ''),
+                        'award_no'       => trim($row[5] ?? ''),
                         'date_disbursed' => $this->parseExcelDate($row[6] ?? null),
-                        'amount' => $this->parseAmount($row[7] ?? 0),
-                        'remarks' => !empty(trim($row[8] ?? '')) ? trim($row[8]) : null,
+                        'amount'         => $this->parseAmount($row[7] ?? 0),
+                        'remarks'        => !empty(trim($row[8] ?? '')) ? trim($row[8]) : null,
                     ]);
                     $imported++;
                 } catch (\Exception $e) {
@@ -623,8 +668,13 @@ class LiquidationController extends Controller
             return redirect()->back()->with('error', 'Failed to read Excel file: ' . $e->getMessage());
         }
 
-        $totalDisbursed = $liquidation->beneficiaries()->sum('amount');
-        $liquidation->createOrUpdateFinancial(['amount_liquidated' => $totalDisbursed]);
+        // Recalculate the total inside a transaction with a lock so two concurrent
+        // imports cannot both read a stale sum and overwrite each other's work.
+        \Illuminate\Support\Facades\DB::transaction(function () use ($liquidation) {
+            Liquidation::lockForUpdate()->findOrFail($liquidation->id);
+            $totalDisbursed = $liquidation->beneficiaries()->sum('amount');
+            $liquidation->createOrUpdateFinancial(['amount_liquidated' => $totalDisbursed]);
+        });
 
         $message = count($errors) > 0
             ? "Imported {$imported} beneficiaries with " . count($errors) . " errors."
@@ -692,6 +742,14 @@ class LiquidationController extends Controller
             return response()->json(['found' => false, 'message' => 'HEI not found with this UII']);
         }
 
+        // Regional Coordinators can only look up HEIs in their assigned region
+        $user = $request->user();
+        if ($user->role->name === 'Regional Coordinator' && $user->region_id) {
+            if ($hei->region_id !== $user->region_id) {
+                return response()->json(['found' => false, 'message' => 'This HEI does not belong to your assigned region.']);
+            }
+        }
+
         return response()->json([
             'found' => true,
             'hei' => [
@@ -718,9 +776,26 @@ class LiquidationController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        $isReviewer = in_array($user->role->name, ['Regional Coordinator', 'Accountant', 'Admin', 'Super Admin']);
+        $roleName = $user->role->name;
 
-        if (!$isReviewer && $liquidation->created_by !== $user->id) {
+        // Regional Coordinators can only view liquidations from their own region
+        if ($roleName === 'Regional Coordinator' && $user->region_id) {
+            $liquidation->loadMissing('hei');
+            if ($liquidation->hei?->region_id !== $user->region_id) {
+                abort(403, 'You can only view liquidations from your region.');
+            }
+            return;
+        }
+
+        // Accountants and Admins can view all liquidations
+        if (in_array($roleName, ['Accountant', 'Admin', 'Super Admin'])) {
+            return;
+        }
+
+        // HEI users can view liquidations belonging to their institution
+        $isHEI = $roleName === 'HEI' && $user->hei_id && $liquidation->hei_id === $user->hei_id;
+
+        if (!$isHEI && $liquidation->created_by !== $user->id) {
             abort(403, 'You can only view your own liquidations.');
         }
     }
@@ -818,13 +893,13 @@ class LiquidationController extends Controller
         $transmittal = $liquidation->transmittal;
 
         $reviewHistory = $liquidation->reviews
-            ->filter(fn($r) => in_array($r->review_type, [LiquidationReview::TYPE_RC_RETURN, LiquidationReview::TYPE_HEI_RESUBMISSION]))
+            ->filter(fn($r) => in_array($r->reviewType?->code, [LiquidationReview::TYPE_RC_RETURN, LiquidationReview::TYPE_HEI_RESUBMISSION]))
             ->map(fn ($review) => $this->formatReviewHistoryItem($review))
             ->values()
             ->toArray();
 
         $accountantReviewHistory = $liquidation->reviews
-            ->filter(fn($r) => $r->review_type === LiquidationReview::TYPE_ACCOUNTANT_RETURN)
+            ->filter(fn($r) => $r->reviewType?->code === LiquidationReview::TYPE_ACCOUNTANT_RETURN)
             ->map(fn ($review) => [
                 'returned_at' => $review->performed_at->toIso8601String(),
                 'returned_by' => $review->performed_by_name,
@@ -854,7 +929,7 @@ class LiquidationController extends Controller
             'accountant_review_history' => $accountantReviewHistory,
             'accountant_remarks' => $liquidation->getLatestAccountantRemarks(),
             'receiver_name' => $transmittal?->receiver_name,
-            'document_location' => $transmittal?->document_location,
+            'document_location' => $transmittal?->location?->name,
             'transmittal_reference_no' => $transmittal?->transmittal_reference_no,
             'number_of_folders' => $transmittal?->number_of_folders,
             'folder_location_number' => $transmittal?->folder_location_number,
@@ -892,16 +967,16 @@ class LiquidationController extends Controller
                 'gdrive_link' => $doc->gdrive_link,
             ]),
             'tracking_entries' => $liquidation->trackingEntries->map(fn ($entry) => [
-                'id' => $entry->id,
-                'document_status' => $entry->document_status,
-                'received_by' => $entry->received_by,
-                'date_received' => $entry->date_received?->format('Y-m-d'),
-                'document_location' => $entry->document_location,
-                'reviewed_by' => $entry->reviewed_by,
-                'date_reviewed' => $entry->date_reviewed?->format('Y-m-d'),
-                'rc_note' => $entry->rc_note,
-                'date_endorsement' => $entry->date_endorsement?->format('Y-m-d'),
-                'liquidation_status' => $entry->liquidation_status,
+                'id'                 => $entry->id,
+                'document_status'    => $entry->documentStatus?->name    ?? 'No Submission',
+                'received_by'        => $entry->received_by,
+                'date_received'      => $entry->date_received?->format('Y-m-d'),
+                'document_location'  => $entry->locations->pluck('name')->implode(','),
+                'reviewed_by'        => $entry->reviewed_by,
+                'date_reviewed'      => $entry->date_reviewed?->format('Y-m-d'),
+                'rc_note'            => $entry->rc_note,
+                'date_endorsement'   => $entry->date_endorsement?->format('Y-m-d'),
+                'liquidation_status' => $entry->liquidationStatus?->name ?? 'Unliquidated',
             ]),
             'running_data' => $liquidation->runningData->map(fn ($rd) => [
                 'id' => $rd->id,
@@ -919,7 +994,7 @@ class LiquidationController extends Controller
 
     private function formatReviewHistoryItem(LiquidationReview $review): array
     {
-        if ($review->review_type === LiquidationReview::TYPE_HEI_RESUBMISSION) {
+        if ($review->reviewType?->code === LiquidationReview::TYPE_HEI_RESUBMISSION) {
             return [
                 'type' => 'hei_resubmission',
                 'resubmitted_at' => $review->performed_at->toIso8601String(),
@@ -970,6 +1045,13 @@ class LiquidationController extends Controller
         $hei = $this->liquidationService->findHEIByUII($uii);
         if (!$hei) {
             return ['success' => false, 'error' => "UII '{$uii}' not found."];
+        }
+
+        // Regional Coordinators can only import liquidations for HEIs in their assigned region
+        if ($user->role->name === 'Regional Coordinator' && $user->region_id) {
+            if ($hei->region_id !== $user->region_id) {
+                return ['success' => false, 'error' => "HEI '{$uii}' does not belong to your assigned region."];
+            }
         }
 
         $controlNo = !empty($dvControlNo) ? $dvControlNo : $this->liquidationService->generateControlNumber();

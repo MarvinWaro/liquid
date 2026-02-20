@@ -44,6 +44,8 @@ class HEIController extends Controller
             'status' => 'required|in:active,inactive',
         ]);
 
+        $validated['name'] = strtoupper($validated['name']);
+
         HEI::create($validated);
 
         return redirect()->back()->with('success', 'HEI created successfully.');
@@ -62,6 +64,8 @@ class HEIController extends Controller
             'region_id' => 'nullable|exists:regions,id',
             'status' => 'required|in:active,inactive',
         ]);
+
+        $validated['name'] = strtoupper($validated['name']);
 
         $hei->update($validated);
 
