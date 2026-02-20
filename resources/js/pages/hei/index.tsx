@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import AppLayout from '@/layouts/app-layout';
-import { Head, router } from '@inertiajs/react';
+import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
+import { Head, router } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { HEIModal } from '@/components/hei/hei-modal';
@@ -60,7 +61,8 @@ interface Props {
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'HEI Management', href: route('hei.index') },
+    { title: 'Settings', href: '/settings/profile' },
+    { title: 'HEI', href: '/hei' },
 ];
 
 export default function Index({ auth, heis, regions, canCreate, canEdit, canDelete }: Props) {
@@ -123,7 +125,8 @@ export default function Index({ auth, heis, regions, canCreate, canEdit, canDele
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="HEI Management" />
 
-            <HEIModal
+            <SettingsLayout wide>
+                <HEIModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 hei={selectedHEI}
@@ -265,6 +268,7 @@ export default function Index({ auth, heis, regions, canCreate, canEdit, canDele
                     </Card>
                 </div>
             </div>
+            </SettingsLayout>
         </AppLayout>
     );
 }

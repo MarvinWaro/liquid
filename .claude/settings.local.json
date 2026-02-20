@@ -23,7 +23,14 @@
       "Bash(more:*)",
       "Bash(Get-Content \"c:\\\\Users\\\\MARVIN\\\\projects\\\\liquid\\\\storage\\\\logs\\\\laravel.log\" -Tail 100)",
       "Bash(move:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(npx shadcn@latest add context-menu:*)",
+      "Bash(npx vite build:*)",
+      "Bash(npx shadcn@latest add:*)",
+      "Bash(awk:*)",
+      "Bash(find:*)",
+      "Bash(powershell -c:*)",
+      "Bash(1:*)"
     ]
   }
 }

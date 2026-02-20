@@ -8,12 +8,15 @@ use App\Models\DocumentStatus;
 use App\Models\HEI;
 use App\Models\Liquidation;
 use App\Models\LiquidationReview;
+use App\Models\LiquidationStatus;
 use App\Models\Program;
+use App\Models\ReviewType;
 use App\Models\Semester;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class LiquidationService
 {
@@ -27,7 +30,7 @@ class LiquidationService
      */
     public function getPaginatedLiquidations(User $user, array $filters = []): LengthAwarePaginator
     {
-        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'program', 'documentStatus'])
+        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'program', 'documentStatus', 'liquidationStatus'])
             ->orderBy('control_no', 'asc');
 
         $this->applyRoleFilter($query, $user);
@@ -43,21 +46,19 @@ class LiquidationService
     {
         $roleName = $user->role->name;
 
-        // Regional Coordinator sees all liquidations they created or reviewed
-        if ($roleName === 'Regional Coordinator') {
-            $query->where(function ($q) use ($user) {
-                $q->where('created_by', $user->id)
-                ->orWhere('reviewed_by', $user->id);
-            });
-        }
-
         // HEI users see only their institution's liquidations
         if ($roleName === 'HEI' && $user->hei_id) {
             $query->where('hei_id', $user->hei_id);
-        } elseif (!$user->isSuperAdmin() && !in_array($roleName, ['Regional Coordinator', 'Accountant', 'Admin', 'HEI'])) {
+        } elseif ($roleName === 'Regional Coordinator' && $user->region_id) {
+            // RCs see only liquidations from HEIs in their assigned region
+            $query->whereHas('hei', function (Builder $q) use ($user) {
+                $q->where('region_id', $user->region_id);
+            });
+        } elseif (!$user->isSuperAdmin() && !in_array($roleName, ['Accountant', 'Admin', 'HEI'])) {
             // Fallback for other non-admin roles: show only their own created liquidations
             $query->where('created_by', $user->id);
         }
+        // Accountants, Admins, Super Admins: see all liquidations (no additional filter)
     }
 
     /**
@@ -98,89 +99,129 @@ class LiquidationService
 
         // Filter by liquidation status
         if (!empty($filters['liquidation_status']) && $filters['liquidation_status'] !== 'all') {
-            $query->where('liquidation_status', $filters['liquidation_status']);
+            $liquidationStatus = LiquidationStatus::findByCode(strtoupper($filters['liquidation_status']));
+            if ($liquidationStatus) {
+                $query->where('liquidation_status_id', $liquidationStatus->id);
+            }
         }
     }
 
     /**
      * Create a new liquidation with financial record.
+     * Wrapped in a transaction so liquidation + financial are always consistent.
      */
     public function createLiquidation(array $data, User $creator): Liquidation
     {
-        $hei = $this->findHEIByUII($data['uii']);
+        return DB::transaction(function () use ($data, $creator) {
+            $hei = $this->findHEIByUII($data['uii']);
 
-        if (!$hei) {
-            throw new \InvalidArgumentException('HEI not found with the provided UII.');
-        }
+            if (!$hei) {
+                throw new \InvalidArgumentException('HEI not found with the provided UII.');
+            }
 
-        $semesterId = $this->findSemesterId($data['semester']);
+            // Regional Coordinators can only create liquidations for HEIs in their assigned region
+            if ($creator->role->name === 'Regional Coordinator' && $creator->region_id) {
+                if ($hei->region_id !== $creator->region_id) {
+                    throw new \InvalidArgumentException('You can only create liquidations for HEIs in your assigned region.');
+                }
+            }
 
-        // Determine document status ID - default to NONE if not provided
-        $documentStatusCode = !empty($data['document_status']) ? $data['document_status'] : 'NONE';
-        $documentStatusId = DocumentStatus::findByCode($documentStatusCode)?->id;
+            $semesterId = $this->findSemesterId($data['semester']);
 
-        $liquidation = Liquidation::create([
-            'control_no' => $data['dv_control_no'],
-            'hei_id' => $hei->id,
-            'program_id' => $data['program_id'],
-            'academic_year' => $data['academic_year'],
-            'semester_id' => $semesterId,
-            'batch_no' => $data['batch_no'] ?? null,
-            'document_status_id' => $documentStatusId,
-            'remarks' => $data['rc_notes'] ?? null,
-            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
-            'created_by' => $creator->id,
-        ]);
+            // Determine document status ID - default to NONE if not provided
+            $documentStatusCode = !empty($data['document_status']) ? $data['document_status'] : 'NONE';
+            $documentStatusId = DocumentStatus::findByCode($documentStatusCode)?->id;
 
-        $liquidation->createOrUpdateFinancial([
-            'date_fund_released' => $data['date_fund_released'],
-            'due_date' => $data['due_date'] ?? null,
-            'number_of_grantees' => $data['number_of_grantees'] ?? null,
-            'amount_received' => $data['total_disbursements'],
-            'amount_disbursed' => $data['total_disbursements'],
-            'amount_liquidated' => $data['total_amount_liquidated'] ?? 0,
-        ]);
+            $liquidation = Liquidation::create([
+                'control_no'            => $data['dv_control_no'],
+                'hei_id'                => $hei->id,
+                'program_id'            => $data['program_id'],
+                'academic_year'         => $data['academic_year'],
+                'semester_id'           => $semesterId,
+                'batch_no'              => $data['batch_no'] ?? null,
+                'document_status_id'    => $documentStatusId,
+                'remarks'               => $data['rc_notes'] ?? null,
+                'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
+                'created_by'            => $creator->id,
+            ]);
 
-        return $liquidation;
+            $liquidation->createOrUpdateFinancial([
+                'date_fund_released' => $data['date_fund_released'],
+                'due_date'           => $data['due_date'] ?? null,
+                'number_of_grantees' => $data['number_of_grantees'] ?? null,
+                'amount_received'    => $data['total_disbursements'],
+                'amount_disbursed'   => $data['total_disbursements'],
+                'amount_liquidated'  => $data['total_amount_liquidated'] ?? 0,
+            ]);
+
+            return $liquidation;
+        });
     }
 
     /**
      * Update liquidation and its financial record.
+     * Wrapped in a transaction so both writes succeed or both roll back.
      */
     public function updateLiquidation(Liquidation $liquidation, array $data): Liquidation
     {
-        $liquidationFields = array_intersect_key($data, array_flip(['hei_id', 'remarks']));
+        return DB::transaction(function () use ($liquidation, $data) {
+            $liquidationFields = array_intersect_key($data, array_flip(['hei_id', 'remarks']));
 
-        $financialFieldsMap = [
-            'amount_received' => 'amount_received',
-            'disbursed_amount' => 'amount_disbursed',
-            'disbursement_date' => 'disbursement_date',
-            'fund_source' => 'fund_source',
-            'liquidated_amount' => 'amount_liquidated',
-            'purpose' => 'purpose',
-        ];
-
-        $financialData = [];
-        foreach ($financialFieldsMap as $inputKey => $dbKey) {
-            if (isset($data[$inputKey])) {
-                $financialData[$dbKey] = $data[$inputKey];
+            // Handle liquidation_status → liquidation_status_id lookup
+            if (isset($data['liquidation_status'])) {
+                $liquidationStatus = LiquidationStatus::where('name', $data['liquidation_status'])->first();
+                if ($liquidationStatus) {
+                    $liquidationFields['liquidation_status_id'] = $liquidationStatus->id;
+                }
             }
-        }
 
-        // Sync amount_disbursed with amount_received if only amount_received is set
-        if (isset($financialData['amount_received']) && !isset($data['disbursed_amount'])) {
-            $financialData['amount_disbursed'] = $financialData['amount_received'];
-        }
+            // Handle review_remarks → remarks mapping
+            if (array_key_exists('review_remarks', $data)) {
+                $liquidationFields['remarks'] = $data['review_remarks'];
+            }
 
-        if (!empty($liquidationFields)) {
-            $liquidation->update($liquidationFields);
-        }
+            // Handle document_status → document_status_id lookup
+            if (isset($data['document_status'])) {
+                $documentStatus = DocumentStatus::where('name', $data['document_status'])->first();
+                if ($documentStatus) {
+                    $liquidationFields['document_status_id'] = $documentStatus->id;
+                }
+            }
 
-        if (!empty($financialData)) {
-            $liquidation->createOrUpdateFinancial($financialData);
-        }
+            $financialFieldsMap = [
+                'amount_received'    => 'amount_received',
+                'disbursed_amount'   => 'amount_disbursed',
+                'disbursement_date'  => 'disbursement_date',
+                'fund_source'        => 'fund_source',
+                'liquidated_amount'  => 'amount_liquidated',
+                'purpose'            => 'purpose',
+                'date_fund_released' => 'date_fund_released',
+                'due_date'           => 'due_date',
+                'number_of_grantees' => 'number_of_grantees',
+            ];
 
-        return $liquidation->fresh();
+            $financialData = [];
+            foreach ($financialFieldsMap as $inputKey => $dbKey) {
+                if (isset($data[$inputKey])) {
+                    $financialData[$dbKey] = $data[$inputKey];
+                }
+            }
+
+            // Sync amount_disbursed with amount_received if only amount_received is set
+            if (isset($financialData['amount_received']) && !isset($data['disbursed_amount'])) {
+                $financialData['amount_disbursed'] = $financialData['amount_received'];
+            }
+
+            if (!empty($liquidationFields)) {
+                $liquidation->update($liquidationFields);
+            }
+
+            if (!empty($financialData)) {
+                $liquidation->createOrUpdateFinancial($financialData);
+            }
+
+            return $liquidation->fresh();
+        });
     }
 
     /**
@@ -188,30 +229,40 @@ class LiquidationService
      */
     public function submitForReview(Liquidation $liquidation, User $user, ?string $remarks = null): Liquidation
     {
-        // Check if this is a resubmission based on review history
-        $hasBeenReturned = $liquidation->reviews()
-            ->where('review_type', LiquidationReview::TYPE_RC_RETURN)
-            ->exists();
+        return DB::transaction(function () use ($liquidation, $user, $remarks) {
+            // Acquire exclusive row lock — prevents concurrent submissions
+            $liquidation = Liquidation::lockForUpdate()->findOrFail($liquidation->id);
 
-        if ($hasBeenReturned && !empty($remarks)) {
-            $liquidation->addHEIResubmission($user, $remarks);
-        }
+            // State guard: cannot resubmit a finalized liquidation
+            if ($liquidation->coa_endorsed_at) {
+                throw new \InvalidArgumentException('This liquidation has already been endorsed to COA.');
+            }
 
-        $documentStatusId = $this->determineDocumentStatus($liquidation);
+            // Check if this is a resubmission based on review history
+            $hasBeenReturned = $liquidation->reviews()
+                ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_RC_RETURN))
+                ->exists();
 
-        $updateData = [
-            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
-            'date_submitted' => now(),
-            'document_status_id' => $documentStatusId,
-        ];
+            if ($hasBeenReturned && !empty($remarks)) {
+                $liquidation->addHEIResubmission($user, $remarks);
+            }
 
-        if (!$hasBeenReturned) {
-            $updateData['remarks'] = $remarks ?? $liquidation->remarks;
-        }
+            $documentStatusId = $this->determineDocumentStatus($liquidation);
 
-        $liquidation->update($updateData);
+            $updateData = [
+                'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
+                'date_submitted'        => now(),
+                'document_status_id'    => $documentStatusId,
+            ];
 
-        return $liquidation->fresh();
+            if (!$hasBeenReturned) {
+                $updateData['remarks'] = $remarks ?? $liquidation->remarks;
+            }
+
+            $liquidation->update($updateData);
+
+            return $liquidation->fresh();
+        });
     }
 
     /**
@@ -219,28 +270,40 @@ class LiquidationService
      */
     public function endorseToAccounting(Liquidation $liquidation, User $user, array $data): Liquidation
     {
-        $liquidation->createTransmittal($data, $user);
+        return DB::transaction(function () use ($liquidation, $user, $data) {
+            // Acquire exclusive row lock — prevents two RCs endorsing simultaneously
+            $liquidation = Liquidation::lockForUpdate()->findOrFail($liquidation->id);
 
-        if (!empty($data['review_remarks'])) {
-            $liquidation->reviews()->create([
-                'review_type' => LiquidationReview::TYPE_RC_ENDORSEMENT,
-                'performed_by' => $user->id,
-                'performed_by_name' => $user->name,
-                'remarks' => $data['review_remarks'],
-                'performed_at' => now(),
+            // State guards
+            if (!$liquidation->date_submitted) {
+                throw new \InvalidArgumentException('Liquidation has not been submitted for review yet.');
+            }
+            if ($liquidation->coa_endorsed_at) {
+                throw new \InvalidArgumentException('This liquidation has already been endorsed to COA.');
+            }
+
+            $liquidation->createTransmittal($data, $user);
+
+            if (!empty($data['review_remarks'])) {
+                $liquidation->reviews()->create([
+                    'review_type_id'    => ReviewType::findByCode(LiquidationReview::TYPE_RC_ENDORSEMENT)?->id,
+                    'performed_by'      => $user->id,
+                    'performed_by_name' => $user->name,
+                    'remarks'           => $data['review_remarks'],
+                    'performed_at'      => now(),
+                ]);
+            }
+
+            $liquidationStatusId = $this->calculateLiquidationStatusId($liquidation);
+
+            $liquidation->update([
+                'liquidation_status_id' => $liquidationStatusId,
+                'reviewed_by'           => $user->id,
+                'reviewed_at'           => now(),
             ]);
-        }
 
-        // Calculate liquidation status based on financial data
-        $liquidationStatus = $this->calculateLiquidationStatus($liquidation);
-
-        $liquidation->update([
-            'liquidation_status' => $liquidationStatus,
-            'reviewed_by' => $user->id,
-            'reviewed_at' => now(),
-        ]);
-
-        return $liquidation->fresh();
+            return $liquidation->fresh();
+        });
     }
 
     /**
@@ -248,23 +311,36 @@ class LiquidationService
      */
     public function returnToHEI(Liquidation $liquidation, User $user, array $data): Liquidation
     {
-        $liquidation->addRCReturn(
-            $user,
-            $data['review_remarks'],
-            $data['documents_for_compliance'] ?? null
-        );
+        return DB::transaction(function () use ($liquidation, $user, $data) {
+            // Acquire exclusive row lock
+            $liquidation = Liquidation::lockForUpdate()->findOrFail($liquidation->id);
 
-        if (!empty($data['documents_for_compliance'])) {
-            $liquidation->createCompliance($data['documents_for_compliance']);
-        }
+            // State guards
+            if (!$liquidation->date_submitted) {
+                throw new \InvalidArgumentException('Liquidation has not been submitted for review yet.');
+            }
+            if ($liquidation->coa_endorsed_at) {
+                throw new \InvalidArgumentException('This liquidation has already been endorsed to COA.');
+            }
 
-        $liquidation->update([
-            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
-            'reviewed_by' => $user->id,
-            'reviewed_at' => now(),
-        ]);
+            $liquidation->addRCReturn(
+                $user,
+                $data['review_remarks'],
+                $data['documents_for_compliance'] ?? null
+            );
 
-        return $liquidation->fresh();
+            if (!empty($data['documents_for_compliance'])) {
+                $liquidation->createCompliance($data['documents_for_compliance']);
+            }
+
+            $liquidation->update([
+                'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
+                'reviewed_by'           => $user->id,
+                'reviewed_at'           => now(),
+            ]);
+
+            return $liquidation->fresh();
+        });
     }
 
     /**
@@ -272,28 +348,40 @@ class LiquidationService
      */
     public function endorseToCOA(Liquidation $liquidation, User $user, ?string $remarks = null): Liquidation
     {
-        if (!empty($remarks)) {
-            $liquidation->reviews()->create([
-                'review_type' => LiquidationReview::TYPE_ACCOUNTANT_ENDORSEMENT,
-                'performed_by' => $user->id,
-                'performed_by_name' => $user->name,
-                'remarks' => $remarks,
-                'performed_at' => now(),
+        return DB::transaction(function () use ($liquidation, $user, $remarks) {
+            // Acquire exclusive row lock
+            $liquidation = Liquidation::lockForUpdate()->findOrFail($liquidation->id);
+
+            // State guards
+            if (!$liquidation->reviewed_at) {
+                throw new \InvalidArgumentException('Liquidation has not been endorsed to Accounting yet.');
+            }
+            if ($liquidation->coa_endorsed_at) {
+                throw new \InvalidArgumentException('This liquidation has already been endorsed to COA.');
+            }
+
+            if (!empty($remarks)) {
+                $liquidation->reviews()->create([
+                    'review_type_id'    => ReviewType::findByCode(LiquidationReview::TYPE_ACCOUNTANT_ENDORSEMENT)?->id,
+                    'performed_by'      => $user->id,
+                    'performed_by_name' => $user->name,
+                    'remarks'           => $remarks,
+                    'performed_at'      => now(),
+                ]);
+            }
+
+            $liquidationStatusId = $this->calculateLiquidationStatusId($liquidation);
+
+            $liquidation->update([
+                'liquidation_status_id'  => $liquidationStatusId,
+                'accountant_reviewed_by' => $user->id,
+                'accountant_reviewed_at' => now(),
+                'coa_endorsed_by'        => $user->id,
+                'coa_endorsed_at'        => now(),
             ]);
-        }
 
-        // Calculate liquidation status based on financial data
-        $liquidationStatus = $this->calculateLiquidationStatus($liquidation);
-
-        $liquidation->update([
-            'liquidation_status' => $liquidationStatus,
-            'accountant_reviewed_by' => $user->id,
-            'accountant_reviewed_at' => now(),
-            'coa_endorsed_by' => $user->id,
-            'coa_endorsed_at' => now(),
-        ]);
-
-        return $liquidation->fresh();
+            return $liquidation->fresh();
+        });
     }
 
     /**
@@ -301,15 +389,28 @@ class LiquidationService
      */
     public function returnToRC(Liquidation $liquidation, User $user, string $remarks): Liquidation
     {
-        $liquidation->addAccountantReturn($user, $remarks);
+        return DB::transaction(function () use ($liquidation, $user, $remarks) {
+            // Acquire exclusive row lock
+            $liquidation = Liquidation::lockForUpdate()->findOrFail($liquidation->id);
 
-        $liquidation->update([
-            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
-            'accountant_reviewed_by' => $user->id,
-            'accountant_reviewed_at' => now(),
-        ]);
+            // State guards
+            if (!$liquidation->reviewed_at) {
+                throw new \InvalidArgumentException('Liquidation has not been endorsed to Accounting yet.');
+            }
+            if ($liquidation->coa_endorsed_at) {
+                throw new \InvalidArgumentException('This liquidation has already been endorsed to COA.');
+            }
 
-        return $liquidation->fresh();
+            $liquidation->addAccountantReturn($user, $remarks);
+
+            $liquidation->update([
+                'liquidation_status_id'  => LiquidationStatus::unliquidated()?->id,
+                'accountant_reviewed_by' => $user->id,
+                'accountant_reviewed_at' => now(),
+            ]);
+
+            return $liquidation->fresh();
+        });
     }
 
     /**
@@ -412,21 +513,28 @@ class LiquidationService
 
     /**
      * Generate a unique control number.
+     *
+     * Uses SELECT ... FOR UPDATE inside a transaction to serialize concurrent
+     * calls. Must be invoked within the same DB::transaction() that performs
+     * the INSERT so the lock is held until the row is committed.
      */
     public function generateControlNumber(): string
     {
-        $year = date('Y');
-        $prefix = "LIQ-{$year}-";
+        return DB::transaction(function () {
+            $year   = date('Y');
+            $prefix = "LIQ-{$year}-";
 
-        $latest = Liquidation::where('control_no', 'like', $prefix . '%')
-            ->orderBy('control_no', 'desc')
-            ->first();
+            $latestControlNo = Liquidation::where('control_no', 'like', $prefix . '%')
+                ->lockForUpdate()
+                ->orderBy('control_no', 'desc')
+                ->value('control_no');
 
-        $newNumber = $latest
-            ? (int) str_replace($prefix, '', $latest->control_no) + 1
-            : 1;
+            $newNumber = $latestControlNo
+                ? (int) substr($latestControlNo, strlen($prefix)) + 1
+                : 1;
 
-        return $prefix . str_pad((string) $newNumber, 5, '0', STR_PAD_LEFT);
+            return $prefix . str_pad((string) $newNumber, 5, '0', STR_PAD_LEFT);
+        });
     }
 
     /**
@@ -436,32 +544,41 @@ class LiquidationService
     {
         Cache::forget('semesters_all');
         Cache::forget('document_statuses_all');
+        Cache::forget('liquidation_statuses_all');
         Cache::forget('programs_active');
         Cache::forget('heis_active');
     }
 
     /**
-     * Calculate liquidation status based on financial data.
-     * Returns: Unliquidated, Partially Liquidated - Endorsed to Accounting, or Fully Liquidated - Endorsed to Accounting
+     * Calculate liquidation status ID based on financial data.
      */
-    public function calculateLiquidationStatus(Liquidation $liquidation): string
+    public function calculateLiquidationStatusId(Liquidation $liquidation): ?string
     {
         $financial = $liquidation->financial;
 
         if (!$financial) {
-            return Liquidation::LIQUIDATION_STATUS_PARTIALLY;
+            return LiquidationStatus::partiallyLiquidated()?->id;
         }
 
         $amountDisbursed = (float) ($financial->amount_disbursed ?? 0);
         $amountLiquidated = (float) ($financial->amount_liquidated ?? 0);
 
-        // Calculate percentage
         $percentage = $amountDisbursed > 0 ? ($amountLiquidated / $amountDisbursed) * 100 : 0;
 
         if ($percentage >= 100) {
-            return Liquidation::LIQUIDATION_STATUS_FULLY;
+            return LiquidationStatus::fullyLiquidated()?->id;
         }
 
-        return Liquidation::LIQUIDATION_STATUS_PARTIALLY;
+        return LiquidationStatus::partiallyLiquidated()?->id;
+    }
+
+    /**
+     * Get cached liquidation statuses.
+     */
+    public function getCachedLiquidationStatuses()
+    {
+        return Cache::remember('liquidation_statuses_all', self::CACHE_TTL, function () {
+            return LiquidationStatus::active()->ordered()->get();
+        });
     }
 }

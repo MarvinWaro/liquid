@@ -15,7 +15,7 @@ class LiquidationTransmittal extends Model
         'liquidation_id',
         'transmittal_reference_no',
         'receiver_name',
-        'document_location',
+        'document_location_id',
         'number_of_folders',
         'folder_location_number',
         'group_transmittal',
@@ -29,57 +29,59 @@ class LiquidationTransmittal extends Model
     protected function casts(): array
     {
         return [
-            'endorsed_at' => 'datetime',
-            'received_at' => 'datetime',
+            'endorsed_at'      => 'datetime',
+            'received_at'      => 'datetime',
             'location_history' => 'array',
         ];
     }
 
-    /**
-     * Get the liquidation this transmittal belongs to.
-     */
     public function liquidation(): BelongsTo
     {
         return $this->belongsTo(Liquidation::class);
     }
 
-    /**
-     * Get the user who endorsed.
-     */
     public function endorser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'endorsed_by');
     }
 
-    /**
-     * Add a location change to history.
-     */
-    public function addLocationHistory(string $newLocation, ?string $notes = null): void
+    public function location(): BelongsTo
     {
-        $history = $this->location_history ?? [];
+        return $this->belongsTo(DocumentLocation::class, 'document_location_id');
+    }
+
+    /**
+     * Record a location change in the audit history and update the FK.
+     * Accepts the location name string; resolves to ID internally.
+     */
+    public function addLocationHistory(string $locationName, ?string $notes = null): void
+    {
+        $newLocation = DocumentLocation::where('name', $locationName)->first();
+
+        $history   = $this->location_history ?? [];
         $history[] = [
-            'location' => $newLocation,
-            'changed_at' => now()->toIso8601String(),
-            'previous_location' => $this->document_location,
-            'notes' => $notes,
+            'location'          => $locationName,
+            'changed_at'        => now()->toIso8601String(),
+            'previous_location' => $this->location?->name,
+            'notes'             => $notes,
         ];
 
         $this->update([
-            'document_location' => $newLocation,
-            'location_history' => $history,
+            'document_location_id' => $newLocation?->id,
+            'location_history'     => $history,
         ]);
     }
 
     /**
-     * Get the latest location from history.
+     * Get the current location name (from relationship or latest history entry).
      */
     public function getLatestLocationFromHistory(): ?string
     {
-        if (empty($this->location_history)) {
-            return $this->document_location;
+        if (!empty($this->location_history)) {
+            $latest = end($this->location_history);
+            return $latest['location'] ?? $this->location?->name;
         }
 
-        $latest = end($this->location_history);
-        return $latest['location'] ?? $this->document_location;
+        return $this->location?->name;
     }
 }

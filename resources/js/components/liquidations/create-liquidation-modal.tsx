@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -15,7 +15,21 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+} from '@/components/ui/command';
+import { Loader2, Check, ChevronsUpDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import axios from 'axios';
 
@@ -25,18 +39,17 @@ interface Program {
     code: string;
 }
 
-interface HEILookup {
+interface HEIOption {
     id: string;
     uii: string;
     name: string;
-    code: string | null;
-    type: string;
 }
 
 interface CreateLiquidationModalProps {
     isOpen: boolean;
     onClose: () => void;
     programs: Program[];
+    heis: HEIOption[];
     onSuccess: () => void;
 }
 
@@ -65,12 +78,12 @@ export function CreateLiquidationModal({
     isOpen,
     onClose,
     programs,
+    heis,
     onSuccess,
 }: CreateLiquidationModalProps) {
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [isLookingUp, setIsLookingUp] = useState(false);
-    const [heiLookup, setHeiLookup] = useState<HEILookup | null>(null);
-    const [lookupError, setLookupError] = useState<string | null>(null);
+    const [heiPopoverOpen, setHeiPopoverOpen] = useState(false);
+    const [selectedHei, setSelectedHei] = useState<HEIOption | null>(null);
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
     const [formData, setFormData] = useState({
@@ -107,53 +120,23 @@ export function CreateLiquidationModal({
                 document_status: '',
                 rc_notes: '',
             });
-            setHeiLookup(null);
-            setLookupError(null);
+            setSelectedHei(null);
             setFieldErrors({});
         }
     }, [isOpen]);
 
-    // Debounced UII lookup
-    const lookupHEI = useCallback(async (uii: string) => {
-        if (!uii || uii.length < 2) {
-            setHeiLookup(null);
-            setLookupError(null);
-            return;
-        }
-
-        setIsLookingUp(true);
-        setLookupError(null);
-
-        try {
-            const response = await axios.get(route('liquidation.lookup-hei'), {
-                params: { uii }
+    const handleSelectHei = (hei: HEIOption) => {
+        setSelectedHei(hei);
+        setFormData(prev => ({ ...prev, uii: hei.uii }));
+        setHeiPopoverOpen(false);
+        if (fieldErrors.uii) {
+            setFieldErrors(prev => {
+                const updated = { ...prev };
+                delete updated.uii;
+                return updated;
             });
-
-            if (response.data.found) {
-                setHeiLookup(response.data.hei);
-                setLookupError(null);
-            } else {
-                setHeiLookup(null);
-                setLookupError(response.data.message || 'HEI not found');
-            }
-        } catch (error) {
-            setHeiLookup(null);
-            setLookupError('Failed to lookup HEI');
-        } finally {
-            setIsLookingUp(false);
         }
-    }, []);
-
-    // Debounce UII input
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            if (formData.uii) {
-                lookupHEI(formData.uii);
-            }
-        }, 500);
-
-        return () => clearTimeout(timer);
-    }, [formData.uii, lookupHEI]);
+    };
 
     const handleInputChange = (field: string, value: string) => {
         setFormData(prev => ({ ...prev, [field]: value }));
@@ -171,8 +154,8 @@ export function CreateLiquidationModal({
         e.preventDefault();
         setFieldErrors({});
 
-        if (!heiLookup) {
-            setFieldErrors({ uii: 'Please enter a valid UII' });
+        if (!selectedHei) {
+            setFieldErrors({ uii: 'Please select an HEI' });
             return;
         }
 
@@ -235,37 +218,72 @@ export function CreateLiquidationModal({
                             )}
                         </div>
 
-                        {/* UII with auto-fill */}
+                        {/* HEI (searchable dropdown with UII + Name) */}
                         <div className="space-y-2">
-                            <Label htmlFor="uii">UII (Unique Institutional Identifier) *</Label>
-                            <div className="relative">
-                                <Input
-                                    id="uii"
-                                    value={formData.uii}
-                                    onChange={(e) => handleInputChange('uii', e.target.value)}
-                                    placeholder="Enter UII"
-                                    className={`pr-10 ${heiLookup ? 'border-green-500' : (lookupError || fieldErrors.uii) ? 'border-red-500' : ''}`}
-                                />
-                                <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                                    {isLookingUp && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                                    {!isLookingUp && heiLookup && <CheckCircle2 className="h-4 w-4 text-green-500" />}
-                                    {!isLookingUp && (lookupError || fieldErrors.uii) && <XCircle className="h-4 w-4 text-red-500" />}
-                                </div>
-                            </div>
-                            {(lookupError || fieldErrors.uii) && (
-                                <p className="text-sm text-red-500">{lookupError || fieldErrors.uii}</p>
+                            <Label>UII *</Label>
+                            <Popover open={heiPopoverOpen} onOpenChange={setHeiPopoverOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        role="combobox"
+                                        aria-expanded={heiPopoverOpen}
+                                        className={cn(
+                                            'w-full justify-between font-normal',
+                                            !selectedHei && 'text-muted-foreground',
+                                            fieldErrors.uii && 'border-red-500',
+                                        )}
+                                    >
+                                        <span className="truncate">
+                                            {selectedHei
+                                                ? `${selectedHei.uii} — ${selectedHei.name}`
+                                                : 'Search HEI by UII or name...'}
+                                        </span>
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                                    <Command>
+                                        <CommandInput placeholder="Type UII or school name..." />
+                                        <CommandList>
+                                            <CommandEmpty>No HEI found.</CommandEmpty>
+                                            <CommandGroup>
+                                                {heis.map((hei) => (
+                                                    <CommandItem
+                                                        key={hei.id}
+                                                        value={`${hei.uii} ${hei.name}`}
+                                                        onSelect={() => handleSelectHei(hei)}
+                                                    >
+                                                        <Check
+                                                            className={cn(
+                                                                'mr-2 h-4 w-4',
+                                                                selectedHei?.id === hei.id ? 'opacity-100' : 'opacity-0',
+                                                            )}
+                                                        />
+                                                        <div className="flex flex-col">
+                                                            <span className="font-medium">{hei.uii}</span>
+                                                            <span className="text-xs text-muted-foreground">{hei.name}</span>
+                                                        </div>
+                                                    </CommandItem>
+                                                ))}
+                                            </CommandGroup>
+                                        </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                            </Popover>
+                            {fieldErrors.uii && (
+                                <p className="text-sm text-red-500">{fieldErrors.uii}</p>
                             )}
                         </div>
 
-                        {/* HEI Name (auto-filled, disabled) */}
+                        {/* HEI Name (auto-filled, read-only) */}
                         <div className="space-y-2">
                             <Label htmlFor="hei_name">HEI Name</Label>
                             <Input
                                 id="hei_name"
-                                value={heiLookup?.name || ''}
+                                value={selectedHei?.name || ''}
                                 disabled
-                                placeholder="Auto-filled from UII"
-                                className={`bg-muted ${heiLookup ? 'border-green-500 text-foreground' : ''}`}
+                                placeholder="Auto-filled from selection"
+                                className={`bg-muted ${selectedHei ? 'border-green-500 text-foreground' : ''}`}
                             />
                         </div>
 
@@ -476,7 +494,7 @@ export function CreateLiquidationModal({
                         </Button>
                         <Button
                             type="submit"
-                            disabled={isSubmitting || !heiLookup}
+                            disabled={isSubmitting || !selectedHei}
                         >
                             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             Create Liquidation

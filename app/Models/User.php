@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
 class User extends Authenticatable
@@ -28,6 +29,7 @@ class User extends Authenticatable
         'hei_id',
         'region_id',
         'status',
+        'avatar',
     ];
 
     /**
@@ -47,6 +49,8 @@ class User extends Authenticatable
      *
      * @return array<string, string>
      */
+    protected $appends = ['avatar_url'];
+
     protected function casts(): array
     {
         return [
@@ -54,6 +58,15 @@ class User extends Authenticatable
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
         ];
+    }
+
+    public function getAvatarUrlAttribute(): ?string
+    {
+        if (!$this->avatar) {
+            return null;
+        }
+
+        return '/storage/' . $this->avatar;
     }
 
     /**

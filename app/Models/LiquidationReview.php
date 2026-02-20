@@ -13,7 +13,7 @@ class LiquidationReview extends Model
 
     protected $fillable = [
         'liquidation_id',
-        'review_type',
+        'review_type_id',
         'performed_by',
         'performed_by_name',
         'remarks',
@@ -29,12 +29,12 @@ class LiquidationReview extends Model
     }
 
     /**
-     * Review type constants.
+     * Review type code constants (matching review_types.code).
      */
-    public const TYPE_RC_RETURN = 'rc_return';
-    public const TYPE_RC_ENDORSEMENT = 'rc_endorsement';
-    public const TYPE_HEI_RESUBMISSION = 'hei_resubmission';
-    public const TYPE_ACCOUNTANT_RETURN = 'accountant_return';
+    public const TYPE_RC_RETURN              = 'rc_return';
+    public const TYPE_RC_ENDORSEMENT         = 'rc_endorsement';
+    public const TYPE_HEI_RESUBMISSION       = 'hei_resubmission';
+    public const TYPE_ACCOUNTANT_RETURN      = 'accountant_return';
     public const TYPE_ACCOUNTANT_ENDORSEMENT = 'accountant_endorsement';
 
     /**
@@ -43,6 +43,14 @@ class LiquidationReview extends Model
     public function liquidation(): BelongsTo
     {
         return $this->belongsTo(Liquidation::class);
+    }
+
+    /**
+     * Get the review type for this review.
+     */
+    public function reviewType(): BelongsTo
+    {
+        return $this->belongsTo(ReviewType::class, 'review_type_id');
     }
 
     /**
@@ -58,7 +66,7 @@ class LiquidationReview extends Model
      */
     public function isRCReturn(): bool
     {
-        return $this->review_type === self::TYPE_RC_RETURN;
+        return $this->reviewType?->code === self::TYPE_RC_RETURN;
     }
 
     /**
@@ -66,7 +74,7 @@ class LiquidationReview extends Model
      */
     public function isHEIResubmission(): bool
     {
-        return $this->review_type === self::TYPE_HEI_RESUBMISSION;
+        return $this->reviewType?->code === self::TYPE_HEI_RESUBMISSION;
     }
 
     /**
@@ -74,7 +82,7 @@ class LiquidationReview extends Model
      */
     public function isAccountantReturn(): bool
     {
-        return $this->review_type === self::TYPE_ACCOUNTANT_RETURN;
+        return $this->reviewType?->code === self::TYPE_ACCOUNTANT_RETURN;
     }
 
     /**
@@ -82,22 +90,22 @@ class LiquidationReview extends Model
      */
     public function getTypeLabel(): string
     {
-        return match($this->review_type) {
-            self::TYPE_RC_RETURN => 'RC Return',
-            self::TYPE_RC_ENDORSEMENT => 'RC Endorsement',
-            self::TYPE_HEI_RESUBMISSION => 'HEI Resubmission',
-            self::TYPE_ACCOUNTANT_RETURN => 'Accountant Return',
+        return match($this->reviewType?->code) {
+            self::TYPE_RC_RETURN              => 'RC Return',
+            self::TYPE_RC_ENDORSEMENT         => 'RC Endorsement',
+            self::TYPE_HEI_RESUBMISSION       => 'HEI Resubmission',
+            self::TYPE_ACCOUNTANT_RETURN      => 'Accountant Return',
             self::TYPE_ACCOUNTANT_ENDORSEMENT => 'Accountant Endorsement',
-            default => ucfirst(str_replace('_', ' ', $this->review_type)),
+            default                           => ucfirst(str_replace('_', ' ', $this->reviewType?->code ?? 'unknown')),
         };
     }
 
     /**
-     * Scope to filter by review type.
+     * Scope to filter by review type code.
      */
-    public function scopeOfType($query, string $type)
+    public function scopeOfType($query, string $typeCode)
     {
-        return $query->where('review_type', $type);
+        return $query->whereHas('reviewType', fn($q) => $q->where('code', $typeCode));
     }
 
     /**
@@ -105,7 +113,10 @@ class LiquidationReview extends Model
      */
     public function scopeRcReviews($query)
     {
-        return $query->whereIn('review_type', [self::TYPE_RC_RETURN, self::TYPE_HEI_RESUBMISSION]);
+        return $query->whereHas('reviewType', fn($q) => $q->whereIn('code', [
+            self::TYPE_RC_RETURN,
+            self::TYPE_HEI_RESUBMISSION,
+        ]));
     }
 
     /**
@@ -113,6 +124,6 @@ class LiquidationReview extends Model
      */
     public function scopeAccountantReviews($query)
     {
-        return $query->where('review_type', self::TYPE_ACCOUNTANT_RETURN);
+        return $query->whereHas('reviewType', fn($q) => $q->where('code', self::TYPE_ACCOUNTANT_RETURN));
     }
 }

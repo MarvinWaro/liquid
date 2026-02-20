@@ -16,7 +16,7 @@ class LiquidationCompliance extends Model
     protected $fillable = [
         'liquidation_id',
         'documents_required',
-        'compliance_status',
+        'compliance_status_id',
         'concerns_emailed_at',
         'compliance_submitted_at',
         'amount_with_complete_docs',
@@ -25,20 +25,20 @@ class LiquidationCompliance extends Model
     protected function casts(): array
     {
         return [
-            'concerns_emailed_at' => 'datetime',
-            'compliance_submitted_at' => 'datetime',
+            'concerns_emailed_at'      => 'datetime',
+            'compliance_submitted_at'  => 'datetime',
             'amount_with_complete_docs' => 'decimal:2',
         ];
     }
 
     /**
-     * Compliance status constants.
+     * Compliance status code constants (matching compliance_statuses.code).
      */
-    public const STATUS_PENDING_HEI_REVIEW = 'pending_hei_review';
+    public const STATUS_PENDING_HEI_REVIEW  = 'pending_hei_review';
     public const STATUS_DOCUMENTS_SUBMITTED = 'documents_submitted';
-    public const STATUS_UNDER_REVIEW = 'under_review';
-    public const STATUS_COMPLIANT = 'compliant';
-    public const STATUS_NON_COMPLIANT = 'non_compliant';
+    public const STATUS_UNDER_REVIEW        = 'under_review';
+    public const STATUS_COMPLIANT           = 'compliant';
+    public const STATUS_NON_COMPLIANT       = 'non_compliant';
 
     /**
      * Get the liquidation this compliance record belongs to.
@@ -49,17 +49,25 @@ class LiquidationCompliance extends Model
     }
 
     /**
+     * Get the compliance status for this record.
+     */
+    public function complianceStatus(): BelongsTo
+    {
+        return $this->belongsTo(ComplianceStatus::class, 'compliance_status_id');
+    }
+
+    /**
      * Get human-readable compliance status.
      */
     public function getStatusLabel(): string
     {
-        return match($this->compliance_status) {
-            self::STATUS_PENDING_HEI_REVIEW => 'Pending HEI Review',
+        return match($this->complianceStatus?->code) {
+            self::STATUS_PENDING_HEI_REVIEW  => 'Pending HEI Review',
             self::STATUS_DOCUMENTS_SUBMITTED => 'Documents Submitted',
-            self::STATUS_UNDER_REVIEW => 'Under Review',
-            self::STATUS_COMPLIANT => 'Compliant',
-            self::STATUS_NON_COMPLIANT => 'Non-Compliant',
-            default => ucfirst(str_replace('_', ' ', $this->compliance_status)),
+            self::STATUS_UNDER_REVIEW        => 'Under Review',
+            self::STATUS_COMPLIANT           => 'Compliant',
+            self::STATUS_NON_COMPLIANT       => 'Non-Compliant',
+            default                          => ucfirst(str_replace('_', ' ', $this->complianceStatus?->code ?? 'unknown')),
         };
     }
 
@@ -68,14 +76,7 @@ class LiquidationCompliance extends Model
      */
     public function getStatusBadgeClass(): string
     {
-        return match($this->compliance_status) {
-            self::STATUS_PENDING_HEI_REVIEW => 'warning',
-            self::STATUS_DOCUMENTS_SUBMITTED => 'info',
-            self::STATUS_UNDER_REVIEW => 'info',
-            self::STATUS_COMPLIANT => 'success',
-            self::STATUS_NON_COMPLIANT => 'destructive',
-            default => 'secondary',
-        };
+        return $this->complianceStatus?->badge_color ?? 'secondary';
     }
 
     /**
@@ -83,7 +84,7 @@ class LiquidationCompliance extends Model
      */
     public function isPending(): bool
     {
-        return in_array($this->compliance_status, [
+        return in_array($this->complianceStatus?->code, [
             self::STATUS_PENDING_HEI_REVIEW,
             self::STATUS_DOCUMENTS_SUBMITTED,
             self::STATUS_UNDER_REVIEW,
@@ -95,7 +96,7 @@ class LiquidationCompliance extends Model
      */
     public function isResolved(): bool
     {
-        return in_array($this->compliance_status, [
+        return in_array($this->complianceStatus?->code, [
             self::STATUS_COMPLIANT,
             self::STATUS_NON_COMPLIANT,
         ]);
@@ -115,7 +116,7 @@ class LiquidationCompliance extends Model
     public function markComplianceSubmitted(): void
     {
         $this->update([
-            'compliance_status' => self::STATUS_DOCUMENTS_SUBMITTED,
+            'compliance_status_id'    => ComplianceStatus::findByCode(self::STATUS_DOCUMENTS_SUBMITTED)?->id,
             'compliance_submitted_at' => now(),
         ]);
     }
