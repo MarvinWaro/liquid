@@ -9,7 +9,7 @@ import { show } from '@/routes/two-factor';
 import { edit as editPassword } from '@/routes/user-password';
 import { type NavItem, type NavigationAbilities, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Building2, MapPin, Shield, Users } from 'lucide-react';
+import { Building2, FileText, FolderOpen, MapPin, Shield, Users } from 'lucide-react';
 import { type PropsWithChildren, useMemo } from 'react';
 
 const sidebarNavItems: NavItem[] = [
@@ -61,6 +61,18 @@ const adminNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
         icon: MapPin,
         ability: 'canViewRegions',
     },
+    {
+        title: 'Programs',
+        href: '/programs',
+        icon: FolderOpen,
+        ability: 'canViewPrograms',
+    },
+    {
+        title: 'Document Requirements',
+        href: '/document-requirements',
+        icon: FileText,
+        ability: 'canViewDocumentRequirements',
+    },
 ];
 
 interface SettingsLayoutProps extends PropsWithChildren {
@@ -78,6 +90,8 @@ export default function SettingsLayout({ children, wide = false }: SettingsLayou
         canViewUsers: false,
         canViewHEI: false,
         canViewRegions: false,
+        canViewPrograms: false,
+        canViewDocumentRequirements: false,
     };
 
     // Filter admin nav items based on user abilities
@@ -102,8 +116,8 @@ export default function SettingsLayout({ children, wide = false }: SettingsLayou
                 description="Manage your profile and account settings"
             />
 
-            <div className="flex flex-col lg:flex-row lg:space-x-12">
-                <aside className="w-full max-w-xl lg:w-48 shrink-0">
+            <div className="flex flex-col lg:flex-row lg:space-x-12 lg:items-start">
+                <aside className="w-full max-w-xl lg:w-48 shrink-0 lg:sticky lg:top-6 lg:self-start">
                     <nav className="flex flex-col space-y-1 space-x-0" aria-label="Settings">
                         {/* Account Settings */}
                         <span className="mb-2 px-3 text-xs font-semibold uppercase text-muted-foreground">

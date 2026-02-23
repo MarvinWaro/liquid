@@ -1,4 +1,4 @@
-import { RegionModal } from '@/components/regions/region-modal';
+import { ProgramModal } from '@/components/programs/program-modal';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DeletePopover } from '@/components/ui/delete-popover';
@@ -15,20 +15,20 @@ import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
-import { MapPin, Pencil, Plus, Search } from 'lucide-react';
+import { FolderOpen, Pencil, Plus, Search } from 'lucide-react';
 import { useState } from 'react';
 
-interface Region {
+interface Program {
     id: string;
     code: string;
     name: string;
-    description?: string;
+    description: string | null;
     status: string;
-    created_at: string;
+    document_requirements_count: number;
 }
 
 interface Props {
-    regions: Region[];
+    programs: Program[];
     canCreate: boolean;
     canEdit: boolean;
     canDelete: boolean;
@@ -36,67 +36,69 @@ interface Props {
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Settings', href: '/settings/profile' },
-    { title: 'Regions', href: '/regions' },
+    { title: 'Programs', href: '/programs' },
 ];
 
 export default function Index({
-    regions,
+    programs,
     canCreate,
     canEdit,
     canDelete,
 }: Props) {
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
+    const [selectedProgram, setSelectedProgram] = useState<Program | null>(
+        null,
+    );
     const [searchQuery, setSearchQuery] = useState('');
 
-    // Client-side filter — instant, no reload
-    const filteredRegions = regions.filter(
-        (region) =>
-            region.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            region.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            (region.description &&
-                region.description
+    const filteredPrograms = programs.filter(
+        (p) =>
+            p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            p.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (p.description &&
+                p.description
                     .toLowerCase()
                     .includes(searchQuery.toLowerCase())),
     );
 
-    const handleDelete = (regionId: string) => {
-        router.delete(route('regions.destroy', regionId), {
+    const handleCreate = () => {
+        setSelectedProgram(null);
+        setIsModalOpen(true);
+    };
+
+    const handleEdit = (program: Program) => {
+        setSelectedProgram(program);
+        setIsModalOpen(true);
+    };
+
+    const handleDelete = (programId: string) => {
+        router.delete(route('programs.destroy', programId), {
             preserveScroll: true,
         });
     };
 
-    const handleCreate = () => {
-        setSelectedRegion(null);
-        setIsModalOpen(true);
-    };
-
-    const handleEdit = (region: Region) => {
-        setSelectedRegion(region);
-        setIsModalOpen(true);
-    };
-
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Region Management" />
+            <Head title="Programs" />
 
             <SettingsLayout wide>
-                <RegionModal
+                <ProgramModal
                     isOpen={isModalOpen}
                     onClose={() => setIsModalOpen(false)}
-                    region={selectedRegion}
+                    program={selectedProgram}
                 />
 
                 <div className="w-full py-8">
                     <div className="mx-auto w-full max-w-[95%]">
-                        {/* Header Section */}
+                        {/* Header */}
                         <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
                             <div>
                                 <h2 className="text-xl font-semibold tracking-tight">
-                                    Region Management
+                                    Programs
                                 </h2>
                                 <p className="mt-1 text-sm text-muted-foreground">
-                                    Manage regions and their information.
+                                    Manage scholarship programs and their
+                                    configurations.
                                 </p>
                             </div>
                             <div className="flex items-center gap-3">
@@ -104,7 +106,7 @@ export default function Index({
                                     <Search className="absolute top-2.5 left-2.5 h-4 w-4 text-muted-foreground" />
                                     <Input
                                         type="search"
-                                        placeholder="Search regions..."
+                                        placeholder="Search programs..."
                                         className="bg-background pl-9"
                                         value={searchQuery}
                                         onChange={(e) =>
@@ -118,7 +120,7 @@ export default function Index({
                                         className="bg-primary shadow-sm hover:bg-primary/90"
                                     >
                                         <Plus className="mr-2 h-4 w-4" />
-                                        Add Region
+                                        Add Program
                                     </Button>
                                 )}
                             </div>
@@ -127,73 +129,75 @@ export default function Index({
                         <Table>
                             <TableHeader>
                                 <TableRow className="border-b hover:bg-transparent">
-                                    <TableHead className="h-9 pl-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                                        Region
+                                    <TableHead className="h-9 w-24 pl-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                                        Code
                                     </TableHead>
                                     <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                                        Code
+                                        Program Name
                                     </TableHead>
                                     <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                         Description
                                     </TableHead>
-                                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                                    <TableHead className="h-9 w-32 text-center text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                                        Requirements
+                                    </TableHead>
+                                    <TableHead className="h-9 w-28 text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                         Status
                                     </TableHead>
-                                    <TableHead className="h-9 pr-6 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                                    <TableHead className="h-9 w-28 pr-6 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                         Actions
                                     </TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {filteredRegions.length === 0 ? (
+                                {filteredPrograms.length === 0 ? (
                                     <TableRow>
                                         <TableCell
-                                            colSpan={5}
+                                            colSpan={6}
                                             className="py-12 text-center text-muted-foreground"
                                         >
                                             <div className="flex flex-col items-center gap-2">
-                                                <MapPin className="h-8 w-8 text-muted-foreground/50" />
-                                                <p>
-                                                    No regions found matching
-                                                    your search.
-                                                </p>
+                                                <FolderOpen className="h-8 w-8 text-muted-foreground/50" />
+                                                <p>No programs found.</p>
                                             </div>
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    filteredRegions.map((region) => (
+                                    filteredPrograms.map((program) => (
                                         <TableRow
-                                            key={region.id}
+                                            key={program.id}
                                             className="transition-colors hover:bg-muted/50"
                                         >
                                             <TableCell className="py-2 pl-6">
-                                                <span className="text-sm font-medium">
-                                                    {region.name}
+                                                <span className="font-mono text-sm font-semibold text-primary">
+                                                    {program.code}
                                                 </span>
                                             </TableCell>
                                             <TableCell className="py-2">
+                                                <span className="text-sm font-medium">
+                                                    {program.name}
+                                                </span>
+                                            </TableCell>
+                                            <TableCell className="max-w-xs py-2">
+                                                <span className="line-clamp-2 text-sm text-muted-foreground">
+                                                    {program.description || '—'}
+                                                </span>
+                                            </TableCell>
+                                            <TableCell className="py-2 text-center">
                                                 <Badge
                                                     variant="outline"
-                                                    className="font-mono"
+                                                    className="border-blue-200 bg-blue-50 text-blue-800"
                                                 >
-                                                    {region.code}
+                                                    {
+                                                        program.document_requirements_count
+                                                    }{' '}
+                                                    docs
                                                 </Badge>
-                                            </TableCell>
-                                            <TableCell className="py-2">
-                                                {region.description ? (
-                                                    <span className="text-sm">
-                                                        {region.description}
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-sm text-muted-foreground">
-                                                        -
-                                                    </span>
-                                                )}
                                             </TableCell>
                                             <TableCell className="py-2">
                                                 <Badge
                                                     className={`${
-                                                        region.status ===
+                                                        program.status ===
                                                         'active'
                                                             ? 'border-green-200 bg-green-100 text-green-700 hover:bg-green-200'
                                                             : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -201,13 +205,13 @@ export default function Index({
                                                 >
                                                     <span
                                                         className={`mr-2 h-1.5 w-1.5 rounded-full ${
-                                                            region.status ===
+                                                            program.status ===
                                                             'active'
                                                                 ? 'bg-green-600'
                                                                 : 'bg-gray-500'
                                                         }`}
-                                                    ></span>
-                                                    {region.status === 'active'
+                                                    />
+                                                    {program.status === 'active'
                                                         ? 'Active'
                                                         : 'Inactive'}
                                                 </Badge>
@@ -221,22 +225,21 @@ export default function Index({
                                                             className="h-8 w-8 text-muted-foreground hover:text-primary"
                                                             onClick={() =>
                                                                 handleEdit(
-                                                                    region,
+                                                                    program,
                                                                 )
                                                             }
                                                         >
                                                             <Pencil className="h-4 w-4" />
                                                         </Button>
                                                     )}
-
                                                     {canDelete && (
                                                         <DeletePopover
                                                             itemName={
-                                                                region.name
+                                                                program.name
                                                             }
                                                             onConfirm={() =>
                                                                 handleDelete(
-                                                                    region.id,
+                                                                    program.id,
                                                                 )
                                                             }
                                                         />

@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 interface Step {
   label: string
   description?: string
+  extra?: React.ReactNode
 }
 
 interface VerticalStepperProps {
@@ -90,6 +91,9 @@ export function VerticalStepper({ steps, currentStep, isFullyCompleted = false, 
                     >
                       {step.description}
                     </p>
+                  )}
+                  {step.extra && (
+                    <div className="mt-1.5">{step.extra}</div>
                   )}
                 </div>
               </div>

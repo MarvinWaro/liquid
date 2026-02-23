@@ -138,6 +138,8 @@ class User extends Authenticatable
             'canViewUsers' => $this->hasPermission('view_users'),
             'canViewHEI' => $this->hasPermission('view_hei'),
             'canViewRegions' => $this->hasPermission('view_regions'),
+            'canViewPrograms' => $this->hasPermission('view_programs'),
+            'canViewDocumentRequirements' => $this->hasPermission('view_document_requirements'),
         ];
     }
 

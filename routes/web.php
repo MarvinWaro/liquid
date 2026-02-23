@@ -8,6 +8,8 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\HEIController;
 use App\Http\Controllers\RegionController;
 use App\Http\Controllers\LiquidationController;
+use App\Http\Controllers\ProgramController;
+use App\Http\Controllers\DocumentRequirementController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
@@ -39,6 +41,18 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('hei/{hei}', [HEIController::class, 'update'])->name('hei.update');
     Route::delete('hei/{hei}', [HEIController::class, 'destroy'])->name('hei.destroy');
 
+    // Program Management Routes
+    Route::get('programs', [ProgramController::class, 'index'])->name('programs.index');
+    Route::post('programs', [ProgramController::class, 'store'])->name('programs.store');
+    Route::put('programs/{program}', [ProgramController::class, 'update'])->name('programs.update');
+    Route::delete('programs/{program}', [ProgramController::class, 'destroy'])->name('programs.destroy');
+
+    // Document Requirement Management Routes
+    Route::get('document-requirements', [DocumentRequirementController::class, 'index'])->name('document-requirements.index');
+    Route::post('document-requirements', [DocumentRequirementController::class, 'store'])->name('document-requirements.store');
+    Route::put('document-requirements/{requirement}', [DocumentRequirementController::class, 'update'])->name('document-requirements.update');
+    Route::delete('document-requirements/{requirement}', [DocumentRequirementController::class, 'destroy'])->name('document-requirements.destroy');
+
     // Region Management Routes
     Route::get('regions', [RegionController::class, 'index'])->name('regions.index');
     Route::post('regions', [RegionController::class, 'store'])->name('regions.store');
@@ -64,6 +78,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('liquidation/{liquidation}/upload-document', [LiquidationController::class, 'uploadDocument'])->name('liquidation.upload-document');
     Route::post('liquidation/{liquidation}/store-gdrive-link', [LiquidationController::class, 'storeGdriveLink'])->name('liquidation.store-gdrive-link');
     Route::get('liquidation-documents/{document}/download', [LiquidationController::class, 'downloadDocument'])->name('liquidation.download-document');
+    Route::get('liquidation-documents/{document}/view', [LiquidationController::class, 'viewDocument'])->name('liquidation.view-document');
     Route::delete('liquidation-documents/{document}', [LiquidationController::class, 'deleteDocument'])->name('liquidation.delete-document');
 
     // Liquidation Template Download

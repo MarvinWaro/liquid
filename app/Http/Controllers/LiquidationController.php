@@ -13,6 +13,7 @@ use App\Http\Requests\Liquidation\StoreLiquidationRequest;
 use App\Http\Requests\Liquidation\SubmitLiquidationRequest;
 use App\Http\Requests\Liquidation\UpdateLiquidationRequest;
 use App\Models\DocumentLocation;
+use App\Models\DocumentRequirement;
 use App\Models\DocumentStatus;
 use App\Models\Liquidation;
 use App\Models\LiquidationDocument;
@@ -25,6 +26,7 @@ use App\Services\LiquidationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
@@ -298,15 +300,20 @@ class LiquidationController extends Controller
             'runningData'
         ]);
 
+        $heiRegionId = $liquidation->hei?->region_id;
+        $isHEIUser = $user->hei !== null;
+        $requirements = $this->cacheService->getDocumentRequirements($liquidation->program_id);
+
         return Inertia::render('liquidation/show', [
-            'liquidation' => $this->formatLiquidationDetails($liquidation),
+            'liquidation' => $this->formatLiquidationDetails($liquidation, $requirements, $isHEIUser),
             'userHei' => $this->formatUserHei($user->hei),
-            'regionalCoordinators' => $this->cacheService->getRegionalCoordinators(),
+            'regionalCoordinators' => $this->cacheService->getRegionalCoordinators($heiRegionId),
             'accountants' => $this->cacheService->getAccountants(),
             'documentLocations' => DocumentLocation::orderBy('sort_order')->pluck('name'),
+            'documentRequirements' => $requirements,
             'permissions' => [
                 'review' => $user->hasPermission('review_liquidation'),
-                'submit' => $user->hei !== null,
+                'submit' => $isHEIUser,
                 'edit' => $user->hasPermission('edit_liquidation'),
             ],
             'userRole' => $user->role->name,
@@ -318,17 +325,48 @@ class LiquidationController extends Controller
      */
     public function uploadDocument(Request $request, Liquidation $liquidation): JsonResponse
     {
-        $currentDocCount = $liquidation->documents()->where('is_gdrive', false)->count();
-        if ($currentDocCount >= 3) {
-            return response()->json([
-                'message' => 'Maximum of 3 PDF files allowed. Please delete an existing file first.',
-            ], 422);
+        $requirementId = $request->input('document_requirement_id');
+
+        if ($requirementId) {
+            // HEI requirement upload — enforce 1:1 per requirement
+            $requirement = DocumentRequirement::where('id', $requirementId)
+                ->where('program_id', $liquidation->program_id)
+                ->where('is_active', true)
+                ->first();
+
+            if (!$requirement) {
+                return response()->json(['message' => 'Invalid document requirement for this program.'], 422);
+            }
+
+            $existing = $liquidation->documents()
+                ->where('document_requirement_id', $requirementId)
+                ->exists();
+
+            if ($existing) {
+                return response()->json([
+                    'message' => 'A document has already been uploaded for this requirement. Delete the existing one first.',
+                ], 422);
+            }
+
+            $documentType = $requirement->name;
+        } else {
+            // RC Letter upload — keep 3-file limit
+            $currentDocCount = $liquidation->documents()
+                ->whereNull('document_requirement_id')
+                ->where('is_gdrive', false)
+                ->count();
+
+            if ($currentDocCount >= 3) {
+                return response()->json([
+                    'message' => 'Maximum of 3 PDF files allowed. Please delete an existing file first.',
+                ], 422);
+            }
+
+            $documentType = $request->input('document_type', 'RC Letter');
         }
 
-        $validated = $request->validate([
-            'document_type' => 'required|string|max:255',
+        $request->validate([
             'file' => 'required|file|mimes:pdf|max:20480',
-            'description' => 'nullable|string',
         ], [
             'file.mimes' => 'Only PDF files are allowed.',
             'file.max' => 'The file size must not exceed 20MB.',
@@ -340,13 +378,14 @@ class LiquidationController extends Controller
 
         LiquidationDocument::create([
             'liquidation_id' => $liquidation->id,
-            'document_type' => $validated['document_type'],
+            'document_requirement_id' => $requirementId,
+            'document_type' => $documentType,
             'file_name' => $file->getClientOriginalName(),
             'file_path' => $filePath,
             'file_type' => $file->getMimeType(),
             'file_size' => $file->getSize(),
             'is_gdrive' => false,
-            'description' => $validated['description'] ?? null,
+            'description' => $request->input('description'),
             'uploaded_by' => $request->user()->id,
         ]);
 
@@ -360,15 +399,37 @@ class LiquidationController extends Controller
     {
         $validated = $request->validate([
             'gdrive_link' => ['required', 'url', 'regex:/^https:\/\/(drive\.google\.com|docs\.google\.com)/i'],
-            'document_type' => 'required|string|max:255',
+            'document_requirement_id' => 'required|string',
             'description' => 'nullable|string',
         ], [
             'gdrive_link.regex' => 'Please enter a valid Google Drive link.',
         ]);
 
+        // Validate requirement belongs to this liquidation's program
+        $requirement = DocumentRequirement::where('id', $validated['document_requirement_id'])
+            ->where('program_id', $liquidation->program_id)
+            ->where('is_active', true)
+            ->first();
+
+        if (!$requirement) {
+            return response()->json(['message' => 'Invalid document requirement for this program.'], 422);
+        }
+
+        // Enforce 1:1 per requirement
+        $existing = $liquidation->documents()
+            ->where('document_requirement_id', $requirement->id)
+            ->exists();
+
+        if ($existing) {
+            return response()->json([
+                'message' => 'A document has already been submitted for this requirement. Delete the existing one first.',
+            ], 422);
+        }
+
         LiquidationDocument::create([
             'liquidation_id' => $liquidation->id,
-            'document_type' => $validated['document_type'],
+            'document_requirement_id' => $requirement->id,
+            'document_type' => $requirement->name,
             'file_name' => 'Google Drive Link',
             'file_path' => '',
             'file_type' => 'gdrive',
@@ -400,6 +461,26 @@ class LiquidationController extends Controller
     }
 
     /**
+     * View document inline in browser.
+     */
+    public function viewDocument(Request $request, LiquidationDocument $document): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $liquidation = $document->liquidation;
+        $user = $request->user();
+
+        $this->authorizeView($user, $liquidation);
+
+        if (!Storage::disk('public')->exists($document->file_path)) {
+            abort(404, 'File not found.');
+        }
+
+        return Storage::disk('public')->response($document->file_path, $document->file_name, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . $document->file_name . '"',
+        ]);
+    }
+
+    /**
      * Delete document.
      */
     public function deleteDocument(Request $request, LiquidationDocument $document): RedirectResponse
@@ -408,7 +489,7 @@ class LiquidationController extends Controller
         $user = $request->user();
 
         if (!$user->isSuperAdmin() && $user->role->name !== 'Admin') {
-            if ($liquidation->created_by !== $user->id) {
+            if ($document->uploaded_by !== $user->id && $liquidation->created_by !== $user->id) {
                 abort(403, 'You cannot delete this document.');
             }
         }
@@ -886,11 +967,21 @@ class LiquidationController extends Controller
         ];
     }
 
-    private function formatLiquidationDetails(Liquidation $liquidation): array
+    private function formatLiquidationDetails(Liquidation $liquidation, Collection $requirements, bool $isHEIUser): array
     {
         $financial = $liquidation->financial;
         $totalDisbursed = $liquidation->beneficiaries->sum('amount');
         $transmittal = $liquidation->transmittal;
+
+        // Compute document completeness from already-loaded collections (zero extra queries)
+        $totalReqs = $requirements->count();
+        $fulfilled = $totalReqs > 0
+            ? $liquidation->documents->whereNotNull('document_requirement_id')
+                ->pluck('document_requirement_id')
+                ->unique()
+                ->count()
+            : 0;
+        $isRequirementsComplete = $totalReqs > 0 && $fulfilled >= $totalReqs;
 
         $reviewHistory = $liquidation->reviews
             ->filter(fn($r) => in_array($r->reviewType?->code, [LiquidationReview::TYPE_RC_RETURN, LiquidationReview::TYPE_HEI_RESUBMISSION]))
@@ -958,14 +1049,28 @@ class LiquidationController extends Controller
                 'amount' => $b->amount,
                 'remarks' => $b->remarks,
             ]),
-            'documents' => $liquidation->documents->map(fn ($doc) => [
-                'id' => $doc->id,
-                'file_name' => $doc->file_name,
-                'file_path' => $doc->file_path,
-                'uploaded_at' => $doc->created_at->format('Y-m-d H:i:s'),
-                'is_gdrive' => $doc->is_gdrive ?? false,
-                'gdrive_link' => $doc->gdrive_link,
-            ]),
+            'documents' => $liquidation->documents
+                // RC can only see requirement documents when all requirements are fulfilled
+                ->when(!$isHEIUser && !$isRequirementsComplete, fn ($docs) =>
+                    $docs->filter(fn ($doc) => $doc->document_requirement_id === null)
+                )
+                ->map(fn ($doc) => [
+                    'id' => $doc->id,
+                    'document_requirement_id' => $doc->document_requirement_id,
+                    'document_type' => $doc->document_type,
+                    'file_name' => $doc->file_name,
+                    'file_path' => $doc->file_path,
+                    'file_size' => $doc->file_size,
+                    'uploaded_at' => $doc->created_at->format('Y-m-d H:i:s'),
+                    'is_gdrive' => $doc->is_gdrive ?? false,
+                    'gdrive_link' => $doc->gdrive_link,
+                ])
+                ->values(),
+            'document_completeness' => [
+                'total' => $totalReqs,
+                'fulfilled' => $fulfilled,
+                'percentage' => $totalReqs > 0 ? round(($fulfilled / $totalReqs) * 100) : 0,
+            ],
             'tracking_entries' => $liquidation->trackingEntries->map(fn ($entry) => [
                 'id'                 => $entry->id,
                 'document_status'    => $entry->documentStatus?->name    ?? 'No Submission',

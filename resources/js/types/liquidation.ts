@@ -13,11 +13,28 @@ export interface Beneficiary {
 
 export interface LiquidationDocument {
     id: number;
+    document_requirement_id?: string | null;
+    document_type: string;
     file_name: string;
     file_path: string;
+    file_size: number;
     uploaded_at: string;
     is_gdrive?: boolean;
     gdrive_link?: string;
+}
+
+export interface DocumentRequirement {
+    id: string;
+    code: string;
+    name: string;
+    description: string | null;
+    is_required: boolean;
+}
+
+export interface DocumentCompleteness {
+    total: number;
+    fulfilled: number;
+    percentage: number;
 }
 
 export interface ReviewHistoryEntry {
@@ -105,6 +122,7 @@ export interface Liquidation {
     liquidation_status?: string;
     date_submitted?: string | null;
     created_by_name?: string | null;
+    document_completeness?: DocumentCompleteness;
 }
 
 export interface LiquidationUser {
@@ -130,6 +148,7 @@ export interface ShowPageProps {
     regionalCoordinators: LiquidationUser[];
     accountants: LiquidationUser[];
     documentLocations: string[];
+    documentRequirements: DocumentRequirement[];
     permissions: ShowPagePermissions;
     userRole: string;
 }

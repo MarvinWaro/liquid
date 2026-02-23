@@ -402,13 +402,13 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
                                                     <XAxis
                                                         dataKey="name"
-                                                        tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
+                                                        tick={{ fontSize: 11, fill: '#94a3b8' }}
                                                         tickLine={false}
                                                         axisLine={false}
                                                     />
                                                     <YAxis
                                                         tickFormatter={formatYAxis}
-                                                        tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
+                                                        tick={{ fontSize: 11, fill: '#94a3b8' }}
                                                         tickLine={false}
                                                         axisLine={false}
                                                         width={50}
@@ -615,13 +615,13 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
                                                     <XAxis
                                                         dataKey="name"
-                                                        tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
+                                                        tick={{ fontSize: 11, fill: '#94a3b8' }}
                                                         tickLine={false}
                                                         axisLine={false}
                                                     />
                                                     <YAxis
                                                         tickFormatter={formatYAxis}
-                                                        tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
+                                                        tick={{ fontSize: 11, fill: '#94a3b8' }}
                                                         tickLine={false}
                                                         axisLine={false}
                                                         width={50}
@@ -1009,13 +1009,13 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
                                                     <XAxis
                                                         dataKey="name"
-                                                        tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
+                                                        tick={{ fontSize: 11, fill: '#94a3b8' }}
                                                         tickLine={false}
                                                         axisLine={false}
                                                     />
                                                     <YAxis
                                                         tickFormatter={formatYAxis}
-                                                        tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
+                                                        tick={{ fontSize: 11, fill: '#94a3b8' }}
                                                         tickLine={false}
                                                         axisLine={false}
                                                         width={50}
@@ -1412,13 +1412,13 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                                         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
                                                         <XAxis
                                                             dataKey="name"
-                                                            tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
+                                                            tick={{ fontSize: 11, fill: '#94a3b8' }}
                                                             tickLine={false}
                                                             axisLine={false}
                                                         />
                                                         <YAxis
                                                             tickFormatter={formatYAxis}
-                                                            tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
+                                                            tick={{ fontSize: 11, fill: '#94a3b8' }}
                                                             tickLine={false}
                                                             axisLine={false}
                                                             width={50}

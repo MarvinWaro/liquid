@@ -48,6 +48,18 @@ class PermissionSeeder extends Seeder
                 ['name' => 'review_liquidation', 'description' => 'Review liquidation documents'],
                 ['name' => 'endorse_liquidation', 'description' => 'Endorse liquidation to accounting'],
             ],
+            'Programs' => [
+                ['name' => 'view_programs', 'description' => 'View programs list'],
+                ['name' => 'create_programs', 'description' => 'Create new programs'],
+                ['name' => 'edit_programs', 'description' => 'Edit existing programs'],
+                ['name' => 'delete_programs', 'description' => 'Delete programs'],
+            ],
+            'Document Requirements' => [
+                ['name' => 'view_document_requirements', 'description' => 'View document requirements list'],
+                ['name' => 'create_document_requirements', 'description' => 'Create new document requirements'],
+                ['name' => 'edit_document_requirements', 'description' => 'Edit existing document requirements'],
+                ['name' => 'delete_document_requirements', 'description' => 'Delete document requirements'],
+            ],
             'Reports' => [
                 ['name' => 'view_reports', 'description' => 'View reports'],
                 ['name' => 'export_reports', 'description' => 'Export reports to Excel'],
@@ -82,6 +94,8 @@ class PermissionSeeder extends Seeder
             'view_hei', 'create_hei', 'edit_hei', 'delete_hei', 'sync_hei_api',
             'view_regions', 'create_regions', 'edit_regions', 'delete_regions',
             'view_liquidation', 'create_liquidation', 'edit_liquidation', 'delete_liquidation',
+            'view_programs', 'create_programs', 'edit_programs', 'delete_programs',
+            'view_document_requirements', 'create_document_requirements', 'edit_document_requirements', 'delete_document_requirements',
             'view_reports', 'export_reports', 'view_dashboard',
         ]);
 

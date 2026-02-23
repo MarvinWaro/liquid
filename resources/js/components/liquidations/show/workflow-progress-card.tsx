@@ -1,20 +1,28 @@
 import { useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { VerticalStepper } from '@/components/ui/vertical-stepper';
+import AvatarStack from '@/components/liquidations/show/avatar-stack';
 import type { Liquidation } from '@/types/liquidation';
 
 interface WorkflowProgressCardProps {
     liquidation: Liquidation;
     isHEIUser: boolean;
+    avatarMap: Record<string, string>;
+    rcReviewerName?: string | null;
 }
 
-function getWorkflowSteps(liquidation: Liquidation, isHEIUser: boolean) {
+function getWorkflowSteps(liquidation: Liquidation, isHEIUser: boolean, avatarMap: Record<string, string>, rcReviewerName?: string | null) {
     const normalizedStatus = liquidation.liquidation_status?.toLowerCase().replace(/\s+/g, '_') || 'draft';
+    const reviewerName = rcReviewerName || liquidation.reviewed_by_name;
+
+    const rcReviewerAvatar = reviewerName ? (
+        <AvatarStack namesStr={reviewerName} avatarMap={avatarMap} />
+    ) : undefined;
 
     if (isHEIUser) {
         const heiSteps = [
             { label: 'HEI Submission', description: 'Draft & Submit' },
-            { label: 'RC Review', description: 'Regional Coordinator' },
+            { label: 'RC Review', description: 'Regional Coordinator', extra: rcReviewerAvatar },
             { label: 'Completed', description: 'Liquidation Complete' },
         ];
 
@@ -32,7 +40,7 @@ function getWorkflowSteps(liquidation: Liquidation, isHEIUser: boolean) {
 
     const rcSteps = [
         { label: 'HEI Submission', description: 'Draft & Submit' },
-        { label: 'RC Review', description: 'Regional Coordinator' },
+        { label: 'RC Review', description: 'Regional Coordinator', extra: rcReviewerAvatar },
         { label: 'Accounting Review', description: 'Financial Verification' },
         { label: 'COA Endorsement', description: 'Final Approval' },
     ];
@@ -58,8 +66,8 @@ function getWorkflowSteps(liquidation: Liquidation, isHEIUser: boolean) {
     return { steps: rcSteps, currentStep: stepMap[normalizedStatus] || 1, isFullyCompleted: false, lastCompletedStep: undefined };
 }
 
-export default function WorkflowProgressCard({ liquidation, isHEIUser }: WorkflowProgressCardProps) {
-    const workflowState = useMemo(() => getWorkflowSteps(liquidation, isHEIUser), [liquidation, isHEIUser]);
+export default function WorkflowProgressCard({ liquidation, isHEIUser, avatarMap, rcReviewerName }: WorkflowProgressCardProps) {
+    const workflowState = useMemo(() => getWorkflowSteps(liquidation, isHEIUser, avatarMap, rcReviewerName), [liquidation, isHEIUser, avatarMap, rcReviewerName]);
 
     return (
         <Card className="flex-1">

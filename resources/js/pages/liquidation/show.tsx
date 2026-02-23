@@ -11,6 +11,8 @@ import WorkflowProgressCard from '@/components/liquidations/show/workflow-progre
 import LatestTrackingSummary from '@/components/liquidations/show/latest-tracking-summary';
 import DocumentTrackingTable from '@/components/liquidations/show/document-tracking-table';
 import RunningDataTable from '@/components/liquidations/show/running-data-table';
+import HeiDocumentUpload from '@/components/liquidations/show/hei-document-upload';
+import RcLetterUpload from '@/components/liquidations/show/rc-letter-upload';
 import { useAvatarMap } from '@/components/liquidations/show/avatar-stack';
 
 // Endorsement modals
@@ -34,6 +36,7 @@ export default function Show({
     regionalCoordinators,
     accountants,
     documentLocations,
+    documentRequirements,
     permissions,
     userRole,
 }: ShowPageProps) {
@@ -68,6 +71,13 @@ export default function Show({
             ? liquidation.tracking_entries
             : []
     );
+
+    // ── RC reviewer name (from tracking entries as fallback) ──
+    const rcReviewerName = useMemo(() => {
+        if (liquidation.reviewed_by_name) return liquidation.reviewed_by_name;
+        const latest = trackingEntries[trackingEntries.length - 1];
+        return latest?.reviewed_by || null;
+    }, [liquidation.reviewed_by_name, trackingEntries]);
 
     // ── Running data total (for LiquidationDetailsCard) ──
     const initialRunningTotal = useMemo(() => {
@@ -167,6 +177,8 @@ export default function Show({
                         <WorkflowProgressCard
                             liquidation={liquidation}
                             isHEIUser={isHEIUser}
+                            avatarMap={avatarMap}
+                            rcReviewerName={rcReviewerName}
                         />
                     </div>
                 </div>
@@ -196,6 +208,22 @@ export default function Show({
                     totalGrantees={totalGrantees}
                     isHEIUser={isHEIUser}
                     onTotalLiquidatedChange={setRunningDataTotalLiquidated}
+                />
+
+                {/* HEI Document Requirements */}
+                <HeiDocumentUpload
+                    liquidationId={liquidation.id}
+                    documents={liquidation.documents ?? []}
+                    requirements={documentRequirements}
+                    completeness={liquidation.document_completeness}
+                    isHEIUser={isHEIUser}
+                />
+
+                {/* RC Letter Upload */}
+                <RcLetterUpload
+                    liquidationId={liquidation.id}
+                    documents={liquidation.documents ?? []}
+                    userRole={userRole}
                 />
             </div>
 

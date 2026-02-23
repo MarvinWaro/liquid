@@ -18,7 +18,7 @@ class HEIController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        $heis = HEI::with('region')->orderBy('name', 'asc')->get();
+        $heis = HEI::with('region')->orderBy('name')->get();
         $regions = Region::where('status', 'active')->orderBy('name')->get(['id', 'code', 'name']);
 
         return Inertia::render('hei/index', [
@@ -38,7 +38,7 @@ class HEIController extends Controller
 
         $validated = $request->validate([
             'uii' => 'required|string|max:50|unique:heis,uii',
-            'name' => 'required|string|max:255|unique:heis,name',
+            'name' => 'required|string|max:255',
             'type' => 'required|in:Private,SUC,LUC',
             'region_id' => 'nullable|exists:regions,id',
             'status' => 'required|in:active,inactive',
@@ -59,7 +59,7 @@ class HEIController extends Controller
 
         $validated = $request->validate([
             'uii' => ['required', 'string', 'max:50', Rule::unique('heis')->ignore($hei->id)],
-            'name' => ['required', 'string', 'max:255', Rule::unique('heis')->ignore($hei->id)],
+            'name' => 'required|string|max:255',
             'type' => 'required|in:Private,SUC,LUC',
             'region_id' => 'nullable|exists:regions,id',
             'status' => 'required|in:active,inactive',

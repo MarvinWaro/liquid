@@ -29,6 +29,8 @@ export interface NavigationAbilities {
     canViewUsers: boolean;
     canViewHEI: boolean;
     canViewRegions: boolean;
+    canViewPrograms: boolean;
+    canViewDocumentRequirements: boolean;
 }
 
 export interface SharedData {
