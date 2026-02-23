@@ -17,7 +17,7 @@ class RegionController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        $regions = Region::orderBy('name', 'asc')->get();
+        $regions = Region::orderBy('name')->get();
 
         return Inertia::render('regions/index', [
             'regions' => $regions,

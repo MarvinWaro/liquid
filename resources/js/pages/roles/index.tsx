@@ -104,10 +104,10 @@ export default function Index({
                 <div className="mx-auto w-full max-w-[95%]">
                     <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
                         <div>
-                            <h2 className="text-3xl font-bold tracking-tight">
+                            <h2 className="text-xl font-semibold tracking-tight">
                                 Roles & Permissions
                             </h2>
-                            <p className="mt-1 text-muted-foreground">
+                            <p className="mt-1 text-sm text-muted-foreground">
                                 Manage access control levels and assign
                                 permissions to specific roles.
                             </p>
@@ -140,14 +140,14 @@ export default function Index({
 
                     <Table>
                         <TableHeader>
-                            <TableRow>
-                                <TableHead className="h-12 pl-6">
+                            <TableRow className="hover:bg-transparent border-b">
+                                <TableHead className="h-9 pl-6 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                                     Role Name
                                 </TableHead>
-                                <TableHead>Description</TableHead>
-                                <TableHead>Users</TableHead>
-                                <TableHead>Permissions</TableHead>
-                                <TableHead className="pr-6 text-right">
+                                <TableHead className="h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">Description</TableHead>
+                                <TableHead className="h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">Users</TableHead>
+                                <TableHead className="h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">Permissions</TableHead>
+                                <TableHead className="pr-6 text-right h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                                     Actions
                                 </TableHead>
                             </TableRow>
@@ -174,34 +174,23 @@ export default function Index({
                                         key={role.id}
                                         className="transition-colors hover:bg-muted/50"
                                     >
-                                        <TableCell className="py-4 pl-6 font-medium">
-                                            <div className="flex items-center gap-3">
-                                                {/* Icon Logic: Lock for Super Admin, Shield for others */}
-                                                <div
-                                                    className={`rounded-lg p-2 ${
-                                                        role.name ===
-                                                        'Super Admin'
-                                                            ? 'bg-amber-100 text-amber-700'
-                                                            : 'bg-primary/10 text-primary'
-                                                    }`}
-                                                >
-                                                    {role.name ===
-                                                    'Super Admin' ? (
-                                                        <Lock className="h-4 w-4" />
-                                                    ) : (
-                                                        <Shield className="h-4 w-4" />
-                                                    )}
-                                                </div>
-                                                <span className="text-base">
+                                        <TableCell className="py-2 pl-6 font-medium">
+                                            <div className="flex items-center gap-2">
+                                                {role.name === 'Super Admin' ? (
+                                                    <Lock className="h-3.5 w-3.5 text-amber-500" />
+                                                ) : (
+                                                    <Shield className="h-3.5 w-3.5 text-muted-foreground" />
+                                                )}
+                                                <span className="text-sm">
                                                     {role.name}
                                                 </span>
                                             </div>
                                         </TableCell>
-                                        <TableCell className="max-w-md truncate text-muted-foreground">
+                                        <TableCell className="py-2 max-w-md truncate text-sm text-muted-foreground">
                                             {role.description ||
                                                 'No description provided'}
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2">
                                             <Badge
                                                 variant="secondary"
                                                 className="font-normal"
@@ -212,7 +201,7 @@ export default function Index({
                                                     : 'users'}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2">
                                             {/* Permission Logic: Show "All" for Super Admin */}
                                             <Badge
                                                 variant="outline"
@@ -223,7 +212,7 @@ export default function Index({
                                                     : `${role.permissions.length} permissions`}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell className="pr-6 text-right">
+                                        <TableCell className="pr-6 py-2 text-right">
                                             {/* Action Logic: Hide buttons if Super Admin */}
                                             {role.name === 'Super Admin' ? (
                                                 <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground italic">

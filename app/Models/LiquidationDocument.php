@@ -13,6 +13,7 @@ class LiquidationDocument extends Model
 
     protected $fillable = [
         'liquidation_id',
+        'document_requirement_id',
         'document_type',
         'file_name',
         'file_path',
@@ -34,6 +35,14 @@ class LiquidationDocument extends Model
     public function liquidation(): BelongsTo
     {
         return $this->belongsTo(Liquidation::class);
+    }
+
+    /**
+     * Get the document requirement this fulfills.
+     */
+    public function documentRequirement(): BelongsTo
+    {
+        return $this->belongsTo(DocumentRequirement::class);
     }
 
     /**

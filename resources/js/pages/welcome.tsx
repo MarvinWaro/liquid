@@ -142,13 +142,13 @@ export default function Welcome() {
                         {/* Title Block */}
                         <div className="space-y-1 sm:space-y-2">
                             <h1
-                                className="anim-title text-3xl sm:text-6xl md:text-7xl lg:text-8xl font-light tracking-[0.3em] leading-none text-[#494444]"
+                                className="anim-title text-3xl sm:text-6xl md:text-7xl lg:text-8xl font-light tracking-[0.1em] leading-none text-[#494444]"
                                 style={{ fontFamily: '"Copperplate Gothic", "Copperplate", "Copperplate Gothic Bold", serif' }}
                             >
                                 Liquidation
                             </h1>
                             <p
-                                className="anim-subtitle text-3xl sm:text-3xl md:text-4xl lg:text-7xl font-normal italic text-[#0253ff] tracking-[0.05em] leading-tight"
+                                className="anim-subtitle text-3xl sm:text-3xl md:text-4xl lg:text-6xl font-normal italic text-[#0253ff] tracking-[0.05em] leading-tight"
                                 style={{ fontFamily: '"Canvas Sans", "Georgia", serif' }}
                             >
                                 Management System

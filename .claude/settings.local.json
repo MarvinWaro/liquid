@@ -30,7 +30,9 @@
       "Bash(awk:*)",
       "Bash(find:*)",
       "Bash(powershell -c:*)",
-      "Bash(1:*)"
+      "Bash(1:*)",
+      "Bash(C:/php/php.exe \"c:/Users/MARVIN/projects/liquid/artisan\" list)",
+      "Bash(echo:*)"
     ]
   }
 }

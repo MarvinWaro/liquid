@@ -185,14 +185,14 @@ export default function Index({
 
             <div className="w-full py-8">
                 {/* Maximized width container */}
-                <div className="mx-auto w-full max-w-[100%]">
+                <div className="mx-auto w-full max-w-[95%]">
                     {/* Header Section */}
                     <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
                         <div>
-                            <h2 className="text-3xl font-bold tracking-tight">
+                            <h2 className="text-xl font-semibold tracking-tight">
                                 User Management
                             </h2>
-                            <p className="mt-1 text-muted-foreground">
+                            <p className="mt-1 text-sm text-muted-foreground">
                                 Manage system users, assign roles, and monitor
                                 account status.
                             </p>
@@ -293,16 +293,16 @@ export default function Index({
                     </div>
                     <Table>
                         <TableHeader>
-                            <TableRow>
-                                <TableHead className="h-12 pl-6">
+                            <TableRow className="hover:bg-transparent border-b">
+                                <TableHead className="h-9 pl-6 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                                     User
                                 </TableHead>
-                                <TableHead>Role</TableHead>
-                                <TableHead>Region</TableHead>
-                                <TableHead>Institution</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead>Joined Date</TableHead>
-                                <TableHead className="pr-6 text-right">
+                                <TableHead className="h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">Role</TableHead>
+                                <TableHead className="h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">Region</TableHead>
+                                <TableHead className="h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">Institution</TableHead>
+                                <TableHead className="h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</TableHead>
+                                <TableHead className="h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">Joined Date</TableHead>
+                                <TableHead className="pr-6 text-right h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                                     Actions
                                 </TableHead>
                             </TableRow>
@@ -329,46 +329,29 @@ export default function Index({
                                         key={user.id}
                                         className="transition-colors hover:bg-muted/50"
                                     >
-                                        <TableCell className="py-4 pl-6">
-                                            <div className="flex items-center gap-3">
-                                                {/* Avatar Logic: ShieldAlert for Super Admin */}
-                                                <div
-                                                    className={`flex h-9 w-9 items-center justify-center rounded-full font-semibold ${
-                                                        user.role?.name ===
-                                                        'Super Admin'
-                                                            ? 'bg-amber-100 text-amber-700'
-                                                            : 'bg-primary/10 text-primary'
-                                                    }`}
-                                                >
-                                                    {user.role?.name ===
-                                                    'Super Admin' ? (
-                                                        <ShieldAlert className="h-4 w-4" />
-                                                    ) : (
-                                                        user.name
-                                                            .charAt(0)
-                                                            .toUpperCase()
+                                        <TableCell className="py-2 pl-6">
+                                            <div className="flex flex-col">
+                                                <span className="flex items-center gap-2 text-sm font-medium">
+                                                    {user.role?.name === 'Super Admin' && (
+                                                        <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />
                                                     )}
-                                                </div>
-                                                <div className="flex flex-col">
-                                                    <span className="flex items-center gap-2 text-sm font-medium">
-                                                        {user.name}
-                                                        {user.id ===
-                                                            auth.user.id && (
-                                                            <Badge
-                                                                variant="secondary"
-                                                                className="h-5 px-1.5 text-[10px]"
-                                                            >
-                                                                You
-                                                            </Badge>
-                                                        )}
-                                                    </span>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {user.email}
-                                                    </span>
-                                                </div>
+                                                    {user.name}
+                                                    {user.id ===
+                                                        auth.user.id && (
+                                                        <Badge
+                                                            variant="secondary"
+                                                            className="h-5 px-1.5 text-[10px]"
+                                                        >
+                                                            You
+                                                        </Badge>
+                                                    )}
+                                                </span>
+                                                <span className="text-xs text-muted-foreground">
+                                                    {user.email}
+                                                </span>
                                             </div>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2">
                                             <Badge
                                                 variant="outline"
                                                 className="border-border bg-background"
@@ -376,7 +359,7 @@ export default function Index({
                                                 {user.role?.name || 'No Role'}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2">
                                             {(() => {
                                                 // Get region from user directly or from their HEI
                                                 const region =
@@ -401,7 +384,7 @@ export default function Index({
                                                 );
                                             })()}
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2">
                                             {user.hei ? (
                                                 <div className="flex flex-col">
                                                     <span className="text-sm font-medium">
@@ -417,7 +400,7 @@ export default function Index({
                                                 </span>
                                             )}
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2">
                                             <Badge
                                                 className={`${
                                                     user.status === 'active'
@@ -437,7 +420,7 @@ export default function Index({
                                                     : 'Inactive'}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell className="text-sm text-muted-foreground">
+                                        <TableCell className="py-2 text-sm text-muted-foreground">
                                             {new Date(
                                                 user.created_at,
                                             ).toLocaleDateString(undefined, {
@@ -446,7 +429,7 @@ export default function Index({
                                                 day: 'numeric',
                                             })}
                                         </TableCell>
-                                        <TableCell className="pr-6 text-right">
+                                        <TableCell className="pr-6 py-2 text-right">
                                             <div className="flex items-center justify-end gap-1">
                                                 {/* Protection Logic: If user is Super Admin AND NOT current user -> Lock it */}
                                                 {user.role?.name ===

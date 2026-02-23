@@ -56,6 +56,8 @@ class HandleInertiaRequests extends Middleware
                 'canViewUsers' => false,
                 'canViewHEI' => false,
                 'canViewRegions' => false,
+                'canViewPrograms' => false,
+                'canViewDocumentRequirements' => false,
             ],
 
             'flash' => [

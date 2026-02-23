@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Traits\HasUuid;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Program extends Model
 {
@@ -19,9 +20,17 @@ class Program extends Model
     /**
      * Get liquidations for this program.
      */
-    public function liquidations()
+    public function liquidations(): HasMany
     {
         return $this->hasMany(Liquidation::class);
+    }
+
+    /**
+     * Get document requirements for this program.
+     */
+    public function documentRequirements(): HasMany
+    {
+        return $this->hasMany(DocumentRequirement::class);
     }
 
     /**

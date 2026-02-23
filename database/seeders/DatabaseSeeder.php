@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
             RegionSeeder::class,          // R12, BARMM regions (no deps)
             HEISeeder::class,             // HEIs — depends on RegionSeeder
             DocumentLocationSeeder::class, // shelf locations (no deps)
+            DocumentRequirementSeeder::class, // document requirements (no deps)
         ]);
     }
 }
