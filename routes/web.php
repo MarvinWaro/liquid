@@ -9,6 +9,7 @@ use App\Http\Controllers\HEIController;
 use App\Http\Controllers\RegionController;
 use App\Http\Controllers\LiquidationController;
 use App\Http\Controllers\ProgramController;
+use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\DocumentRequirementController;
 
 Route::get('/', function () {
@@ -52,6 +53,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('document-requirements', [DocumentRequirementController::class, 'store'])->name('document-requirements.store');
     Route::put('document-requirements/{requirement}', [DocumentRequirementController::class, 'update'])->name('document-requirements.update');
     Route::delete('document-requirements/{requirement}', [DocumentRequirementController::class, 'destroy'])->name('document-requirements.destroy');
+
+    // Activity Log Routes
+    Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
 
     // Region Management Routes
     Route::get('regions', [RegionController::class, 'index'])->name('regions.index');

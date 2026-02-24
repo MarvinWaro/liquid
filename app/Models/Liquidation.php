@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Traits\HasUuid;
+use App\Traits\LogsActivity;
 use App\Models\ComplianceStatus;
 use App\Models\DocumentLocation;
 use App\Models\ReviewType;
@@ -43,7 +44,44 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class Liquidation extends Model
 {
-    use HasFactory, HasUuid, SoftDeletes;
+    use HasFactory, HasUuid, LogsActivity, SoftDeletes;
+
+    protected static function getActivityModule(): string
+    {
+        return 'Liquidation';
+    }
+
+    protected static function getActivityForeignKeys(): array
+    {
+        return [
+            'hei_id' => ['hei', 'name'],
+            'program_id' => ['program', 'name'],
+            'semester_id' => ['semester', 'name'],
+            'document_status_id' => ['documentStatus', 'name'],
+            'liquidation_status_id' => ['liquidationStatus', 'name'],
+        ];
+    }
+
+    protected static function getActivityFieldLabels(): array
+    {
+        return [
+            'hei_id' => 'HEI',
+            'program_id' => 'Program',
+            'semester_id' => 'Semester',
+            'document_status_id' => 'Document Status',
+            'liquidation_status_id' => 'Liquidation Status',
+            'control_no' => 'Control No.',
+            'academic_year' => 'Academic Year',
+            'batch_no' => 'Batch No.',
+            'date_submitted' => 'Date Submitted',
+            'remarks' => 'Remarks',
+        ];
+    }
+
+    protected static function getActivityHiddenFields(): array
+    {
+        return ['created_by', 'reviewed_by', 'reviewed_at', 'accountant_reviewed_by', 'accountant_reviewed_at', 'coa_endorsed_by', 'coa_endorsed_at'];
+    }
 
     /**
      * The attributes that are mass assignable.

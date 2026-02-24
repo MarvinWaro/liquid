@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Traits\HasUuid;
+use App\Traits\LogsActivity;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -14,7 +15,33 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable, TwoFactorAuthenticatable, HasUuid;
+    use HasFactory, Notifiable, TwoFactorAuthenticatable, HasUuid, LogsActivity;
+
+    protected static function getActivityModule(): string
+    {
+        return 'User Management';
+    }
+
+    protected static function getActivityForeignKeys(): array
+    {
+        return [
+            'role_id' => ['role', 'name'],
+            'hei_id' => ['hei', 'name'],
+            'region_id' => ['region', 'name'],
+        ];
+    }
+
+    protected static function getActivityFieldLabels(): array
+    {
+        return [
+            'role_id' => 'Role',
+            'hei_id' => 'HEI',
+            'region_id' => 'Region',
+            'name' => 'Name',
+            'email' => 'Email',
+            'status' => 'Status',
+        ];
+    }
 
     /**
      * The attributes that are mass assignable.
@@ -140,6 +167,7 @@ class User extends Authenticatable
             'canViewRegions' => $this->hasPermission('view_regions'),
             'canViewPrograms' => $this->hasPermission('view_programs'),
             'canViewDocumentRequirements' => $this->hasPermission('view_document_requirements'),
+            'canViewActivityLogs' => $this->hasPermission('view_activity_logs'),
         ];
     }
 

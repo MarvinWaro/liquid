@@ -174,7 +174,7 @@ class CacheService
             return DocumentRequirement::active()
                 ->ordered()
                 ->forProgram($programId)
-                ->get(['id', 'code', 'name', 'description', 'is_required', 'sort_order']);
+                ->get(['id', 'code', 'name', 'description', 'reference_image_path', 'upload_message', 'is_required', 'sort_order']);
         });
     }
 

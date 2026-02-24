@@ -3,13 +3,19 @@
 namespace App\Models;
 
 use App\Traits\HasUuid;
+use App\Traits\LogsActivity;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Region extends Model
 {
-    use HasFactory, HasUuid;
+    use HasFactory, HasUuid, LogsActivity;
+
+    protected static function getActivityModule(): string
+    {
+        return 'Regions';
+    }
 
     protected $fillable = [
         'code',

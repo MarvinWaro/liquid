@@ -275,6 +275,7 @@ export default function Index({
                             </Select>
                         </div>
 
+                        <div className="overflow-hidden rounded-lg border">
                         <Table>
                             <TableHeader>
                                 <TableRow className="border-b hover:bg-transparent">
@@ -518,6 +519,7 @@ export default function Index({
                                     </Button>
                                 </div>
                             )}
+                        </div>
                         </div>
                     </div>
                 </div>

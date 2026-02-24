@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Traits\HasUuid;
+use App\Traits\LogsActivity;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -30,7 +31,34 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class LiquidationFinancial extends Model
 {
-    use HasFactory, HasUuid;
+    use HasFactory, HasUuid, LogsActivity;
+
+    protected static function getActivityModule(): string
+    {
+        return 'Liquidation';
+    }
+
+    protected static function getActivityFieldLabels(): array
+    {
+        return [
+            'date_fund_released' => 'Date of Fund Release',
+            'due_date' => 'Due Date',
+            'fund_source' => 'Fund Source',
+            'amount_received' => 'Amount Received',
+            'amount_disbursed' => 'Amount Disbursed',
+            'amount_liquidated' => 'Amount Liquidated',
+            'amount_refunded' => 'Amount Refunded',
+            'disbursement_date' => 'Disbursement Date',
+            'number_of_grantees' => 'Number of Grantees',
+            'or_number' => 'OR Number',
+            'purpose' => 'Purpose',
+        ];
+    }
+
+    protected static function getActivityHiddenFields(): array
+    {
+        return ['liquidation_id'];
+    }
 
     /**
      * The attributes that are mass assignable.

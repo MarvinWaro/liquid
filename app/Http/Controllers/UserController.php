@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\Role;
 use App\Models\Region;
 use App\Models\HEI;
+use App\Models\ActivityLog;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -132,9 +133,13 @@ class UserController extends Controller
             return redirect()->back()->with('error', 'Cannot change your own status.');
         }
 
+        $newStatus = $user->status === 'active' ? 'inactive' : 'active';
+
         $user->update([
-            'status' => $user->status === 'active' ? 'inactive' : 'active',
+            'status' => $newStatus,
         ]);
+
+        ActivityLog::log('toggled_status', "Toggled user {$user->name} status to {$newStatus}", $user, 'User Management');
 
         return redirect()->back()->with('success', 'User status updated successfully.');
     }

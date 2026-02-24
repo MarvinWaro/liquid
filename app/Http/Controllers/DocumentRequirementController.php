@@ -8,6 +8,7 @@ use App\Services\CacheService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -47,20 +48,29 @@ class DocumentRequirementController extends Controller
         }
 
         $validated = $request->validate([
-            'program_id'  => 'required|exists:programs,id',
-            'code'        => [
+            'program_id'      => 'required|exists:programs,id',
+            'code'            => [
                 'required', 'string', 'max:50',
                 Rule::unique('document_requirements')->where('program_id', $request->program_id),
             ],
-            'name'        => 'required|string|max:255',
-            'description' => 'nullable|string|max:1000',
-            'sort_order'  => 'required|integer|min:0',
-            'is_required' => 'required|boolean',
-            'is_active'   => 'required|boolean',
+            'name'            => 'required|string|max:255',
+            'description'     => 'nullable|string|max:1000',
+            'upload_message'  => 'nullable|string|max:2000',
+            'reference_image' => 'nullable|image|mimes:png,jpg,jpeg,webp|max:5120',
+            'sort_order'      => 'required|integer|min:0',
+            'is_required'     => 'required|boolean',
+            'is_active'       => 'required|boolean',
         ]);
 
         $validated['code'] = strtoupper($validated['code']);
         $validated['description'] = $validated['description'] ?: null;
+        $validated['upload_message'] = $validated['upload_message'] ?: null;
+
+        if ($request->hasFile('reference_image')) {
+            $validated['reference_image_path'] = $request->file('reference_image')
+                ->store('document_requirements', 'public');
+        }
+        unset($validated['reference_image']);
 
         DocumentRequirement::create($validated);
         $this->clearRequirementCache($validated['program_id']);
@@ -75,22 +85,44 @@ class DocumentRequirementController extends Controller
         }
 
         $validated = $request->validate([
-            'program_id'  => 'required|exists:programs,id',
-            'code'        => [
+            'program_id'             => 'required|exists:programs,id',
+            'code'                   => [
                 'required', 'string', 'max:50',
                 Rule::unique('document_requirements')
                     ->where('program_id', $request->program_id)
                     ->ignore($requirement->id),
             ],
-            'name'        => 'required|string|max:255',
-            'description' => 'nullable|string|max:1000',
-            'sort_order'  => 'required|integer|min:0',
-            'is_required' => 'required|boolean',
-            'is_active'   => 'required|boolean',
+            'name'                   => 'required|string|max:255',
+            'description'            => 'nullable|string|max:1000',
+            'upload_message'         => 'nullable|string|max:2000',
+            'reference_image'        => 'nullable|image|mimes:png,jpg,jpeg,webp|max:5120',
+            'remove_reference_image' => 'nullable|boolean',
+            'sort_order'             => 'required|integer|min:0',
+            'is_required'            => 'required|boolean',
+            'is_active'              => 'required|boolean',
         ]);
 
         $validated['code'] = strtoupper($validated['code']);
         $validated['description'] = $validated['description'] ?: null;
+        $validated['upload_message'] = $validated['upload_message'] ?: null;
+
+        // Handle reference image removal
+        if ($request->boolean('remove_reference_image')) {
+            if ($requirement->reference_image_path) {
+                Storage::disk('public')->delete($requirement->reference_image_path);
+            }
+            $validated['reference_image_path'] = null;
+        }
+
+        // Handle reference image upload
+        if ($request->hasFile('reference_image')) {
+            if ($requirement->reference_image_path) {
+                Storage::disk('public')->delete($requirement->reference_image_path);
+            }
+            $validated['reference_image_path'] = $request->file('reference_image')
+                ->store('document_requirements', 'public');
+        }
+        unset($validated['reference_image'], $validated['remove_reference_image']);
 
         $oldProgramId = $requirement->program_id;
         $requirement->update($validated);
@@ -111,6 +143,9 @@ class DocumentRequirementController extends Controller
         }
 
         $programId = $requirement->program_id;
+        if ($requirement->reference_image_path) {
+            Storage::disk('public')->delete($requirement->reference_image_path);
+        }
         $requirement->delete();
         $this->clearRequirementCache($programId);
 

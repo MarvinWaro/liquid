@@ -9,7 +9,7 @@ import { show } from '@/routes/two-factor';
 import { edit as editPassword } from '@/routes/user-password';
 import { type NavItem, type NavigationAbilities, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Building2, FileText, FolderOpen, MapPin, Shield, Users } from 'lucide-react';
+import { Building2, FileText, FolderOpen, History, MapPin, Shield, Users } from 'lucide-react';
 import { type PropsWithChildren, useMemo } from 'react';
 
 const sidebarNavItems: NavItem[] = [
@@ -38,16 +38,16 @@ const sidebarNavItems: NavItem[] = [
 // Admin settings items with ability checks
 const adminNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
     {
-        title: 'Roles & Permissions',
-        href: '/roles',
-        icon: Shield,
-        ability: 'canViewRoles',
-    },
-    {
         title: 'Users',
         href: '/users',
         icon: Users,
         ability: 'canViewUsers',
+    },
+    {
+        title: 'Roles & Permissions',
+        href: '/roles',
+        icon: Shield,
+        ability: 'canViewRoles',
     },
     {
         title: 'HEI',
@@ -73,6 +73,12 @@ const adminNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
         icon: FileText,
         ability: 'canViewDocumentRequirements',
     },
+    {
+        title: 'Activity Logs',
+        href: '/activity-logs',
+        icon: History,
+        ability: 'canViewActivityLogs',
+    },
 ];
 
 interface SettingsLayoutProps extends PropsWithChildren {
@@ -92,6 +98,7 @@ export default function SettingsLayout({ children, wide = false }: SettingsLayou
         canViewRegions: false,
         canViewPrograms: false,
         canViewDocumentRequirements: false,
+        canViewActivityLogs: false,
     };
 
     // Filter admin nav items based on user abilities

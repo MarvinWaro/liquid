@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useForm } from '@inertiajs/react';
+import { X } from 'lucide-react';
 import {
     Dialog,
     DialogContent,
@@ -30,6 +31,8 @@ interface DocumentRequirement {
     code: string;
     name: string;
     description: string | null;
+    reference_image_url: string | null;
+    upload_message: string | null;
     sort_order: number;
     is_required: boolean;
     is_active: boolean;
@@ -50,23 +53,31 @@ export function DocumentRequirementModal({
     programs,
     defaultProgramId,
 }: DocumentRequirementModalProps) {
-    const { data, setData, post, put, processing, errors, reset } = useForm<{
+    const { data, setData, post, processing, errors, reset, transform } = useForm<{
         program_id: string;
         code: string;
         name: string;
         description: string;
+        upload_message: string;
         sort_order: number;
         is_required: boolean;
         is_active: boolean;
+        reference_image: File | null;
+        remove_reference_image: boolean;
     }>({
         program_id: '',
         code: '',
         name: '',
         description: '',
+        upload_message: '',
         sort_order: 0,
         is_required: true,
         is_active: true,
+        reference_image: null,
+        remove_reference_image: false,
     });
+
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
     useEffect(() => {
         if (requirement) {
@@ -75,12 +86,17 @@ export function DocumentRequirementModal({
                 code: requirement.code || '',
                 name: requirement.name || '',
                 description: requirement.description || '',
+                upload_message: requirement.upload_message || '',
                 sort_order: requirement.sort_order ?? 0,
                 is_required: requirement.is_required,
                 is_active: requirement.is_active,
+                reference_image: null,
+                remove_reference_image: false,
             });
+            setPreviewUrl(requirement.reference_image_url ?? null);
         } else {
             reset();
+            setPreviewUrl(null);
             if (defaultProgramId) {
                 setData('program_id', defaultProgramId);
             }
@@ -90,15 +106,21 @@ export function DocumentRequirementModal({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
+        const onSuccess = () => { onClose(); reset(); setPreviewUrl(null); };
+
         if (requirement) {
-            put(route('document-requirements.update', requirement.id), {
+            // Use POST with _method spoofing for FormData compatibility
+            transform((d) => ({ ...d, _method: 'put' }));
+            post(route('document-requirements.update', requirement.id), {
                 preserveScroll: true,
-                onSuccess: () => { onClose(); reset(); },
+                forceFormData: true,
+                onSuccess,
             });
         } else {
+            transform((d) => d);
             post(route('document-requirements.store'), {
                 preserveScroll: true,
-                onSuccess: () => { onClose(); reset(); },
+                onSuccess,
             });
         }
     };
@@ -197,6 +219,75 @@ export function DocumentRequirementModal({
                         />
                         {errors.description && (
                             <p className="text-sm text-red-500 mt-1">{errors.description}</p>
+                        )}
+                    </div>
+
+                    {/* Reference Image */}
+                    <div>
+                        <Label>Reference Image</Label>
+                        <p className="text-xs text-muted-foreground mb-2">
+                            Upload a screenshot or image sample (max 5MB, png/jpg/webp)
+                        </p>
+
+                        {previewUrl && !data.remove_reference_image && (
+                            <div className="relative mb-2 rounded-md border overflow-hidden">
+                                <img
+                                    src={previewUrl}
+                                    alt="Reference preview"
+                                    className="w-full max-h-40 object-contain bg-gray-50"
+                                />
+                                <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="icon"
+                                    className="absolute top-1 right-1 h-6 w-6"
+                                    onClick={() => {
+                                        setPreviewUrl(null);
+                                        setData(prev => ({
+                                            ...prev,
+                                            remove_reference_image: true,
+                                            reference_image: null,
+                                        }));
+                                    }}
+                                >
+                                    <X className="h-3 w-3" />
+                                </Button>
+                            </div>
+                        )}
+
+                        <Input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            onChange={(e) => {
+                                const file = e.target.files?.[0] ?? null;
+                                setData(prev => ({
+                                    ...prev,
+                                    reference_image: file,
+                                    remove_reference_image: false,
+                                }));
+                                if (file) {
+                                    setPreviewUrl(URL.createObjectURL(file));
+                                }
+                            }}
+                        />
+                        {errors.reference_image && (
+                            <p className="text-sm text-red-500 mt-1">{errors.reference_image}</p>
+                        )}
+                    </div>
+
+                    {/* Upload Confirmation Message */}
+                    <div>
+                        <Label htmlFor="upload_message">Upload Confirmation Message</Label>
+                        <Textarea
+                            id="upload_message"
+                            value={data.upload_message}
+                            onChange={(e) => setData('upload_message', e.target.value)}
+                            placeholder="Message shown to HEI before upload (leave empty for no confirmation)"
+                            rows={3}
+                            className={errors.upload_message ? 'border-red-500' : ''}
+                        />
+                        {errors.upload_message && (
+                            <p className="text-sm text-red-500 mt-1">{errors.upload_message}</p>
                         )}
                     </div>
 

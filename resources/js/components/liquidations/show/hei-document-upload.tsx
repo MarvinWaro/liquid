@@ -1,12 +1,14 @@
 import { useRef, useState, useCallback, useMemo } from 'react';
 import { router } from '@inertiajs/react';
+import axios from 'axios';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
-    Upload, FileText, Download, Trash2, Eye, Loader2,
-    ClipboardList, CheckCircle2, Circle, ExternalLink, Link2, Info,
+    Upload, FileText, Download, Trash2, Eye, Loader2, Maximize2,
+    ClipboardList, CheckCircle2, Circle, ExternalLink, Link2, Info, CircleHelp,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { LiquidationDocument, DocumentRequirement, DocumentCompleteness } from '@/types/liquidation';
@@ -45,6 +47,18 @@ export default function HeiDocumentUpload({
     const [gdriveLink, setGdriveLink] = useState('');
     const [gdriveSubmitting, setGdriveSubmitting] = useState(false);
 
+    // Confirmation popover state
+    const [pendingUpload, setPendingUpload] = useState<{
+        requirementId: string;
+        file?: File;
+        gdriveLink?: string;
+        type: 'pdf' | 'gdrive';
+        message: string;
+    } | null>(null);
+
+    // Fullscreen image viewer state
+    const [enlargedImage, setEnlargedImage] = useState<{ url: string; alt: string } | null>(null);
+
     // Memoize the document-to-requirement lookup map
     const docByRequirement = useMemo(() => {
         const map = new Map<string, LiquidationDocument>();
@@ -55,6 +69,15 @@ export default function HeiDocumentUpload({
         }
         return map;
     }, [documents]);
+
+    // Lookup requirement by ID for upload_message check
+    const requirementMap = useMemo(() => {
+        const map = new Map<string, DocumentRequirement>();
+        for (const req of requirements) {
+            map.set(req.id, req);
+        }
+        return map;
+    }, [requirements]);
 
     if (requirements.length === 0) return null;
 
@@ -79,27 +102,16 @@ export default function HeiDocumentUpload({
         formData.append('document_requirement_id', requirementId);
 
         try {
-            const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '';
-            const response = await fetch(route('liquidation.upload-document', liquidationId), {
-                method: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': csrfToken,
-                    'Accept': 'application/json',
-                },
-                body: formData,
-            });
+            const { data } = await axios.post(route('liquidation.upload-document', liquidationId), formData);
 
-            const contentType = response.headers.get('Content-Type') ?? '';
-            const data = contentType.includes('application/json') ? await response.json() : null;
-
-            if (response.ok && data?.success) {
+            if (data?.success) {
                 toast.success('Document uploaded successfully.');
-                router.reload({ only: ['liquidation'] });
+                router.reload({ only: ['liquidation'], preserveScroll: true });
             } else {
-                toast.error(data?.message ?? `Upload failed (${response.status}). Please try again.`);
+                toast.error(data?.message ?? 'Upload failed. Please try again.');
             }
-        } catch {
-            toast.error('An error occurred while uploading. Please try again.');
+        } catch (err: any) {
+            toast.error(err.response?.data?.message ?? 'An error occurred while uploading. Please try again.');
         } finally {
             setUploadingId(null);
             const ref = fileInputRefs.current[requirementId];
@@ -107,48 +119,68 @@ export default function HeiDocumentUpload({
         }
     }, [liquidationId]);
 
-    const handleGdriveSubmit = useCallback(async (requirementId: string) => {
-        if (!gdriveLink.trim()) {
+    const handleGdriveSubmit = useCallback(async (requirementId: string, link?: string) => {
+        const linkToUse = (link ?? gdriveLink).trim();
+        if (!linkToUse) {
             toast.error('Please enter a Google Drive link.');
             return;
         }
 
         setGdriveSubmitting(true);
         try {
-            const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '';
-            const response = await fetch(route('liquidation.store-gdrive-link', liquidationId), {
-                method: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': csrfToken,
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    gdrive_link: gdriveLink.trim(),
-                    document_requirement_id: requirementId,
-                }),
+            const { data } = await axios.post(route('liquidation.store-gdrive-link', liquidationId), {
+                gdrive_link: linkToUse,
+                document_requirement_id: requirementId,
             });
 
-            const contentType = response.headers.get('Content-Type') ?? '';
-            const data = contentType.includes('application/json') ? await response.json() : null;
-
-            if (response.ok && data?.success) {
+            if (data?.success) {
                 toast.success('Google Drive link added successfully.');
                 setGdriveLink('');
                 setGdriveOpenId(null);
-                router.reload({ only: ['liquidation'] });
+                router.reload({ only: ['liquidation'], preserveScroll: true });
             } else {
-                toast.error(data?.message ?? `Failed to add link (${response.status}).`);
+                toast.error(data?.message ?? 'Failed to add link.');
             }
-        } catch {
-            toast.error('An error occurred. Please try again.');
+        } catch (err: any) {
+            toast.error(err.response?.data?.message ?? 'An error occurred. Please try again.');
         } finally {
             setGdriveSubmitting(false);
         }
     }, [liquidationId, gdriveLink]);
 
+    const initiateUpload = useCallback((requirementId: string, file: File) => {
+        const req = requirementMap.get(requirementId);
+        if (req?.upload_message) {
+            setPendingUpload({ requirementId, file, type: 'pdf', message: req.upload_message });
+        } else {
+            handleUpload(requirementId, file);
+        }
+    }, [requirementMap, handleUpload]);
+
+    const initiateGdrive = useCallback((requirementId: string) => {
+        const req = requirementMap.get(requirementId);
+        if (req?.upload_message) {
+            const link = gdriveLink.trim();
+            setGdriveOpenId(null);
+            setPendingUpload({ requirementId, type: 'gdrive', gdriveLink: link, message: req.upload_message });
+        } else {
+            handleGdriveSubmit(requirementId);
+        }
+    }, [requirementMap, handleGdriveSubmit, gdriveLink]);
+
+    const confirmPendingUpload = useCallback(() => {
+        if (!pendingUpload) return;
+        if (pendingUpload.type === 'pdf' && pendingUpload.file) {
+            handleUpload(pendingUpload.requirementId, pendingUpload.file);
+        } else if (pendingUpload.type === 'gdrive') {
+            handleGdriveSubmit(pendingUpload.requirementId, pendingUpload.gdriveLink);
+        }
+        setPendingUpload(null);
+    }, [pendingUpload, handleUpload, handleGdriveSubmit]);
+
     const handleDelete = useCallback((documentId: number) => {
         router.delete(route('liquidation.delete-document', documentId), {
+            preserveScroll: true,
             onError: () => toast.error('Failed to delete document.'),
         });
     }, []);
@@ -267,16 +299,45 @@ export default function HeiDocumentUpload({
                                         <Circle className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
                                     )}
                                     <div className="flex-1 min-w-0">
-                                        <p className={`text-sm font-medium ${isFulfilled ? 'text-emerald-700 dark:text-emerald-300' : ''}`}>
-                                            {index + 1}. {req.name}
+                                        <p className={`text-sm font-medium flex items-center gap-1 ${isFulfilled ? 'text-emerald-700 dark:text-emerald-300' : ''}`}>
+                                            <span>{index + 1}. {req.name}</span>
                                             {req.is_required && (
-                                                <span className="text-red-400 ml-0.5">*</span>
+                                                <span className="text-red-400">*</span>
+                                            )}
+                                            {(req.description || req.reference_image_url) && (
+                                                <Popover>
+                                                    <PopoverTrigger asChild>
+                                                        <button
+                                                            type="button"
+                                                            className="inline-flex items-center text-blue-500 hover:text-blue-700 transition-colors"
+                                                            aria-label="View requirement details"
+                                                        >
+                                                            <CircleHelp className="w-4 h-4" />
+                                                        </button>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent className="w-80 p-3" side="bottom" align="start">
+                                                        {req.description && (
+                                                            <p className="text-sm text-muted-foreground mb-2">{req.description}</p>
+                                                        )}
+                                                        {req.reference_image_url && (
+                                                            <div
+                                                                className="relative rounded-md border overflow-hidden cursor-pointer group"
+                                                                onClick={() => setEnlargedImage({ url: req.reference_image_url!, alt: req.name })}
+                                                            >
+                                                                <img
+                                                                    src={req.reference_image_url}
+                                                                    alt={`${req.name} reference`}
+                                                                    className="w-full max-h-60 object-contain bg-gray-50"
+                                                                />
+                                                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                                                    <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </PopoverContent>
+                                                </Popover>
                                             )}
                                         </p>
-
-                                        {req.description && !isFulfilled && (
-                                            <p className="text-xs text-muted-foreground mt-0.5">{req.description}</p>
-                                        )}
 
                                         {/* Uploaded document info */}
                                         {doc && (
@@ -297,7 +358,7 @@ export default function HeiDocumentUpload({
                                                     className="hidden"
                                                     onChange={(e) => {
                                                         const file = e.target.files?.[0];
-                                                        if (file) handleUpload(req.id, file);
+                                                        if (file) initiateUpload(req.id, file);
                                                     }}
                                                 />
                                                 <Button
@@ -341,7 +402,7 @@ export default function HeiDocumentUpload({
                                                             onKeyDown={(e) => {
                                                                 if (e.key === 'Enter') {
                                                                     e.preventDefault();
-                                                                    handleGdriveSubmit(req.id);
+                                                                    initiateGdrive(req.id);
                                                                 }
                                                             }}
                                                         />
@@ -361,7 +422,7 @@ export default function HeiDocumentUpload({
                                                                 size="sm"
                                                                 className="h-7 text-xs"
                                                                 disabled={gdriveSubmitting || !gdriveLink.trim()}
-                                                                onClick={() => handleGdriveSubmit(req.id)}
+                                                                onClick={() => initiateGdrive(req.id)}
                                                             >
                                                                 {gdriveSubmitting ? (
                                                                     <Loader2 className="w-3 h-3 animate-spin" />
@@ -381,6 +442,61 @@ export default function HeiDocumentUpload({
                     })}
                 </div>
             </CardContent>
+
+            {/* Fullscreen image viewer */}
+            <Dialog open={enlargedImage !== null} onOpenChange={(open) => { if (!open) setEnlargedImage(null); }}>
+                <DialogContent className="max-w-[95vw] sm:max-w-[95vw] max-h-[95vh] p-2 overflow-auto">
+                    {enlargedImage && (
+                        <img
+                            src={enlargedImage.url}
+                            alt={enlargedImage.alt}
+                            className="max-w-full max-h-[88vh] object-contain mx-auto"
+                        />
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            {/* Upload confirmation dialog */}
+            <Dialog open={pendingUpload !== null} onOpenChange={(open) => {
+                if (!open) {
+                    if (pendingUpload?.type === 'pdf') {
+                        const ref = fileInputRefs.current[pendingUpload.requirementId];
+                        if (ref) ref.value = '';
+                    }
+                    setPendingUpload(null);
+                }
+            }}>
+                <DialogContent className="max-w-md p-0 overflow-hidden" showCloseButton={false}>
+                    <div className="bg-purple-50 dark:bg-purple-950/30 border-b border-purple-200 dark:border-purple-800/50 px-5 py-3">
+                        <p className="text-sm font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wide">Before you upload</p>
+                    </div>
+                    <div className="px-5 py-4">
+                        <p className="text-sm text-muted-foreground whitespace-pre-line">
+                            {pendingUpload?.message}
+                        </p>
+                    </div>
+                    <div className="flex justify-end gap-2 px-5 pb-5">
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                if (pendingUpload?.type === 'pdf') {
+                                    const ref = fileInputRefs.current[pendingUpload.requirementId];
+                                    if (ref) ref.value = '';
+                                }
+                                setPendingUpload(null);
+                            }}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            className="bg-purple-600 hover:bg-purple-700 text-white"
+                            onClick={confirmPendingUpload}
+                        >
+                            Upload
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </Card>
     );
 }

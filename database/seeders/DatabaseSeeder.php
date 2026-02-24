@@ -2,6 +2,12 @@
 
 namespace Database\Seeders;
 
+use App\Models\DocumentRequirement;
+use App\Models\HEI;
+use App\Models\Program;
+use App\Models\Region;
+use App\Models\Role;
+use App\Models\User;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
@@ -14,6 +20,14 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        // Disable activity logging during seeding to prevent flooding logs
+        $models = [Role::class, User::class, HEI::class, Region::class, Program::class, DocumentRequirement::class];
+        foreach ($models as $model) {
+            if (property_exists($model, 'loggingEnabled')) {
+                $model::$loggingEnabled = false;
+            }
+        }
+
         $this->call([
             PermissionSeeder::class,      // roles & permissions (no deps)
             ProgramSeeder::class,         // TES, TDP programs (no deps)
@@ -22,5 +36,12 @@ class DatabaseSeeder extends Seeder
             DocumentLocationSeeder::class, // shelf locations (no deps)
             DocumentRequirementSeeder::class, // document requirements (no deps)
         ]);
+
+        // Re-enable logging
+        foreach ($models as $model) {
+            if (property_exists($model, 'loggingEnabled')) {
+                $model::$loggingEnabled = true;
+            }
+        }
     }
 }

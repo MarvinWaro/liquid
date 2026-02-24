@@ -22,7 +22,7 @@ import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
-import { FileText, Pencil, Plus, Search } from 'lucide-react';
+import { FileText, ImageIcon, Pencil, Plus, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 interface Program {
@@ -37,6 +37,8 @@ interface DocumentRequirement {
     code: string;
     name: string;
     description: string | null;
+    reference_image_url: string | null;
+    upload_message: string | null;
     sort_order: number;
     is_required: boolean;
     is_active: boolean;
@@ -119,66 +121,68 @@ export default function Index({
                     }
                 />
 
-                <div className="w-full py-8">
-                    <div className="mx-auto w-full max-w-[95%]">
-                        {/* Header */}
-                        <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+                <div className="w-full">
+                    {/* Header */}
+                    <div className="mb-6 flex flex-col gap-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                             <div>
                                 <h2 className="text-xl font-semibold tracking-tight">
                                     Document Requirements
                                 </h2>
                                 <p className="mt-1 text-sm text-muted-foreground">
-                                    Manage required documents per program that
-                                    HEIs must upload.
+                                    Manage required documents per program that HEIs must upload.
                                 </p>
                             </div>
-                            <div className="flex items-center gap-3">
-                                {/* Program filter */}
-                                <Select
-                                    value={filterProgramId}
-                                    onValueChange={setFilterProgramId}
+                            {canCreate && (
+                                <Button
+                                    onClick={handleCreate}
+                                    className="bg-primary shadow-sm hover:bg-primary/90 shrink-0 self-start sm:self-auto"
                                 >
-                                    <SelectTrigger className="w-44">
-                                        <SelectValue placeholder="All programs" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">
-                                            All Programs
-                                        </SelectItem>
-                                        {programs.map((p) => (
-                                            <SelectItem key={p.id} value={p.id}>
-                                                {p.code} — {p.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-
-                                {/* Search */}
-                                <div className="relative w-56">
-                                    <Search className="absolute top-2.5 left-2.5 h-4 w-4 text-muted-foreground" />
-                                    <Input
-                                        type="search"
-                                        placeholder="Search requirements..."
-                                        className="bg-background pl-9"
-                                        value={searchQuery}
-                                        onChange={(e) =>
-                                            setSearchQuery(e.target.value)
-                                        }
-                                    />
-                                </div>
-
-                                {canCreate && (
-                                    <Button
-                                        onClick={handleCreate}
-                                        className="bg-primary shadow-sm hover:bg-primary/90"
-                                    >
-                                        <Plus className="mr-2 h-4 w-4" />
-                                        Add Requirement
-                                    </Button>
-                                )}
-                            </div>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Add Requirement
+                                </Button>
+                            )}
                         </div>
 
+                        {/* Filters row */}
+                        <div className="flex flex-wrap items-center gap-2">
+                            {/* Program filter */}
+                            <Select
+                                value={filterProgramId}
+                                onValueChange={setFilterProgramId}
+                            >
+                                <SelectTrigger className="w-44">
+                                    <SelectValue placeholder="All programs" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">
+                                        All Programs
+                                    </SelectItem>
+                                    {programs.map((p) => (
+                                        <SelectItem key={p.id} value={p.id}>
+                                            {p.code} — {p.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+
+                            {/* Search */}
+                            <div className="relative flex-1 min-w-48">
+                                <Search className="absolute top-2.5 left-2.5 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    type="search"
+                                    placeholder="Search requirements..."
+                                    className="bg-background pl-9 w-full"
+                                    value={searchQuery}
+                                    onChange={(e) =>
+                                        setSearchQuery(e.target.value)
+                                    }
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-lg border">
                         <Table>
                             <TableHeader>
                                 <TableRow className="border-b hover:bg-transparent">
@@ -254,9 +258,14 @@ export default function Index({
                                                 </span>
                                             </TableCell>
                                             <TableCell className="max-w-xs py-2">
-                                                <span className="line-clamp-1 text-sm text-muted-foreground">
-                                                    {req.description || '—'}
-                                                </span>
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="line-clamp-1 text-sm text-muted-foreground">
+                                                        {req.description || '—'}
+                                                    </span>
+                                                    {req.reference_image_url && (
+                                                        <ImageIcon className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
+                                                    )}
+                                                </div>
                                             </TableCell>
                                             <TableCell className="py-2 text-center">
                                                 <Badge

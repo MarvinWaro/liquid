@@ -28,6 +28,8 @@ export interface DocumentRequirement {
     code: string;
     name: string;
     description: string | null;
+    reference_image_url: string | null;
+    upload_message: string | null;
     is_required: boolean;
 }
 
