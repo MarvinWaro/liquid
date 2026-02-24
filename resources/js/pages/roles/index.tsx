@@ -138,6 +138,7 @@ export default function Index({
                         </div>
                     </div>
 
+                    <div className="overflow-hidden rounded-lg border">
                     <Table>
                         <TableHeader>
                             <TableRow className="hover:bg-transparent border-b">
@@ -255,6 +256,7 @@ export default function Index({
                             )}
                         </TableBody>
                     </Table>
+                    </div>
                 </div>
             </div>
             </SettingsLayout>

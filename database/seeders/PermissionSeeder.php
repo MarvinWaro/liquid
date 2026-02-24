@@ -65,6 +65,9 @@ class PermissionSeeder extends Seeder
                 ['name' => 'export_reports', 'description' => 'Export reports to Excel'],
                 ['name' => 'view_dashboard', 'description' => 'View dashboard statistics'],
             ],
+            'Activity Logs' => [
+                ['name' => 'view_activity_logs', 'description' => 'View system activity logs'],
+            ],
         ];
 
         // Create or update permissions
@@ -97,6 +100,7 @@ class PermissionSeeder extends Seeder
             'view_programs', 'create_programs', 'edit_programs', 'delete_programs',
             'view_document_requirements', 'create_document_requirements', 'edit_document_requirements', 'delete_document_requirements',
             'view_reports', 'export_reports', 'view_dashboard',
+            'view_activity_logs',
         ]);
 
         $this->createExampleRole('Regional Coordinator', 'Reviews and endorses liquidation', [

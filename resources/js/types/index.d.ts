@@ -31,6 +31,7 @@ export interface NavigationAbilities {
     canViewRegions: boolean;
     canViewPrograms: boolean;
     canViewDocumentRequirements: boolean;
+    canViewActivityLogs: boolean;
 }
 
 export interface SharedData {

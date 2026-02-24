@@ -12,6 +12,7 @@ use App\Http\Requests\Liquidation\ReturnToRCRequest;
 use App\Http\Requests\Liquidation\StoreLiquidationRequest;
 use App\Http\Requests\Liquidation\SubmitLiquidationRequest;
 use App\Http\Requests\Liquidation\UpdateLiquidationRequest;
+use App\Models\ActivityLog;
 use App\Models\DocumentLocation;
 use App\Models\DocumentRequirement;
 use App\Models\DocumentStatus;
@@ -272,6 +273,10 @@ class LiquidationController extends Controller
             ], 422);
         }
 
+        if ($imported > 0) {
+            ActivityLog::log('bulk_imported', 'Bulk imported '.$imported.' liquidation(s)', null, 'Liquidation');
+        }
+
         return $this->formatImportResponse($imported, $errors);
     }
 
@@ -389,6 +394,8 @@ class LiquidationController extends Controller
             'uploaded_by' => $request->user()->id,
         ]);
 
+        ActivityLog::log('uploaded_document', 'Uploaded document '.$file->getClientOriginalName().' to liquidation '.$liquidation->control_no, $liquidation, 'Liquidation');
+
         return response()->json(['message' => 'Document uploaded successfully.', 'success' => true]);
     }
 
@@ -439,6 +446,8 @@ class LiquidationController extends Controller
             'description' => $validated['description'] ?? null,
             'uploaded_by' => $request->user()->id,
         ]);
+
+        ActivityLog::log('added_gdrive_link', 'Added Google Drive link for liquidation '.$liquidation->control_no, $liquidation, 'Liquidation');
 
         return response()->json(['message' => 'Google Drive link added successfully.', 'success' => true]);
     }
@@ -498,7 +507,10 @@ class LiquidationController extends Controller
             Storage::disk('public')->delete($document->file_path);
         }
 
+        $documentName = $document->file_name;
         $document->delete();
+
+        ActivityLog::log('deleted_document', 'Deleted document '.$documentName.' from liquidation '.$liquidation->control_no, $liquidation, 'Liquidation');
 
         return redirect()->back()->with('success', 'Document deleted successfully.');
     }
@@ -622,6 +634,13 @@ class LiquidationController extends Controller
             'liquidation_status_id' => $latestLiqStatusId,
         ]);
 
+        ActivityLog::log(
+            'updated',
+            "Updated document tracking for {$liquidation->control_no}",
+            $liquidation,
+            'Liquidation',
+        );
+
         return redirect()->back()->with('success', 'Tracking entries saved successfully.');
     }
 
@@ -689,6 +708,13 @@ class LiquidationController extends Controller
             ]);
         }
 
+        ActivityLog::log(
+            'updated',
+            "Updated running data for {$liquidation->control_no}",
+            $liquidation,
+            'Liquidation',
+        );
+
         return redirect()->back()->with('success', 'Running data saved successfully.');
     }
 
@@ -716,6 +742,9 @@ class LiquidationController extends Controller
         $file = $request->file('beneficiary_file');
         $imported = 0;
         $errors = [];
+
+        // Disable per-record logging for bulk operations
+        \App\Models\LiquidationBeneficiary::$loggingEnabled = false;
 
         try {
             $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file->getRealPath());
@@ -756,6 +785,13 @@ class LiquidationController extends Controller
             $totalDisbursed = $liquidation->beneficiaries()->sum('amount');
             $liquidation->createOrUpdateFinancial(['amount_liquidated' => $totalDisbursed]);
         });
+
+        // Re-enable per-record logging
+        \App\Models\LiquidationBeneficiary::$loggingEnabled = true;
+
+        if ($imported > 0) {
+            ActivityLog::log('imported_beneficiaries', 'Imported '.$imported.' beneficiaries for liquidation '.$liquidation->control_no, $liquidation, 'Liquidation');
+        }
 
         $message = count($errors) > 0
             ? "Imported {$imported} beneficiaries with " . count($errors) . " errors."

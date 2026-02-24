@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback } from 'react';
 import { router } from '@inertiajs/react';
+import axios from 'axios';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -60,28 +61,16 @@ export default function RcLetterUpload({ liquidationId, documents, userRole }: R
         formData.append('description', 'Letter from Regional Coordinator to HEI');
 
         try {
-            const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '';
-            const response = await fetch(route('liquidation.upload-document', liquidationId), {
-                method: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': csrfToken,
-                    'Accept': 'application/json',
-                },
-                body: formData,
-            });
+            const { data } = await axios.post(route('liquidation.upload-document', liquidationId), formData);
 
-            const contentType = response.headers.get('Content-Type') ?? '';
-            const data = contentType.includes('application/json') ? await response.json() : null;
-
-            if (response.ok && data?.success) {
+            if (data?.success) {
                 toast.success('Letter uploaded successfully.');
-                router.reload({ only: ['liquidation'] });
+                router.reload({ only: ['liquidation'], preserveScroll: true });
             } else {
-                toast.error(data?.message ?? `Upload failed (${response.status}). Please try again.`);
+                toast.error(data?.message ?? 'Upload failed. Please try again.');
             }
-        } catch (err) {
-            console.error('Upload error:', err);
-            toast.error('An error occurred while uploading. Please try again.');
+        } catch (err: any) {
+            toast.error(err.response?.data?.message ?? 'An error occurred while uploading. Please try again.');
         } finally {
             setIsUploading(false);
             if (fileInputRef.current) fileInputRef.current.value = '';

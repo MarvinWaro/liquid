@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Models\ActivityLog;
 use App\Models\DocumentStatus;
 use App\Models\HEI;
 use App\Models\Liquidation;
@@ -261,6 +262,8 @@ class LiquidationService
 
             $liquidation->update($updateData);
 
+            ActivityLog::log('submitted', 'Submitted liquidation '.$liquidation->control_no.' for review', $liquidation, 'Liquidation');
+
             return $liquidation->fresh();
         });
     }
@@ -302,6 +305,8 @@ class LiquidationService
                 'reviewed_at'           => now(),
             ]);
 
+            ActivityLog::log('endorsed_to_accounting', 'Endorsed liquidation '.$liquidation->control_no.' to Accounting', $liquidation, 'Liquidation');
+
             return $liquidation->fresh();
         });
     }
@@ -338,6 +343,8 @@ class LiquidationService
                 'reviewed_by'           => $user->id,
                 'reviewed_at'           => now(),
             ]);
+
+            ActivityLog::log('returned_to_hei', 'Returned liquidation '.$liquidation->control_no.' to HEI', $liquidation, 'Liquidation');
 
             return $liquidation->fresh();
         });
@@ -380,6 +387,8 @@ class LiquidationService
                 'coa_endorsed_at'        => now(),
             ]);
 
+            ActivityLog::log('endorsed_to_coa', 'Endorsed liquidation '.$liquidation->control_no.' to COA', $liquidation, 'Liquidation');
+
             return $liquidation->fresh();
         });
     }
@@ -408,6 +417,8 @@ class LiquidationService
                 'accountant_reviewed_by' => $user->id,
                 'accountant_reviewed_at' => now(),
             ]);
+
+            ActivityLog::log('returned_to_rc', 'Returned liquidation '.$liquidation->control_no.' to RC', $liquidation, 'Liquidation');
 
             return $liquidation->fresh();
         });

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Traits\HasUuid;
+use App\Traits\LogsActivity;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,17 +14,60 @@ use Illuminate\Database\Eloquent\Builder;
 
 class DocumentRequirement extends Model
 {
-    use HasFactory, HasUuid;
+    use HasFactory, HasUuid, LogsActivity;
+
+    protected static function getActivityModule(): string
+    {
+        return 'Document Requirements';
+    }
+
+    protected static function getActivityForeignKeys(): array
+    {
+        return [
+            'program_id' => ['program', 'name'],
+        ];
+    }
+
+    protected static function getActivityFieldLabels(): array
+    {
+        return [
+            'program_id' => 'Program',
+            'code' => 'Code',
+            'name' => 'Name',
+            'description' => 'Description',
+            'upload_message' => 'Upload Message',
+            'sort_order' => 'Sort Order',
+            'is_active' => 'Active',
+            'is_required' => 'Required',
+        ];
+    }
 
     protected $fillable = [
         'program_id',
         'code',
         'name',
         'description',
+        'reference_image_path',
+        'upload_message',
         'sort_order',
         'is_active',
         'is_required',
     ];
+
+    protected $appends = ['reference_image_url'];
+
+    public function getReferenceImageUrlAttribute(): ?string
+    {
+        if (!$this->reference_image_path) {
+            return null;
+        }
+        return '/storage/' . $this->reference_image_path;
+    }
+
+    protected static function getActivityHiddenFields(): array
+    {
+        return ['reference_image_path'];
+    }
 
     protected function casts(): array
     {
