@@ -30,8 +30,25 @@ export interface NavigationAbilities {
     canViewHEI: boolean;
     canViewRegions: boolean;
     canViewPrograms: boolean;
+    canViewSemesters: boolean;
+    canViewAcademicYears: boolean;
     canViewDocumentRequirements: boolean;
     canViewActivityLogs: boolean;
+}
+
+export interface AppNotification {
+    id: string;
+    actor_name: string;
+    actor_avatar_url: string | null;
+    action: string;
+    description: string;
+    subject_type: string | null;
+    subject_id: string | null;
+    subject_label: string | null;
+    module: string | null;
+    read_at: string | null;
+    created_at: string;
+    time_ago: string;
 }
 
 export interface SharedData {
@@ -40,6 +57,7 @@ export interface SharedData {
     auth: Auth;
     can: NavigationAbilities;
     sidebarOpen: boolean;
+    notifications_unread_count: number;
     [key: string]: unknown;
 }
 

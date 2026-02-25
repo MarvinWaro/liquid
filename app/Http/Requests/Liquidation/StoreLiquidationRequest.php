@@ -33,7 +33,7 @@ class StoreLiquidationRequest extends FormRequest
             'uii' => 'required|string',
             'date_fund_released' => 'required|date',
             'due_date' => 'nullable|date',
-            'academic_year' => 'required|string|max:20',
+            'academic_year_id' => 'required|exists:academic_years,id',
             'semester' => 'required|string|max:50',
             'batch_no' => 'nullable|string|max:50',
             'dv_control_no' => 'required|string|max:100|unique:liquidations,control_no',

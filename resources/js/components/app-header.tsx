@@ -1,5 +1,6 @@
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Icon } from '@/components/icon';
+import { NotificationDropdown } from '@/components/notification-dropdown';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -172,6 +173,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                 {auth.user.name}
                             </span>
                         </div>
+                        <NotificationDropdown />
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button

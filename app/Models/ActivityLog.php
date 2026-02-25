@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Services\NotificationService;
 use App\Traits\HasUuid;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -63,7 +64,7 @@ class ActivityLog extends Model
         $user = auth()->user();
         $request = request();
 
-        return self::create([
+        $log = self::create([
             'user_id' => $user?->id,
             'user_name' => $user?->name ?? 'System',
             'action' => $action,
@@ -77,6 +78,11 @@ class ActivityLog extends Model
             'ip_address' => $request?->ip(),
             'user_agent' => $request?->userAgent(),
         ]);
+
+        // Dispatch notifications for relevant actions
+        NotificationService::dispatch($action, $description, $subject, $module);
+
+        return $log;
     }
 
     /**

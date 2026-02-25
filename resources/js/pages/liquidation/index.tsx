@@ -64,6 +64,12 @@ interface HEIOption {
     uii: string;
 }
 
+interface AcademicYearOption {
+    id: string;
+    code: string;
+    name: string;
+}
+
 interface Props {
     liquidations: {
         data: Liquidation[];
@@ -71,6 +77,7 @@ interface Props {
         meta: any;
     };
     programs: Program[];
+    academicYears: AcademicYearOption[];
     heis: HEIOption[];
     filters: {
         search?: string;
@@ -89,7 +96,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Liquidation Management', href: route('liquidation.index') },
 ];
 
-export default function Index({ liquidations, programs, heis, filters, permissions, userRole }: Props) {
+export default function Index({ liquidations, programs, academicYears, heis, filters, permissions, userRole }: Props) {
     const [searchQuery, setSearchQuery] = useState(filters.search || '');
     const [programFilter, setProgramFilter] = useState(filters.program || '');
     const [documentStatusFilter, setDocumentStatusFilter] = useState(filters.document_status || '');
@@ -220,6 +227,7 @@ export default function Index({ liquidations, programs, heis, filters, permissio
                 isOpen={isCreateModalOpen}
                 onClose={() => setIsCreateModalOpen(false)}
                 programs={programs}
+                academicYears={academicYears}
                 heis={heis}
                 onSuccess={() => router.reload()}
             />

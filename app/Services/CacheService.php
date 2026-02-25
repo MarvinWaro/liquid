@@ -185,6 +185,7 @@ class CacheService
     {
         $keys = [
             'lookup:semesters',
+            'lookup:academic_years',
             'lookup:document_statuses',
             'lookup:programs',
             'lookup:heis',

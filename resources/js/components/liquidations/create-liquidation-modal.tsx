@@ -45,10 +45,17 @@ interface HEIOption {
     name: string;
 }
 
+interface AcademicYearOption {
+    id: string;
+    code: string;
+    name: string;
+}
+
 interface CreateLiquidationModalProps {
     isOpen: boolean;
     onClose: () => void;
     programs: Program[];
+    academicYears: AcademicYearOption[];
     heis: HEIOption[];
     onSuccess: () => void;
 }
@@ -78,6 +85,7 @@ export function CreateLiquidationModal({
     isOpen,
     onClose,
     programs,
+    academicYears,
     heis,
     onSuccess,
 }: CreateLiquidationModalProps) {
@@ -91,7 +99,7 @@ export function CreateLiquidationModal({
         uii: '',
         date_fund_released: '',
         due_date: '',
-        academic_year: '',
+        academic_year_id: '',
         semester: '',
         batch_no: '',
         dv_control_no: '',
@@ -110,7 +118,7 @@ export function CreateLiquidationModal({
                 uii: '',
                 date_fund_released: '',
                 due_date: '',
-                academic_year: '',
+                academic_year_id: '',
                 semester: '',
                 batch_no: '',
                 dv_control_no: '',
@@ -319,16 +327,24 @@ export function CreateLiquidationModal({
 
                         {/* Academic Year */}
                         <div className="space-y-2">
-                            <Label htmlFor="academic_year">Academic Year *</Label>
-                            <Input
-                                id="academic_year"
-                                value={formData.academic_year}
-                                onChange={(e) => handleInputChange('academic_year', e.target.value)}
-                                placeholder="e.g., 2024-2025"
-                                className={fieldErrors.academic_year ? 'border-red-500' : ''}
-                            />
-                            {fieldErrors.academic_year && (
-                                <p className="text-sm text-red-500">{fieldErrors.academic_year}</p>
+                            <Label htmlFor="academic_year_id">Academic Year *</Label>
+                            <Select
+                                value={formData.academic_year_id}
+                                onValueChange={(value) => handleInputChange('academic_year_id', value)}
+                            >
+                                <SelectTrigger className={fieldErrors.academic_year_id ? 'border-red-500' : ''}>
+                                    <SelectValue placeholder="Select academic year" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {academicYears.map((ay) => (
+                                        <SelectItem key={ay.id} value={ay.id}>
+                                            {ay.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {fieldErrors.academic_year_id && (
+                                <p className="text-sm text-red-500">{fieldErrors.academic_year_id}</p>
                             )}
                         </div>
 

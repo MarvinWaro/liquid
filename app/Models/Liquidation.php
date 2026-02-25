@@ -27,7 +27,7 @@ use Illuminate\Database\Eloquent\Builder;
  * @property string $control_no
  * @property string $hei_id
  * @property string $program_id
- * @property string $academic_year
+ * @property string|null $academic_year_id
  * @property string|null $semester_id
  * @property string|null $batch_no
  * @property string|null $document_status_id
@@ -56,6 +56,7 @@ class Liquidation extends Model
         return [
             'hei_id' => ['hei', 'name'],
             'program_id' => ['program', 'name'],
+            'academic_year_id' => ['academicYear', 'name'],
             'semester_id' => ['semester', 'name'],
             'document_status_id' => ['documentStatus', 'name'],
             'liquidation_status_id' => ['liquidationStatus', 'name'],
@@ -71,7 +72,7 @@ class Liquidation extends Model
             'document_status_id' => 'Document Status',
             'liquidation_status_id' => 'Liquidation Status',
             'control_no' => 'Control No.',
-            'academic_year' => 'Academic Year',
+            'academic_year_id' => 'Academic Year',
             'batch_no' => 'Batch No.',
             'date_submitted' => 'Date Submitted',
             'remarks' => 'Remarks',
@@ -95,7 +96,7 @@ class Liquidation extends Model
         'program_id',
 
         // Period coverage
-        'academic_year',
+        'academic_year_id',
         'semester_id',
         'batch_no',
 
@@ -168,6 +169,14 @@ class Liquidation extends Model
     public function program(): BelongsTo
     {
         return $this->belongsTo(Program::class);
+    }
+
+    /**
+     * Get the academic year for this liquidation.
+     */
+    public function academicYear(): BelongsTo
+    {
+        return $this->belongsTo(AcademicYear::class);
     }
 
     /**
@@ -544,9 +553,9 @@ class Liquidation extends Model
     /**
      * Scope to filter by academic period.
      */
-    public function scopeForPeriod(Builder $query, string $academicYear, ?string $semesterId = null): Builder
+    public function scopeForPeriod(Builder $query, string $academicYearId, ?string $semesterId = null): Builder
     {
-        $query->where('academic_year', $academicYear);
+        $query->where('academic_year_id', $academicYearId);
 
         if ($semesterId) {
             $query->where('semester_id', $semesterId);

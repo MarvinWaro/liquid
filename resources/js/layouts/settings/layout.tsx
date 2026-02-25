@@ -9,7 +9,7 @@ import { show } from '@/routes/two-factor';
 import { edit as editPassword } from '@/routes/user-password';
 import { type NavItem, type NavigationAbilities, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Building2, FileText, FolderOpen, History, MapPin, Shield, Users } from 'lucide-react';
+import { Building2, Calendar, FileText, FolderOpen, GraduationCap, History, MapPin, Shield, Users } from 'lucide-react';
 import { type PropsWithChildren, useMemo } from 'react';
 
 const sidebarNavItems: NavItem[] = [
@@ -35,8 +35,10 @@ const sidebarNavItems: NavItem[] = [
     },
 ];
 
-// Admin settings items with ability checks
-const adminNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
+type AdminNavItem = NavItem & { ability?: keyof NavigationAbilities };
+
+// User Management
+const userManagementNavItems: AdminNavItem[] = [
     {
         title: 'Users',
         href: '/users',
@@ -49,6 +51,10 @@ const adminNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
         icon: Shield,
         ability: 'canViewRoles',
     },
+];
+
+// System Configuration
+const systemConfigNavItems: AdminNavItem[] = [
     {
         title: 'HEI',
         href: '/hei',
@@ -66,6 +72,18 @@ const adminNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
         href: '/programs',
         icon: FolderOpen,
         ability: 'canViewPrograms',
+    },
+    {
+        title: 'Semesters',
+        href: '/semesters',
+        icon: Calendar,
+        ability: 'canViewSemesters',
+    },
+    {
+        title: 'Academic Years',
+        href: '/academic-years',
+        icon: GraduationCap,
+        ability: 'canViewAcademicYears',
     },
     {
         title: 'Document Requirements',
@@ -97,19 +115,17 @@ export default function SettingsLayout({ children, wide = false }: SettingsLayou
         canViewHEI: false,
         canViewRegions: false,
         canViewPrograms: false,
+        canViewSemesters: false,
+        canViewAcademicYears: false,
         canViewDocumentRequirements: false,
         canViewActivityLogs: false,
     };
 
-    // Filter admin nav items based on user abilities
-    const filteredAdminNavItems = useMemo(() => {
-        return adminNavItems.filter((item) => {
-            if (!item.ability) return true;
-            return can[item.ability] === true;
-        });
-    }, [can]);
+    const filterByAbility = (items: AdminNavItem[]) =>
+        items.filter((item) => !item.ability || can[item.ability] === true);
 
-    const hasAdminAccess = filteredAdminNavItems.length > 0;
+    const filteredUserManagement = useMemo(() => filterByAbility(userManagementNavItems), [can]);
+    const filteredSystemConfig = useMemo(() => filterByAbility(systemConfigNavItems), [can]);
 
     // When server-side rendering, we only render the layout on the client...
     if (typeof window === 'undefined') {
@@ -149,16 +165,44 @@ export default function SettingsLayout({ children, wide = false }: SettingsLayou
                             </Button>
                         ))}
 
-                        {/* Admin Settings - Only show if user has access to any admin item */}
-                        {hasAdminAccess && (
+                        {/* User Management */}
+                        {filteredUserManagement.length > 0 && (
                             <>
                                 <Separator className="my-4" />
                                 <span className="mb-2 px-3 text-xs font-semibold uppercase text-muted-foreground">
-                                    Administration
+                                    User Management
                                 </span>
-                                {filteredAdminNavItems.map((item, index) => (
+                                {filteredUserManagement.map((item, index) => (
                                     <Button
-                                        key={`admin-${toUrl(item.href)}-${index}`}
+                                        key={`um-${toUrl(item.href)}-${index}`}
+                                        size="sm"
+                                        variant="ghost"
+                                        asChild
+                                        className={cn('w-full justify-start', {
+                                            'bg-muted': urlIsActive(item.href),
+                                        })}
+                                    >
+                                        <Link href={item.href}>
+                                            {item.icon && (
+                                                <item.icon className="mr-2 h-4 w-4" />
+                                            )}
+                                            {item.title}
+                                        </Link>
+                                    </Button>
+                                ))}
+                            </>
+                        )}
+
+                        {/* System Configuration */}
+                        {filteredSystemConfig.length > 0 && (
+                            <>
+                                <Separator className="my-4" />
+                                <span className="mb-2 px-3 text-xs font-semibold uppercase text-muted-foreground">
+                                    System Configuration
+                                </span>
+                                {filteredSystemConfig.map((item, index) => (
+                                    <Button
+                                        key={`sc-${toUrl(item.href)}-${index}`}
                                         size="sm"
                                         variant="ghost"
                                         asChild

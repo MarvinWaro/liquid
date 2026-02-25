@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Notification;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -57,6 +58,8 @@ class HandleInertiaRequests extends Middleware
                 'canViewHEI' => false,
                 'canViewRegions' => false,
                 'canViewPrograms' => false,
+                'canViewSemesters' => false,
+                'canViewAcademicYears' => false,
                 'canViewDocumentRequirements' => false,
                 'canViewActivityLogs' => false,
             ],
@@ -65,6 +68,10 @@ class HandleInertiaRequests extends Middleware
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
             ],
+
+            'notifications_unread_count' => fn () => $user
+                ? Notification::where('user_id', $user->id)->unread()->count()
+                : 0,
             // ------------------
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
