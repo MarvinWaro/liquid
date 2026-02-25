@@ -166,6 +166,8 @@ class User extends Authenticatable
             'canViewHEI' => $this->hasPermission('view_hei'),
             'canViewRegions' => $this->hasPermission('view_regions'),
             'canViewPrograms' => $this->hasPermission('view_programs'),
+            'canViewSemesters' => $this->hasPermission('view_semesters'),
+            'canViewAcademicYears' => $this->hasPermission('view_academic_years'),
             'canViewDocumentRequirements' => $this->hasPermission('view_document_requirements'),
             'canViewActivityLogs' => $this->hasPermission('view_activity_logs'),
         ];

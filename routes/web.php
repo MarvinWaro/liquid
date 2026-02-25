@@ -11,6 +11,9 @@ use App\Http\Controllers\LiquidationController;
 use App\Http\Controllers\ProgramController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\DocumentRequirementController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\SemesterController;
+use App\Http\Controllers\AcademicYearController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
@@ -48,6 +51,18 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('programs/{program}', [ProgramController::class, 'update'])->name('programs.update');
     Route::delete('programs/{program}', [ProgramController::class, 'destroy'])->name('programs.destroy');
 
+    // Semester Management Routes
+    Route::get('semesters', [SemesterController::class, 'index'])->name('semesters.index');
+    Route::post('semesters', [SemesterController::class, 'store'])->name('semesters.store');
+    Route::put('semesters/{semester}', [SemesterController::class, 'update'])->name('semesters.update');
+    Route::delete('semesters/{semester}', [SemesterController::class, 'destroy'])->name('semesters.destroy');
+
+    // Academic Year Management Routes
+    Route::get('academic-years', [AcademicYearController::class, 'index'])->name('academic-years.index');
+    Route::post('academic-years', [AcademicYearController::class, 'store'])->name('academic-years.store');
+    Route::put('academic-years/{academicYear}', [AcademicYearController::class, 'update'])->name('academic-years.update');
+    Route::delete('academic-years/{academicYear}', [AcademicYearController::class, 'destroy'])->name('academic-years.destroy');
+
     // Document Requirement Management Routes
     Route::get('document-requirements', [DocumentRequirementController::class, 'index'])->name('document-requirements.index');
     Route::post('document-requirements', [DocumentRequirementController::class, 'store'])->name('document-requirements.store');
@@ -56,6 +71,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Activity Log Routes
     Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
+
+    // Notification Routes
+    Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::get('notifications/recent', [NotificationController::class, 'recent'])->name('notifications.recent');
+    Route::patch('notifications/{notification}/read', [NotificationController::class, 'markAsRead'])->name('notifications.mark-read');
+    Route::patch('notifications/{notification}/unread', [NotificationController::class, 'markAsUnread'])->name('notifications.mark-unread');
+    Route::post('notifications/mark-all-read', [NotificationController::class, 'markAllRead'])->name('notifications.mark-all-read');
+    Route::delete('notifications/{notification}', [NotificationController::class, 'destroy'])->name('notifications.destroy');
 
     // Region Management Routes
     Route::get('regions', [RegionController::class, 'index'])->name('regions.index');

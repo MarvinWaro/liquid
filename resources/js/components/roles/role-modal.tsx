@@ -2,7 +2,6 @@ import React, { useEffect } from 'react';
 import { useForm } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -13,12 +12,6 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import {
-    Accordion,
-    AccordionContent,
-    AccordionItem,
-    AccordionTrigger,
-} from '@/components/ui/accordion';
 import { Save, Loader2 } from 'lucide-react';
 
 interface Permission {
@@ -118,7 +111,7 @@ export function RoleModal({ isOpen, onClose, role, permissions }: RoleModalProps
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0">
+            <DialogContent className="sm:max-w-6xl max-h-[90vh] flex flex-col p-0 gap-0">
                 <DialogHeader className="p-6 pb-2">
                     <DialogTitle>{isEdit ? 'Edit Role' : 'Create New Role'}</DialogTitle>
                     <DialogDescription>
@@ -128,7 +121,7 @@ export function RoleModal({ isOpen, onClose, role, permissions }: RoleModalProps
 
                 <div className="flex-1 overflow-y-auto p-6 pt-2">
                     <form id="role-form" onSubmit={handleSubmit} className="space-y-6">
-                        <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label htmlFor="name">Role Name *</Label>
                                 <Input
@@ -145,74 +138,51 @@ export function RoleModal({ isOpen, onClose, role, permissions }: RoleModalProps
 
                             <div className="space-y-2">
                                 <Label htmlFor="description">Description</Label>
-                                <Textarea
+                                <Input
                                     id="description"
                                     value={data.description}
                                     onChange={(e) => setData('description', e.target.value)}
                                     placeholder="Brief description..."
-                                    rows={2}
                                 />
                             </div>
                         </div>
 
-                        <div className="space-y-4">
-                            <div className="border-t pt-4">
-                                <h3 className="text-sm font-semibold mb-2">Permissions</h3>
-                                <Accordion type="multiple" className="w-full">
-                                    {Object.entries(permissions).map(([module, modulePermissions]) => (
-                                        <AccordionItem key={module} value={module}>
-                                            {/* FIX APPLIED HERE:
-                                                Wrapper div separates Checkbox from AccordionTrigger
-                                                to prevent <button> inside <button> error.
-                                            */}
-                                            <div className="flex items-center border-b last:border-0">
-                                                <div className="flex items-center justify-center py-4 pl-4 pr-2">
+                        <div className="border-t pt-4">
+                            <h3 className="text-sm font-semibold mb-3">Permissions</h3>
+                            <div className="grid grid-cols-2 gap-x-6 gap-y-0">
+                                {Object.entries(permissions).map(([module, modulePermissions]) => (
+                                    <div key={module} className="border rounded-lg mb-3 overflow-hidden">
+                                        <div className="flex items-center gap-3 px-3 py-2.5 bg-muted/30">
+                                            <Checkbox
+                                                checked={isModuleSelected(modulePermissions)}
+                                                onCheckedChange={() => handleSelectAllModule(modulePermissions)}
+                                            />
+                                            <span className="font-medium text-sm">{module}</span>
+                                            <span className="text-xs text-muted-foreground ml-auto">
+                                                {modulePermissions.filter(p => data.permissions.includes(p.id)).length}/{modulePermissions.length}
+                                            </span>
+                                        </div>
+                                        <div className="px-3 py-2 space-y-1.5">
+                                            {modulePermissions.map((permission) => (
+                                                <div key={permission.id} className="flex items-center gap-2">
                                                     <Checkbox
-                                                        checked={isModuleSelected(modulePermissions)}
-                                                        onCheckedChange={() => handleSelectAllModule(modulePermissions)}
+                                                        id={`permission-${permission.id}`}
+                                                        checked={data.permissions.includes(permission.id)}
+                                                        onCheckedChange={() => handlePermissionToggle(permission.id)}
                                                     />
+                                                    <Label
+                                                        htmlFor={`permission-${permission.id}`}
+                                                        className="font-normal cursor-pointer text-sm leading-tight"
+                                                    >
+                                                        {permission.name.split('_').map(word =>
+                                                            word.charAt(0).toUpperCase() + word.slice(1)
+                                                        ).join(' ')}
+                                                    </Label>
                                                 </div>
-                                                <AccordionTrigger className="flex-1 hover:no-underline py-4 px-2 hover:bg-muted/50 transition-all">
-                                                    <div className="flex items-center gap-3 text-left">
-                                                        <span className="font-medium">{module}</span>
-                                                        <span className="text-xs text-muted-foreground font-normal">
-                                                            ({modulePermissions.filter(p => data.permissions.includes(p.id)).length}/{modulePermissions.length})
-                                                        </span>
-                                                    </div>
-                                                </AccordionTrigger>
-                                            </div>
-
-                                            <AccordionContent>
-                                                <div className="pl-12 space-y-3 py-4 pr-4">
-                                                    {modulePermissions.map((permission) => (
-                                                        <div key={permission.id} className="flex items-start gap-3">
-                                                            <Checkbox
-                                                                id={`permission-${permission.id}`}
-                                                                checked={data.permissions.includes(permission.id)}
-                                                                onCheckedChange={() => handlePermissionToggle(permission.id)}
-                                                            />
-                                                            <div className="grid gap-1">
-                                                                <Label
-                                                                    htmlFor={`permission-${permission.id}`}
-                                                                    className="font-normal cursor-pointer text-sm"
-                                                                >
-                                                                    {permission.name.split('_').map(word =>
-                                                                        word.charAt(0).toUpperCase() + word.slice(1)
-                                                                    ).join(' ')}
-                                                                </Label>
-                                                                {permission.description && (
-                                                                    <p className="text-xs text-muted-foreground">
-                                                                        {permission.description}
-                                                                    </p>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </AccordionContent>
-                                        </AccordionItem>
-                                    ))}
-                                </Accordion>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </form>

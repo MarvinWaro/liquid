@@ -98,6 +98,7 @@ export default function RcLetterUpload({ liquidationId, documents, userRole }: R
 
     const handleDelete = useCallback((documentId: number) => {
         router.delete(route('liquidation.delete-document', documentId), {
+            preserveScroll: true,
             onError: () => toast.error('Failed to delete letter.'),
         });
     }, []);

@@ -54,6 +54,18 @@ class PermissionSeeder extends Seeder
                 ['name' => 'edit_programs', 'description' => 'Edit existing programs'],
                 ['name' => 'delete_programs', 'description' => 'Delete programs'],
             ],
+            'Semesters' => [
+                ['name' => 'view_semesters', 'description' => 'View semesters list'],
+                ['name' => 'create_semesters', 'description' => 'Create new semesters'],
+                ['name' => 'edit_semesters', 'description' => 'Edit existing semesters'],
+                ['name' => 'delete_semesters', 'description' => 'Delete semesters'],
+            ],
+            'Academic Years' => [
+                ['name' => 'view_academic_years', 'description' => 'View academic years list'],
+                ['name' => 'create_academic_years', 'description' => 'Create new academic years'],
+                ['name' => 'edit_academic_years', 'description' => 'Edit existing academic years'],
+                ['name' => 'delete_academic_years', 'description' => 'Delete academic years'],
+            ],
             'Document Requirements' => [
                 ['name' => 'view_document_requirements', 'description' => 'View document requirements list'],
                 ['name' => 'create_document_requirements', 'description' => 'Create new document requirements'],
@@ -98,6 +110,8 @@ class PermissionSeeder extends Seeder
             'view_regions', 'create_regions', 'edit_regions', 'delete_regions',
             'view_liquidation', 'create_liquidation', 'edit_liquidation', 'delete_liquidation',
             'view_programs', 'create_programs', 'edit_programs', 'delete_programs',
+            'view_semesters', 'create_semesters', 'edit_semesters', 'delete_semesters',
+            'view_academic_years', 'create_academic_years', 'edit_academic_years', 'delete_academic_years',
             'view_document_requirements', 'create_document_requirements', 'edit_document_requirements', 'delete_document_requirements',
             'view_reports', 'export_reports', 'view_dashboard',
             'view_activity_logs',

@@ -91,6 +91,8 @@ const actionColors: Record<string, string> = {
     imported_beneficiaries: 'border-teal-200 bg-teal-50 text-teal-700',
     toggled_status: 'border-amber-200 bg-amber-50 text-amber-700',
     synced_permissions: 'border-violet-200 bg-violet-50 text-violet-700',
+    updated_tracking: 'border-blue-200 bg-blue-50 text-blue-700',
+    updated_running_data: 'border-blue-200 bg-blue-50 text-blue-700',
 };
 
 // Maps subject_type to URL. For Liquidation, we can link directly by ID.

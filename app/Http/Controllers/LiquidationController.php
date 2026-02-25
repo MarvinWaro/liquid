@@ -71,6 +71,7 @@ class LiquidationController extends Controller
             'regionalCoordinators' => $this->cacheService->getRegionalCoordinators(),
             'accountants' => $this->cacheService->getAccountants(),
             'programs' => $this->cacheService->getPrograms(),
+            'academicYears' => \App\Models\AcademicYear::getDropdownOptions(),
             'heis' => $heis,
             'filters' => $filters,
             'permissions' => [
@@ -90,7 +91,7 @@ class LiquidationController extends Controller
 
         $this->authorizeView($user, $liquidation);
 
-        $liquidation->load(['hei', 'documents.uploader', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'reviews']);
+        $liquidation->load(['hei', 'documents.uploader', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'academicYear', 'reviews']);
 
         return Inertia::render('liquidation/edit', [
             'liquidation' => $this->formatLiquidationForEdit($liquidation),
@@ -294,7 +295,7 @@ class LiquidationController extends Controller
         $this->authorizeView($user, $liquidation);
 
         $liquidation->load([
-            'hei', 'program', 'semester', 'financial',
+            'hei', 'program', 'semester', 'academicYear', 'financial',
             'beneficiaries', 'documents', 'reviewer',
             'reviews.reviewType', 'transmittal.endorser', 'transmittal.location',
             'compliance.complianceStatus',
@@ -635,7 +636,7 @@ class LiquidationController extends Controller
         ]);
 
         ActivityLog::log(
-            'updated',
+            'updated_tracking',
             "Updated document tracking for {$liquidation->control_no}",
             $liquidation,
             'Liquidation',
@@ -709,7 +710,7 @@ class LiquidationController extends Controller
         }
 
         ActivityLog::log(
-            'updated',
+            'updated_running_data',
             "Updated running data for {$liquidation->control_no}",
             $liquidation,
             'Liquidation',
@@ -951,7 +952,7 @@ class LiquidationController extends Controller
             'hei_name' => $liquidation->hei?->name ?? 'N/A',
             'date_fund_released' => $financial?->date_fund_released?->format('M d, Y'),
             'due_date' => $financial?->due_date?->format('M d, Y'),
-            'academic_year' => $liquidation->academic_year,
+            'academic_year' => $liquidation->academicYear?->name ?? 'N/A',
             'semester' => $liquidation->semester?->name ?? 'N/A',
             'batch_no' => $liquidation->batch_no,
             'dv_control_no' => $liquidation->control_no,
@@ -1041,7 +1042,7 @@ class LiquidationController extends Controller
             'control_no' => $liquidation->control_no,
             'hei_name' => $liquidation->hei?->name ?? 'N/A',
             'program_name' => $liquidation->program?->name ?? 'N/A',
-            'academic_year' => $liquidation->academic_year,
+            'academic_year' => $liquidation->academicYear?->name ?? 'N/A',
             'semester' => $liquidation->semester?->name ?? 'N/A',
             'batch_no' => $liquidation->batch_no,
             'dv_control_no' => $liquidation->control_no,
@@ -1205,6 +1206,22 @@ class LiquidationController extends Controller
         $program = $this->findProgram($programCode);
         $semesterId = $this->liquidationService->findSemesterId($row[7] ?? '');
 
+        // Lookup academic year by code string (e.g. "2024-2025"), auto-create if not found
+        $academicYearCode = trim($row[6] ?? '');
+        $academicYearId = null;
+        if (!empty($academicYearCode)) {
+            $academicYear = \App\Models\AcademicYear::findByCode($academicYearCode);
+            if (!$academicYear) {
+                $academicYear = \App\Models\AcademicYear::create([
+                    'code' => $academicYearCode,
+                    'name' => $academicYearCode,
+                    'sort_order' => 0,
+                    'is_active' => true,
+                ]);
+            }
+            $academicYearId = $academicYear->id;
+        }
+
         // Parse document status (column 13)
         $documentStatusId = $this->parseDocumentStatus($row[13] ?? null);
 
@@ -1215,7 +1232,7 @@ class LiquidationController extends Controller
             'control_no' => $controlNo,
             'hei_id' => $hei->id,
             'program_id' => $program?->id,
-            'academic_year' => trim($row[6] ?? ''),
+            'academic_year_id' => $academicYearId,
             'semester_id' => $semesterId,
             'batch_no' => trim($row[8] ?? ''),
             'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,

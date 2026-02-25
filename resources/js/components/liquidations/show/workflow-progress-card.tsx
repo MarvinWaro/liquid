@@ -13,6 +13,7 @@ interface WorkflowProgressCardProps {
 
 function getWorkflowSteps(liquidation: Liquidation, isHEIUser: boolean, avatarMap: Record<string, string>, rcReviewerName?: string | null) {
     const normalizedStatus = liquidation.liquidation_status?.toLowerCase().replace(/\s+/g, '_') || 'draft';
+    const isDocComplete = liquidation.document_status?.toLowerCase().replace(/\s+/g, '_') === 'complete_submission';
     const reviewerName = rcReviewerName || liquidation.reviewed_by_name;
 
     const rcReviewerAvatar = reviewerName ? (
@@ -26,14 +27,14 @@ function getWorkflowSteps(liquidation: Liquidation, isHEIUser: boolean, avatarMa
             { label: 'Completed', description: 'Liquidation Complete' },
         ];
 
-        const rcDoneStatuses = ['fully_liquidated', 'partially_liquidated'];
-        if (rcDoneStatuses.includes(normalizedStatus)) {
+        if (normalizedStatus === 'fully_liquidated' || isDocComplete) {
             return { steps: heiSteps, currentStep: 3, isFullyCompleted: true, lastCompletedStep: undefined };
         }
 
         const stepMap: Record<string, number> = {
             'draft': 1, 'unliquidated': 1,
             'for_initial_review': 2, 'returned_to_hei': 2,
+            'partially_liquidated': 2,
         };
         return { steps: heiSteps, currentStep: stepMap[normalizedStatus] || 1, isFullyCompleted: false, lastCompletedStep: undefined };
     }
@@ -45,7 +46,6 @@ function getWorkflowSteps(liquidation: Liquidation, isHEIUser: boolean, avatarMa
         { label: 'COA Endorsement', description: 'Final Approval' },
     ];
 
-    const rcDoneStatuses = ['fully_liquidated', 'partially_liquidated'];
     const accountingCurrentStatuses = ['endorsed_to_accounting', 'returned_to_rc'];
     const coaCurrentStatuses = ['endorsed_to_coa'];
 
@@ -55,13 +55,14 @@ function getWorkflowSteps(liquidation: Liquidation, isHEIUser: boolean, avatarMa
     if (accountingCurrentStatuses.includes(normalizedStatus)) {
         return { steps: rcSteps, currentStep: 3, isFullyCompleted: false, lastCompletedStep: undefined };
     }
-    if (rcDoneStatuses.includes(normalizedStatus)) {
+    if (normalizedStatus === 'fully_liquidated') {
         return { steps: rcSteps, currentStep: 2, isFullyCompleted: false, lastCompletedStep: 2 };
     }
 
     const stepMap: Record<string, number> = {
         'draft': 1, 'unliquidated': 1,
         'for_initial_review': 2, 'returned_to_hei': 2,
+        'partially_liquidated': 2,
     };
     return { steps: rcSteps, currentStep: stepMap[normalizedStatus] || 1, isFullyCompleted: false, lastCompletedStep: undefined };
 }

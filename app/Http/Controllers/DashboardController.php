@@ -122,7 +122,8 @@ class DashboardController extends Controller
             $query->where('liquidations.hei_id', $heiId);
         }
 
-        return $query->select('liquidations.academic_year')
+        return $query->leftJoin('academic_years', 'liquidations.academic_year_id', '=', 'academic_years.id')
+            ->select('academic_years.name as academic_year')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursements')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as liquidated_amount')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as unliquidated_amount')
@@ -131,8 +132,8 @@ class DashboardController extends Controller
             ->selectRaw('ROUND((COALESCE(SUM(CASE WHEN liquidations.reviewed_at IS NOT NULL THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) + COALESCE(SUM(liquidation_financials.amount_liquidated), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_liquidation')
             ->selectRaw('ROUND(COALESCE(SUM(CASE WHEN liquidation_compliance.id IS NOT NULL THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_compliance')
             ->selectRaw('ROUND((COUNT(*) / NULLIF(COUNT(*), 0)) * 100, 2) as percentage_submission')
-            ->groupBy('liquidations.academic_year')
-            ->orderBy('liquidations.academic_year', 'desc')
+            ->groupBy('academic_years.name')
+            ->orderBy('academic_years.name', 'desc')
             ->get();
     }
 
@@ -359,7 +360,7 @@ class DashboardController extends Controller
     private function getRecentLiquidations($user, ?string $userRole)
     {
         if ($userRole === 'Regional Coordinator') {
-            return Liquidation::with(['hei:id,name', 'financial', 'semester', 'liquidationStatus'])
+            return Liquidation::with(['hei:id,name', 'financial', 'semester', 'academicYear', 'liquidationStatus'])
                 ->where(function ($q) use ($user) {
                     // Pending RC review (submitted but not reviewed)
                     $q->where(function ($q2) {
@@ -376,7 +377,7 @@ class DashboardController extends Controller
         }
 
         if ($userRole === 'Accountant') {
-            return Liquidation::with(['hei:id,name', 'financial', 'semester', 'liquidationStatus'])
+            return Liquidation::with(['hei:id,name', 'financial', 'semester', 'academicYear', 'liquidationStatus'])
                 ->whereNotNull('reviewed_at') // Endorsed by RC
                 ->orderBy('created_at', 'desc')
                 ->limit(10)
@@ -385,7 +386,7 @@ class DashboardController extends Controller
         }
 
         if ($userRole === 'HEI' && $user->hei_id) {
-            return Liquidation::with(['hei:id,name', 'financial', 'semester', 'liquidationStatus'])
+            return Liquidation::with(['hei:id,name', 'financial', 'semester', 'academicYear', 'liquidationStatus'])
                 ->where('hei_id', $user->hei_id)
                 ->orderBy('created_at', 'desc')
                 ->limit(10)
@@ -405,7 +406,7 @@ class DashboardController extends Controller
             'id' => $liq->id,
             'control_no' => $liq->control_no,
             'hei' => $liq->hei ? ['id' => $liq->hei->id, 'name' => $liq->hei->name] : null,
-            'academic_year' => $liq->academic_year,
+            'academic_year' => $liq->academicYear?->name ?? 'N/A',
             'semester' => $liq->semester?->name ?? 'N/A',
             'amount_received' => (float) ($liq->financial?->amount_received ?? 0),
             'liquidation_status' => $liq->liquidationStatus?->name ?? 'Unliquidated',
