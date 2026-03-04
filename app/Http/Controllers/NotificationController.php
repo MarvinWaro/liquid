@@ -56,29 +56,44 @@ class NotificationController extends Controller
     public function recent(Request $request): JsonResponse
     {
         $user = $request->user();
+        $perPage = 10;
 
-        $notifications = Notification::where('user_id', $user->id)
+        $query = Notification::where('user_id', $user->id)
             ->with('actor')
-            ->orderBy('created_at', 'desc')
-            ->limit(10)
-            ->get()
-            ->map(fn (Notification $n) => [
-                'id' => $n->id,
-                'actor_name' => $n->actor_name,
-                'actor_avatar_url' => $n->actor?->avatar_url,
-                'action' => $n->action,
-                'description' => $n->description,
-                'subject_type' => $n->subject_type,
-                'subject_id' => $n->subject_id,
-                'subject_label' => $n->subject_label,
-                'module' => $n->module,
-                'read_at' => $n->read_at?->toISOString(),
-                'created_at' => $n->created_at->toISOString(),
-                'time_ago' => $n->created_at->diffForHumans(),
-            ]);
+            ->orderBy('created_at', 'desc');
+
+        // Cursor-based pagination: fetch items older than the given cursor
+        if ($cursor = $request->get('cursor')) {
+            $cursorNotification = Notification::find($cursor);
+            if ($cursorNotification) {
+                $query->where('created_at', '<=', $cursorNotification->created_at)
+                    ->where('id', '!=', $cursorNotification->id);
+            }
+        }
+
+        $notifications = $query->limit($perPage + 1)->get();
+        $hasMore = $notifications->count() > $perPage;
+        $notifications = $notifications->take($perPage);
+
+        $mapped = $notifications->map(fn (Notification $n) => [
+            'id' => $n->id,
+            'actor_name' => $n->actor_name,
+            'actor_avatar_url' => $n->actor?->avatar_url,
+            'action' => $n->action,
+            'description' => $n->description,
+            'subject_type' => $n->subject_type,
+            'subject_id' => $n->subject_id,
+            'subject_label' => $n->subject_label,
+            'module' => $n->module,
+            'read_at' => $n->read_at?->toISOString(),
+            'created_at' => $n->created_at->toISOString(),
+            'time_ago' => $n->created_at->diffForHumans(),
+        ]);
 
         return response()->json([
-            'notifications' => $notifications,
+            'notifications' => $mapped,
+            'has_more' => $hasMore,
+            'next_cursor' => $hasMore ? $notifications->last()?->id : null,
             'unread_count' => Notification::where('user_id', $user->id)->unread()->count(),
         ]);
     }

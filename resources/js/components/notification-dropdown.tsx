@@ -5,12 +5,11 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from '@/components/ui/popover';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import type { AppNotification, SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
 import axios from 'axios';
-import { Bell, CheckCheck } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { Bell, CheckCheck, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function NotificationDropdown() {
     const { notifications_unread_count } = usePage<SharedData>().props;
@@ -18,6 +17,11 @@ export function NotificationDropdown() {
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [unreadCount, setUnreadCount] = useState(notifications_unread_count || 0);
     const [loading, setLoading] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(false);
+    const [nextCursor, setNextCursor] = useState<string | null>(null);
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const sentinelRef = useRef<HTMLDivElement>(null);
 
     // Sync with Inertia shared props when page navigates
     useEffect(() => {
@@ -30,17 +34,57 @@ export function NotificationDropdown() {
             const { data } = await axios.get('/notifications/recent');
             setNotifications(data.notifications);
             setUnreadCount(data.unread_count);
+            setHasMore(data.has_more);
+            setNextCursor(data.next_cursor);
         } finally {
             setLoading(false);
         }
     }, []);
 
-    // Fetch when dropdown opens
+    const loadMore = useCallback(async () => {
+        if (loadingMore || !hasMore || !nextCursor) return;
+
+        setLoadingMore(true);
+        try {
+            const { data } = await axios.get('/notifications/recent', {
+                params: { cursor: nextCursor },
+            });
+            setNotifications((prev) => [...prev, ...data.notifications]);
+            setHasMore(data.has_more);
+            setNextCursor(data.next_cursor);
+        } finally {
+            setLoadingMore(false);
+        }
+    }, [loadingMore, hasMore, nextCursor]);
+
+    // Fetch when dropdown opens, reset when closed
     useEffect(() => {
         if (open) {
             fetchNotifications();
+        } else {
+            // Reset pagination state when closing
+            setNotifications([]);
+            setHasMore(false);
+            setNextCursor(null);
         }
     }, [open, fetchNotifications]);
+
+    // Intersection Observer for infinite scroll
+    useEffect(() => {
+        if (!open || !sentinelRef.current) return;
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries[0].isIntersecting && hasMore && !loadingMore) {
+                    loadMore();
+                }
+            },
+            { root: scrollRef.current, threshold: 0.1 },
+        );
+
+        observer.observe(sentinelRef.current);
+        return () => observer.disconnect();
+    }, [open, hasMore, loadingMore, loadMore]);
 
     const handleMarkAllRead = async () => {
         await axios.post('/notifications/mark-all-read');
@@ -65,7 +109,7 @@ export function NotificationDropdown() {
             </PopoverTrigger>
             <PopoverContent
                 align="end"
-                className="w-[380px] p-0"
+                className="w-[420px] overflow-hidden p-0"
                 sideOffset={8}
             >
                 {/* Header */}
@@ -85,9 +129,13 @@ export function NotificationDropdown() {
                 </div>
 
                 {/* Notification List */}
-                <ScrollArea className="max-h-[400px]">
+                <div
+                    ref={scrollRef}
+                    className="max-h-[400px] overflow-y-auto"
+                >
                     {loading && notifications.length === 0 ? (
                         <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                            <Loader2 className="mr-2 size-4 animate-spin" />
                             Loading...
                         </div>
                     ) : notifications.length === 0 ? (
@@ -104,9 +152,19 @@ export function NotificationDropdown() {
                                     onUpdate={fetchNotifications}
                                 />
                             ))}
+
+                            {/* Sentinel element for infinite scroll */}
+                            <div ref={sentinelRef} className="h-1" />
+
+                            {loadingMore && (
+                                <div className="flex items-center justify-center py-3 text-sm text-muted-foreground">
+                                    <Loader2 className="mr-2 size-4 animate-spin" />
+                                    Loading more...
+                                </div>
+                            )}
                         </div>
                     )}
-                </ScrollArea>
+                </div>
 
                 {/* Footer */}
                 <div className="border-t">

@@ -573,6 +573,13 @@ class LiquidationController extends Controller
         $noneId         = DocumentStatus::where('code', DocumentStatus::CODE_NONE)->value('id');
         $unliquidatedId = LiquidationStatus::where('code', LiquidationStatus::CODE_UNLIQUIDATED)->value('id');
 
+        // Snapshot old entries for change detection
+        $oldEntries = $liquidation->trackingEntries()
+            ->with('locations')
+            ->get()
+            ->keyBy('id')
+            ->toArray();
+
         // Delete removed entries
         $existingIds = $liquidation->trackingEntries()->pluck('id')->toArray();
         $incomingIds = array_filter(array_column($validated['entries'], 'id'));
@@ -635,9 +642,76 @@ class LiquidationController extends Controller
             'liquidation_status_id' => $latestLiqStatusId,
         ]);
 
+        // Detect which fields changed by comparing incoming request data against old snapshot
+        $trackingFieldMap = [
+            'document_status'    => ['label' => 'Status of Documents',   'db_field' => 'document_status_id',   'lookup' => $docStatusMap],
+            'received_by'        => ['label' => 'Received by',           'db_field' => 'received_by'],
+            'date_received'      => ['label' => 'Date Received',         'db_field' => 'date_received'],
+            'document_location'  => ['label' => 'Document Location'],
+            'reviewed_by'        => ['label' => 'Reviewed by',           'db_field' => 'reviewed_by'],
+            'date_reviewed'      => ['label' => 'Date Reviewed',         'db_field' => 'date_reviewed'],
+            'rc_note'            => ['label' => 'RC Note',               'db_field' => 'rc_note'],
+            'date_endorsement'   => ['label' => 'Date of Endorsement',   'db_field' => 'date_endorsement'],
+            'liquidation_status' => ['label' => 'Status of Liquidation', 'db_field' => 'liquidation_status_id', 'lookup' => $liqStatusMap],
+        ];
+
+        $changedFields = [];
+
+        foreach ($validated['entries'] as $entryData) {
+            $entryId = $entryData['id'] ?? null;
+
+            if (!$entryId || !isset($oldEntries[$entryId])) {
+                $changedFields[] = 'New entry added';
+                continue;
+            }
+
+            $old = $oldEntries[$entryId];
+
+            foreach ($trackingFieldMap as $requestField => $config) {
+                $incomingValue = trim((string) ($entryData[$requestField] ?? ''));
+
+                if ($requestField === 'document_location') {
+                    $oldLocationNames = collect($old['locations'] ?? [])->pluck('name')->sort()->values()->implode(',');
+                    $newLocationNames = collect(array_filter(array_map('trim', explode(',', $incomingValue))))->sort()->values()->implode(',');
+                    if ($oldLocationNames !== $newLocationNames) {
+                        $changedFields[] = $config['label'];
+                    }
+                    continue;
+                }
+
+                $dbField = $config['db_field'];
+
+                // For lookup fields (status name → UUID), resolve incoming name to UUID
+                if (isset($config['lookup'])) {
+                    $incomingValue = (string) ($config['lookup'][$incomingValue] ?? '');
+                }
+
+                // Normalize: cast old DB value to string, trim dates of time portion for date-only fields
+                $oldValue = trim((string) ($old[$dbField] ?? ''));
+                if (in_array($requestField, ['date_received', 'date_reviewed', 'date_endorsement'])) {
+                    $oldValue = $oldValue ? substr($oldValue, 0, 10) : '';
+                    $incomingValue = $incomingValue ? substr($incomingValue, 0, 10) : '';
+                }
+
+                if ($oldValue !== $incomingValue) {
+                    $changedFields[] = $config['label'];
+                }
+            }
+        }
+
+        // Check for deleted entries
+        $oldIds = array_keys($oldEntries);
+        $keptIds = array_filter(array_column($validated['entries'], 'id'));
+        if (!empty(array_diff($oldIds, $keptIds))) {
+            $changedFields[] = 'Removed entry';
+        }
+
+        $changedFields = array_values(array_unique($changedFields));
+        $fieldSummary = !empty($changedFields) ? ' (' . implode(', ', $changedFields) . ')' : '';
+
         ActivityLog::log(
             'updated_tracking',
-            "Updated document tracking for {$liquidation->control_no}",
+            "Updated document tracking for {$liquidation->control_no}{$fieldSummary}",
             $liquidation,
             'Liquidation',
         );
@@ -668,7 +742,10 @@ class LiquidationController extends Controller
             'entries.*.group_transmittal_ref_no' => 'nullable|string|max:255',
         ]);
 
-        $existingIds = $liquidation->runningData()->pluck('id')->toArray();
+        // Snapshot old entries for change detection
+        $oldRunningEntries = $liquidation->runningData()->get()->keyBy('id')->toArray();
+
+        $existingIds = array_keys($oldRunningEntries);
         $incomingIds = array_filter(array_column($validated['entries'], 'id'));
 
         // Delete removed entries
@@ -709,9 +786,61 @@ class LiquidationController extends Controller
             ]);
         }
 
+        // Detect which fields changed by comparing incoming request data against old snapshot
+        $runningFieldLabels = [
+            'grantees_liquidated'      => 'No. of Grantees Liquidated',
+            'amount_complete_docs'     => 'Amt w/ Complete Docs',
+            'amount_refunded'          => 'Amt Refunded',
+            'refund_or_no'             => 'Refund OR No.',
+            'total_amount_liquidated'  => 'Total Amt Liquidated',
+            'transmittal_ref_no'       => 'Transmittal Ref No.',
+            'group_transmittal_ref_no' => 'Group Transmittal Ref No.',
+        ];
+
+        $changedRunningFields = [];
+
+        foreach ($validated['entries'] as $entryData) {
+            $entryId = $entryData['id'] ?? null;
+
+            if (!$entryId || !isset($oldRunningEntries[$entryId])) {
+                $changedRunningFields[] = 'New entry added';
+                continue;
+            }
+
+            $old = $oldRunningEntries[$entryId];
+
+            foreach ($runningFieldLabels as $field => $label) {
+                // Normalize both to numeric strings for comparison (handles "0" vs 0 vs "0.00" vs null)
+                $oldVal = $old[$field] ?? null;
+                $newVal = $entryData[$field] ?? null;
+
+                // For numeric fields, compare as floats to handle "0.00" vs "0" vs 0
+                if (is_numeric($oldVal) || is_numeric($newVal)) {
+                    $oldNum = $oldVal !== null && $oldVal !== '' ? (float) $oldVal : null;
+                    $newNum = $newVal !== null && $newVal !== '' ? (float) $newVal : null;
+                    if ($oldNum !== $newNum) {
+                        $changedRunningFields[] = $label;
+                    }
+                } else {
+                    if (trim((string) ($oldVal ?? '')) !== trim((string) ($newVal ?? ''))) {
+                        $changedRunningFields[] = $label;
+                    }
+                }
+            }
+        }
+
+        // Check for deleted entries
+        $deletedRunningIds = array_diff(array_keys($oldRunningEntries), array_filter(array_column($validated['entries'], 'id')));
+        if (!empty($deletedRunningIds)) {
+            $changedRunningFields[] = 'Removed entry';
+        }
+
+        $changedRunningFields = array_values(array_unique($changedRunningFields));
+        $runningFieldSummary = !empty($changedRunningFields) ? ' (' . implode(', ', $changedRunningFields) . ')' : '';
+
         ActivityLog::log(
             'updated_running_data',
-            "Updated running data for {$liquidation->control_no}",
+            "Updated running data for {$liquidation->control_no}{$runningFieldSummary}",
             $liquidation,
             'Liquidation',
         );

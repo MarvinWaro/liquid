@@ -1,56 +1,65 @@
 import { useMemo } from 'react';
 import { Avatar, AvatarFallback, AvatarImage, AvatarGroup, AvatarGroupCount } from '@/components/ui/avatar';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { type LiquidationUser, getInitials, getAvatarColor } from '@/types/liquidation';
+import { type LiquidationUser, getInitials, getAvatarColor, parseNames } from '@/types/liquidation';
 
 interface AvatarStackProps {
     namesStr: string;
     avatarMap: Record<string, string>;
+    knownNames?: string[];
     maxVisible?: number;
+    /** Skip tooltip wrapper — use when rendered inside a Popover trigger to avoid nesting conflicts */
+    disableTooltip?: boolean;
 }
 
-export default function AvatarStack({ namesStr, avatarMap, maxVisible = 3 }: AvatarStackProps) {
-    const names = namesStr.split(',').filter(Boolean).map(s => s.trim());
+export default function AvatarStack({ namesStr, avatarMap, knownNames, maxVisible = 3, disableTooltip = false }: AvatarStackProps) {
+    const names = parseNames(namesStr, knownNames);
     if (names.length === 0) return null;
 
     const visible = names.slice(0, maxVisible);
     const overflow = names.length - maxVisible;
 
+    const avatars = (
+        <div className="inline-flex">
+            {names.length === 1 ? (
+                <Avatar size="sm" className="size-6">
+                    {avatarMap[names[0]] && <AvatarImage src={avatarMap[names[0]]} alt={names[0]} />}
+                    <AvatarFallback className={`text-[9px] font-bold ${getAvatarColor(names[0])}`}>
+                        {getInitials(names[0])}
+                    </AvatarFallback>
+                </Avatar>
+            ) : (
+                <AvatarGroup>
+                    {visible.map((name) => (
+                        <Avatar key={name} size="sm" className="size-6">
+                            {avatarMap[name] && <AvatarImage src={avatarMap[name]} alt={name} />}
+                            <AvatarFallback className={`text-[9px] font-bold ${getAvatarColor(name)}`}>
+                                {getInitials(name)}
+                            </AvatarFallback>
+                        </Avatar>
+                    ))}
+                    {overflow > 0 && (
+                        <AvatarGroupCount className="size-6 text-[9px] font-semibold">
+                            +{overflow}
+                        </AvatarGroupCount>
+                    )}
+                </AvatarGroup>
+            )}
+        </div>
+    );
+
+    if (disableTooltip) return avatars;
+
     return (
         <TooltipProvider>
             <Tooltip>
                 <TooltipTrigger asChild>
-                    <div className="inline-flex">
-                        {names.length === 1 ? (
-                            <Avatar size="sm" className="size-6">
-                                {avatarMap[names[0]] && <AvatarImage src={avatarMap[names[0]]} alt={names[0]} />}
-                                <AvatarFallback className={`text-[9px] font-bold ${getAvatarColor(names[0])}`}>
-                                    {getInitials(names[0])}
-                                </AvatarFallback>
-                            </Avatar>
-                        ) : (
-                            <AvatarGroup>
-                                {visible.map((name, i) => (
-                                    <Avatar key={i} size="sm" className="size-6">
-                                        {avatarMap[name] && <AvatarImage src={avatarMap[name]} alt={name} />}
-                                        <AvatarFallback className={`text-[9px] font-bold ${getAvatarColor(name)}`}>
-                                            {getInitials(name)}
-                                        </AvatarFallback>
-                                    </Avatar>
-                                ))}
-                                {overflow > 0 && (
-                                    <AvatarGroupCount className="size-6 text-[9px] font-semibold">
-                                        +{overflow}
-                                    </AvatarGroupCount>
-                                )}
-                            </AvatarGroup>
-                        )}
-                    </div>
+                    {avatars}
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="p-2">
                     <div className="space-y-1">
-                        {names.map((n, i) => (
-                            <div key={i} className="flex items-center gap-2 text-xs">
+                        {names.map((n) => (
+                            <div key={n} className="flex items-center gap-2 text-xs">
                                 {avatarMap[n] ? (
                                     <img src={avatarMap[n]} alt={n} className="size-4 rounded-full object-cover" />
                                 ) : (

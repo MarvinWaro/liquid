@@ -179,6 +179,7 @@ export default function Show({
                             isHEIUser={isHEIUser}
                             avatarMap={avatarMap}
                             rcReviewerName={rcReviewerName}
+                            knownNames={[...regionalCoordinators, ...accountants].map(u => u.name)}
                         />
                     </div>
                 </div>
@@ -187,6 +188,7 @@ export default function Show({
                 <LatestTrackingSummary
                     trackingEntries={trackingEntries}
                     avatarMap={avatarMap}
+                    regionalCoordinators={regionalCoordinators}
                 />
 
                 {/* Document Tracking Table */}

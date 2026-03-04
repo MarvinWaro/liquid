@@ -241,3 +241,55 @@ export function formatDate(d: string): string {
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return `${months[parseInt(m)-1]} ${parseInt(day)}, ${y}`;
 }
+
+/**
+ * Delimiter for multi-name fields (received_by, reviewed_by).
+ * Using '|||' because names can contain commas (e.g., "Laro, Aries").
+ */
+const NAME_DELIMITER = '|||';
+
+/** Parse a multi-name string into an array of names. Handles both new (|||) and legacy (,) formats. */
+export function parseNames(value: string, knownNames?: string[]): string[] {
+    if (!value) return [];
+
+    // New format
+    if (value.includes(NAME_DELIMITER)) {
+        return value.split(NAME_DELIMITER).map(s => s.trim()).filter(Boolean);
+    }
+
+    // Legacy comma format: if we have known names, match against them to handle commas in names
+    if (knownNames && knownNames.length > 0) {
+        const result: string[] = [];
+        let remaining = value.trim();
+
+        while (remaining.length > 0) {
+            // Sort known names by length descending to match longest first
+            const match = [...knownNames]
+                .sort((a, b) => b.length - a.length)
+                .find(name => remaining.startsWith(name));
+
+            if (match) {
+                result.push(match);
+                remaining = remaining.slice(match.length).replace(/^,\s*/, '');
+            } else {
+                // No match found — take up to next comma as fallback
+                const commaIdx = remaining.indexOf(',');
+                if (commaIdx === -1) {
+                    result.push(remaining.trim());
+                    break;
+                }
+                result.push(remaining.slice(0, commaIdx).trim());
+                remaining = remaining.slice(commaIdx + 1).trimStart();
+            }
+        }
+        return result.filter(Boolean);
+    }
+
+    // Fallback: simple comma split (legacy data, no known names available)
+    return value.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+/** Join an array of names into a delimited string. */
+export function joinNames(names: string[]): string {
+    return names.filter(Boolean).join(NAME_DELIMITER);
+}

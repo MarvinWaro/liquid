@@ -1,14 +1,15 @@
 import { ClipboardList } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import AvatarStack from './avatar-stack';
-import { type TrackingEntry, formatDate } from '@/types/liquidation';
+import { type TrackingEntry, type LiquidationUser, formatDate, parseNames, joinNames } from '@/types/liquidation';
 
 interface LatestTrackingSummaryProps {
     trackingEntries: TrackingEntry[];
     avatarMap: Record<string, string>;
+    regionalCoordinators?: LiquidationUser[];
 }
 
-export default function LatestTrackingSummary({ trackingEntries, avatarMap }: LatestTrackingSummaryProps) {
+export default function LatestTrackingSummary({ trackingEntries, avatarMap, regionalCoordinators }: LatestTrackingSummaryProps) {
     const filledEntries = trackingEntries.filter(e =>
         e.document_status || e.received_by || e.date_received || e.liquidation_status
     );
@@ -16,15 +17,16 @@ export default function LatestTrackingSummary({ trackingEntries, avatarMap }: La
 
     const latest = filledEntries[filledEntries.length - 1];
     const entryIndex = trackingEntries.indexOf(latest) + 1;
+    const knownNames = regionalCoordinators?.map(rc => rc.name) ?? [];
 
     const allReceivers = [
         ...new Set(
-            filledEntries.flatMap(e => (e.received_by || '').split(',').filter(Boolean).map(s => s.trim()))
+            filledEntries.flatMap(e => parseNames(e.received_by, knownNames))
         )
     ];
     const allReviewers = [
         ...new Set(
-            filledEntries.flatMap(e => (e.reviewed_by || '').split(',').filter(Boolean).map(s => s.trim()))
+            filledEntries.flatMap(e => parseNames(e.reviewed_by, knownNames))
         )
     ];
 
@@ -52,7 +54,7 @@ export default function LatestTrackingSummary({ trackingEntries, avatarMap }: La
                     <div>
                         <p className="text-[10px] text-muted-foreground mb-1">Received by</p>
                         {allReceivers.length > 0
-                            ? <AvatarStack namesStr={allReceivers.join(',')} avatarMap={avatarMap} />
+                            ? <AvatarStack namesStr={joinNames(allReceivers)} avatarMap={avatarMap} knownNames={knownNames} />
                             : <p className="text-xs font-medium text-foreground">—</p>
                         }
                     </div>
@@ -63,7 +65,7 @@ export default function LatestTrackingSummary({ trackingEntries, avatarMap }: La
                     <div>
                         <p className="text-[10px] text-muted-foreground mb-1">Reviewed by</p>
                         {allReviewers.length > 0
-                            ? <AvatarStack namesStr={allReviewers.join(',')} avatarMap={avatarMap} />
+                            ? <AvatarStack namesStr={joinNames(allReviewers)} avatarMap={avatarMap} knownNames={knownNames} />
                             : <p className="text-xs font-medium text-foreground">—</p>
                         }
                     </div>
