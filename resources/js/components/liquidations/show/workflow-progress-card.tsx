@@ -9,15 +9,16 @@ interface WorkflowProgressCardProps {
     isHEIUser: boolean;
     avatarMap: Record<string, string>;
     rcReviewerName?: string | null;
+    knownNames?: string[];
 }
 
-function getWorkflowSteps(liquidation: Liquidation, isHEIUser: boolean, avatarMap: Record<string, string>, rcReviewerName?: string | null) {
+function getWorkflowSteps(liquidation: Liquidation, isHEIUser: boolean, avatarMap: Record<string, string>, rcReviewerName?: string | null, knownNames?: string[]) {
     const normalizedStatus = liquidation.liquidation_status?.toLowerCase().replace(/\s+/g, '_') || 'draft';
     const isDocComplete = liquidation.document_status?.toLowerCase().replace(/\s+/g, '_') === 'complete_submission';
     const reviewerName = rcReviewerName || liquidation.reviewed_by_name;
 
     const rcReviewerAvatar = reviewerName ? (
-        <AvatarStack namesStr={reviewerName} avatarMap={avatarMap} />
+        <AvatarStack namesStr={reviewerName} avatarMap={avatarMap} knownNames={knownNames} />
     ) : undefined;
 
     if (isHEIUser) {
@@ -67,8 +68,8 @@ function getWorkflowSteps(liquidation: Liquidation, isHEIUser: boolean, avatarMa
     return { steps: rcSteps, currentStep: stepMap[normalizedStatus] || 1, isFullyCompleted: false, lastCompletedStep: undefined };
 }
 
-export default function WorkflowProgressCard({ liquidation, isHEIUser, avatarMap, rcReviewerName }: WorkflowProgressCardProps) {
-    const workflowState = useMemo(() => getWorkflowSteps(liquidation, isHEIUser, avatarMap, rcReviewerName), [liquidation, isHEIUser, avatarMap, rcReviewerName]);
+export default function WorkflowProgressCard({ liquidation, isHEIUser, avatarMap, rcReviewerName, knownNames }: WorkflowProgressCardProps) {
+    const workflowState = useMemo(() => getWorkflowSteps(liquidation, isHEIUser, avatarMap, rcReviewerName, knownNames), [liquidation, isHEIUser, avatarMap, rcReviewerName, knownNames]);
 
     return (
         <Card className="flex-1">

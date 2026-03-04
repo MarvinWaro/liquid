@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { router } from '@inertiajs/react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,8 @@ import {
     RC_NOTES_OPTIONS,
     createEmptyTrackingEntry,
     isTrackingEntryFilled,
+    parseNames,
+    joinNames,
 } from '@/types/liquidation';
 
 interface DocumentTrackingTableProps {
@@ -40,14 +42,20 @@ export default function DocumentTrackingTable({
         initialEntries.length > 0 ? initialEntries : [createEmptyTrackingEntry()]
     );
     const [isSaving, setIsSaving] = useState(false);
+    const isFirstRender = useRef(true);
+
+    // Notify parent of entry changes AFTER render (avoids setState-during-render)
+    useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            return;
+        }
+        onEntriesChange(entries);
+    }, [entries, onEntriesChange]);
 
     const updateEntries = useCallback((updater: (prev: TrackingEntry[]) => TrackingEntry[]) => {
-        setEntries(prev => {
-            const next = updater(prev);
-            onEntriesChange(next);
-            return next;
-        });
-    }, [onEntriesChange]);
+        setEntries(updater);
+    }, []);
 
     const addEntry = useCallback(() => {
         updateEntries(prev => [...prev, createEmptyTrackingEntry()]);
@@ -258,12 +266,15 @@ function RCMultiSelect({ value, users, avatarMap, onChange }: {
     avatarMap: Record<string, string>;
     onChange: (val: string) => void;
 }) {
+    const knownNames = users.map(u => u.name);
+    const selected = parseNames(value, knownNames);
+
     return (
         <Popover>
             <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" className="h-auto min-h-[28px] text-xs min-w-[130px] justify-between font-normal py-1">
                     {value
-                        ? <AvatarStack namesStr={value} avatarMap={avatarMap} />
+                        ? <AvatarStack namesStr={value} avatarMap={avatarMap} knownNames={knownNames} disableTooltip />
                         : <span className="text-muted-foreground">Select RC</span>
                     }
                     <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-50 ml-1" />
@@ -272,18 +283,16 @@ function RCMultiSelect({ value, users, avatarMap, onChange }: {
             <PopoverContent className="w-[200px] p-2" align="start">
                 <div className="space-y-1 max-h-[200px] overflow-y-auto">
                     {users.map((rc) => {
-                        const selected = (value || '').split(',').filter(Boolean);
                         const isChecked = selected.includes(rc.name);
                         return (
                             <label key={rc.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer text-xs">
                                 <Checkbox
                                     checked={isChecked}
                                     onCheckedChange={(checked) => {
-                                        const current = (value || '').split(',').filter(Boolean);
                                         const updated = checked
-                                            ? [...current, rc.name]
-                                            : current.filter(n => n !== rc.name);
-                                        onChange(updated.join(','));
+                                            ? [...selected, rc.name]
+                                            : selected.filter(n => n !== rc.name);
+                                        onChange(joinNames(updated));
                                     }}
                                 />
                                 {rc.name}

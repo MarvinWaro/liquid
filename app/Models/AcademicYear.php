@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Traits\HasUuid;
+use App\Traits\LogsActivity;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -26,7 +27,29 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class AcademicYear extends Model
 {
-    use HasFactory, HasUuid;
+    use HasFactory, HasUuid, LogsActivity;
+
+    protected static function getActivityModule(): string
+    {
+        return 'Settings';
+    }
+
+    protected static function getActivityModelLabel(): string
+    {
+        return 'academic year';
+    }
+
+    protected static function getActivityFieldLabels(): array
+    {
+        return [
+            'code' => 'Code',
+            'name' => 'Name',
+            'start_date' => 'Start Date',
+            'end_date' => 'End Date',
+            'sort_order' => 'Sort Order',
+            'is_active' => 'Active',
+        ];
+    }
 
     protected $fillable = [
         'code',

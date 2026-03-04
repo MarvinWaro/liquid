@@ -78,6 +78,29 @@ function getSubjectUrl(subjectType: string | null, subjectId: string | null): st
     }
 }
 
+const BOLD_PHRASES = [
+    'document tracking',
+    'running data',
+    'document requirement',
+    'beneficiaries',
+];
+
+function renderDescription(text: string) {
+    const regex = new RegExp(`(${BOLD_PHRASES.join('|')})`, 'gi');
+    const parts = text.split(regex);
+
+    return parts.map((part, i) => {
+        if (BOLD_PHRASES.some((p) => p.toLowerCase() === part.toLowerCase())) {
+            return (
+                <span key={i} className="font-semibold text-foreground">
+                    {part}
+                </span>
+            );
+        }
+        return part;
+    });
+}
+
 export function NotificationItem({ notification, onUpdate }: NotificationItemProps) {
     const getInitials = useInitials();
     const isUnread = !notification.read_at;
@@ -132,10 +155,10 @@ export function NotificationItem({ notification, onUpdate }: NotificationItemPro
 
             {/* Content */}
             <div className="min-w-0 flex-1">
-                <p className="text-sm leading-snug">
+                <p className="text-sm leading-snug break-words [overflow-wrap:anywhere]">
                     <span className="font-semibold">{notification.actor_name}</span>{' '}
                     <span className="text-muted-foreground">
-                        {notification.description.replace(notification.actor_name, '').replace(/^\s+/, '')}
+                        {renderDescription(notification.description.replace(notification.actor_name, '').replace(/^\s+/, ''))}
                     </span>
                 </p>
                 <p className={cn(
