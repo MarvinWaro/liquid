@@ -1,5 +1,4 @@
 import Heading from '@/components/heading';
-import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { cn, toUrl } from '@/lib/utils';
 import { useActiveUrl } from '@/hooks/use-active-url';
@@ -9,29 +8,29 @@ import { show } from '@/routes/two-factor';
 import { edit as editPassword } from '@/routes/user-password';
 import { type NavItem, type NavigationAbilities, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Building2, Calendar, FileText, FolderOpen, GraduationCap, History, MapPin, Shield, Users } from 'lucide-react';
+import { Building2, Calendar, FileText, FolderOpen, GraduationCap, History, KeyRound, MapPin, Palette, Shield, ShieldCheck, User, Users } from 'lucide-react';
 import { type PropsWithChildren, useMemo } from 'react';
 
 const sidebarNavItems: NavItem[] = [
     {
         title: 'Profile',
         href: edit(),
-        icon: null,
+        icon: User,
     },
     {
         title: 'Password',
         href: editPassword(),
-        icon: null,
+        icon: KeyRound,
     },
     {
         title: 'Two-Factor Auth',
         href: show(),
-        icon: null,
+        icon: ShieldCheck,
     },
     {
         title: 'Appearance',
         href: editAppearance(),
-        icon: null,
+        icon: Palette,
     },
 ];
 
@@ -139,56 +138,49 @@ export default function SettingsLayout({ children, wide = false }: SettingsLayou
                 description="Manage your profile and account settings"
             />
 
-            <div className="flex flex-col lg:flex-row lg:space-x-12 lg:items-start">
-                <aside className="w-full max-w-xl lg:w-48 shrink-0 lg:sticky lg:top-6 lg:self-start">
-                    <nav className="flex flex-col space-y-1 space-x-0" aria-label="Settings">
+            <div className="flex flex-col lg:flex-row lg:gap-x-8 lg:items-start">
+                <aside className="w-full max-w-xl lg:w-52 shrink-0 lg:sticky lg:top-6 lg:self-start">
+                    <nav className="flex flex-col" aria-label="Settings">
                         {/* Account Settings */}
-                        <span className="mb-2 px-3 text-xs font-semibold uppercase text-muted-foreground">
+                        <span className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                             Account
                         </span>
                         {sidebarNavItems.map((item, index) => (
-                            <Button
+                            <Link
                                 key={`${toUrl(item.href)}-${index}`}
-                                size="sm"
-                                variant="ghost"
-                                asChild
-                                className={cn('w-full justify-start', {
-                                    'bg-muted': urlIsActive(item.href),
-                                })}
+                                href={item.href}
+                                className={cn(
+                                    'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
+                                    urlIsActive(item.href)
+                                        ? 'bg-muted font-medium text-foreground'
+                                        : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                                )}
                             >
-                                <Link href={item.href}>
-                                    {item.icon && (
-                                        <item.icon className="h-4 w-4" />
-                                    )}
-                                    {item.title}
-                                </Link>
-                            </Button>
+                                {item.icon && <item.icon className="h-4 w-4 shrink-0" />}
+                                {item.title}
+                            </Link>
                         ))}
 
                         {/* User Management */}
                         {filteredUserManagement.length > 0 && (
                             <>
-                                <Separator className="my-4" />
-                                <span className="mb-2 px-3 text-xs font-semibold uppercase text-muted-foreground">
+                                <span className="mb-1 mt-5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                                     User Management
                                 </span>
                                 {filteredUserManagement.map((item, index) => (
-                                    <Button
+                                    <Link
                                         key={`um-${toUrl(item.href)}-${index}`}
-                                        size="sm"
-                                        variant="ghost"
-                                        asChild
-                                        className={cn('w-full justify-start', {
-                                            'bg-muted': urlIsActive(item.href),
-                                        })}
+                                        href={item.href}
+                                        className={cn(
+                                            'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
+                                            urlIsActive(item.href)
+                                                ? 'bg-muted font-medium text-foreground'
+                                                : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                                        )}
                                     >
-                                        <Link href={item.href}>
-                                            {item.icon && (
-                                                <item.icon className="mr-2 h-4 w-4" />
-                                            )}
-                                            {item.title}
-                                        </Link>
-                                    </Button>
+                                        {item.icon && <item.icon className="h-4 w-4 shrink-0" />}
+                                        {item.title}
+                                    </Link>
                                 ))}
                             </>
                         )}
@@ -196,27 +188,23 @@ export default function SettingsLayout({ children, wide = false }: SettingsLayou
                         {/* System Configuration */}
                         {filteredSystemConfig.length > 0 && (
                             <>
-                                <Separator className="my-4" />
-                                <span className="mb-2 px-3 text-xs font-semibold uppercase text-muted-foreground">
+                                <span className="mb-1 mt-5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                                     System Configuration
                                 </span>
                                 {filteredSystemConfig.map((item, index) => (
-                                    <Button
+                                    <Link
                                         key={`sc-${toUrl(item.href)}-${index}`}
-                                        size="sm"
-                                        variant="ghost"
-                                        asChild
-                                        className={cn('w-full justify-start', {
-                                            'bg-muted': urlIsActive(item.href),
-                                        })}
+                                        href={item.href}
+                                        className={cn(
+                                            'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
+                                            urlIsActive(item.href)
+                                                ? 'bg-muted font-medium text-foreground'
+                                                : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                                        )}
                                     >
-                                        <Link href={item.href}>
-                                            {item.icon && (
-                                                <item.icon className="mr-2 h-4 w-4" />
-                                            )}
-                                            {item.title}
-                                        </Link>
-                                    </Button>
+                                        {item.icon && <item.icon className="h-4 w-4 shrink-0" />}
+                                        {item.title}
+                                    </Link>
                                 ))}
                             </>
                         )}
@@ -225,8 +213,8 @@ export default function SettingsLayout({ children, wide = false }: SettingsLayou
 
                 <Separator className="my-6 lg:hidden" />
 
-                <div className={cn('flex-1', wide ? 'max-w-full' : 'md:max-w-2xl')}>
-                    <section className={cn(wide ? 'w-full' : 'max-w-xl', 'space-y-12')}>
+                <div className="flex-1 min-w-0">
+                    <section className={cn('space-y-12', !wide && 'max-w-xl')}>
                         {children}
                     </section>
                 </div>

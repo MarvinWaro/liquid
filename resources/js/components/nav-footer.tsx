@@ -26,10 +26,7 @@ export function NavFooter({
                 <SidebarMenu>
                     {items.map((item) => (
                         <SidebarMenuItem key={item.title}>
-                            <SidebarMenuButton
-                                asChild
-                                className="text-white/60 hover:text-white hover:bg-white/10"
-                            >
+                            <SidebarMenuButton asChild>
                                 <a
                                     href={toUrl(item.href)}
                                     target="_blank"
