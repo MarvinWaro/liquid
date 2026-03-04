@@ -16,7 +16,7 @@ export function AppContent({
 
     return (
         <main
-            className="flex h-full w-full flex-1 flex-col gap-4 px-4 md:px-24"
+            className="flex h-full w-full flex-1 flex-col gap-4 px-4 md:px-16"
             {...props}
         >
             {children}

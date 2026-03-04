@@ -1,4 +1,6 @@
-import AppLayoutTemplate from '@/layouts/app/app-header-layout';
+import AppHeaderLayout from '@/layouts/app/app-header-layout';
+import AppSidebarLayout from '@/layouts/app/app-sidebar-layout';
+import { useLayoutPreference } from '@/hooks/use-layout-preference';
 import { type BreadcrumbItem } from '@/types';
 import { type ReactNode, useEffect } from 'react';
 import { usePage } from '@inertiajs/react';
@@ -11,10 +13,9 @@ interface AppLayoutProps {
 }
 
 export default ({ children, breadcrumbs, ...props }: AppLayoutProps) => {
-    // 1. Get the flash data from Laravel via Inertia
     const { flash } = usePage().props as any;
+    const { layout } = useLayoutPreference();
 
-    // 2. Listen for changes in flash messages and trigger the toast
     useEffect(() => {
         if (flash?.success) {
             toast.success(flash.success);
@@ -24,12 +25,12 @@ export default ({ children, breadcrumbs, ...props }: AppLayoutProps) => {
         }
     }, [flash]);
 
-    return (
-        <AppLayoutTemplate breadcrumbs={breadcrumbs} {...props}>
-            {children}
+    const Layout = layout === 'sidebar' ? AppSidebarLayout : AppHeaderLayout;
 
-            {/* 3. The Toaster component renders the actual notifications */}
+    return (
+        <Layout breadcrumbs={breadcrumbs} {...props}>
+            {children}
             <Toaster richColors position="bottom-right" />
-        </AppLayoutTemplate>
+        </Layout>
     );
 };

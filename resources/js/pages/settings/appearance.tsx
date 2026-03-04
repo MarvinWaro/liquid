@@ -2,6 +2,7 @@ import { Head } from '@inertiajs/react';
 
 import AppearanceTabs from '@/components/appearance-tabs';
 import HeadingSmall from '@/components/heading-small';
+import LayoutTabs from '@/components/layout-tabs';
 import { type BreadcrumbItem } from '@/types';
 
 import AppLayout from '@/layouts/app-layout';
@@ -29,6 +30,14 @@ export default function Appearance() {
                         description="Update your account's appearance settings"
                     />
                     <AppearanceTabs />
+                </div>
+
+                <div className="mt-8 space-y-6 border-t pt-6">
+                    <HeadingSmall
+                        title="Navigation style"
+                        description="Choose how you want to navigate through the platform"
+                    />
+                    <LayoutTabs />
                 </div>
             </SettingsLayout>
         </AppLayout>
