@@ -105,8 +105,11 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                             >
                                 <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
                                 <SheetHeader className="flex justify-start text-left">
-                                    <Link href={dashboard()} prefetch>
+                                    <Link href={dashboard()} prefetch className="flex items-center gap-2">
                                         <img src="/assets/img/unifast.png" alt="UniFAST Logo" className="h-8 w-8" />
+                                        <span className="font-anton text-base tracking-wide">
+                                            Uni<span className="text-orange-500">FAST</span>
+                                        </span>
                                     </Link>
                                 </SheetHeader>
                                 <div className="flex h-full flex-1 flex-col space-y-1 p-4">
@@ -131,8 +134,11 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                     </div>
 
                     {/* Logo */}
-                    <Link href={dashboard()} prefetch className="flex shrink-0 items-center">
+                    <Link href={dashboard()} prefetch className="flex shrink-0 items-center gap-2">
                         <img src="/assets/img/unifast.png" alt="UniFAST Logo" className="h-8 w-8" />
+                        <span className="font-anton text-base tracking-wide">
+                            Uni<span className="text-orange-500">FAST</span>
+                        </span>
                     </Link>
 
                     {/* Desktop Navigation */}

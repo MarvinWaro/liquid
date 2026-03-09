@@ -14,6 +14,8 @@
         'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
         'Noto Color Emoji';
 
+    --font-anton: 'Anton', sans-serif;
+
     --font-mono:
         ui-monospace, 'Cascadia Code', 'Source Code Pro',
         Menlo, Consolas, 'DejaVu Sans Mono', monospace;
@@ -154,6 +156,27 @@
     *, input, textarea, select, button {
         font-feature-settings: "zero" 1;
     }
+}
+
+/* SortableJS drag-and-drop styles */
+.sortable-ghost {
+    opacity: 0.35;
+    outline: 2px dashed hsl(var(--primary));
+    outline-offset: 2px;
+    border-radius: var(--radius);
+}
+
+.sortable-chosen {
+    opacity: 0.95;
+}
+
+.sortable-drag {
+    opacity: 1;
+    box-shadow:
+        0 20px 50px -12px rgba(0, 0, 0, 0.2),
+        0 8px 20px -6px rgba(0, 0, 0, 0.1);
+    border-radius: var(--radius);
+    transform: rotate(0.5deg);
 }
 
 @layer utilities {

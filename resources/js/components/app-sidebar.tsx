@@ -12,7 +12,7 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem, type SharedData, type NavigationAbilities } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { FileText, LayoutGrid } from 'lucide-react';
+import { FileText, LayoutGrid, ScrollText } from 'lucide-react';
 
 // Define all navigation items with their required ability key
 const allNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
@@ -37,6 +37,7 @@ export function AppSidebar() {
         canViewLiquidation: false,
         canViewRoles: false,
         canViewUsers: false,
+        canViewActivityLogs: false,
     };
 
     const mainNavItems = allNavItems.filter(item => {
@@ -50,14 +51,14 @@ export function AppSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
-                            <Link href={dashboard()} prefetch className="flex items-center gap-2">
+                            <Link href={dashboard()} prefetch className="flex items-center gap-3">
                                 <img
                                     src="/assets/img/unifast.png"
                                     alt="UniFAST Logo"
                                     className="h-8 w-8 shrink-0"
                                 />
-                                <span className="font-semibold text-sm leading-tight group-data-[collapsible=icon]:hidden">
-                                    UniFAST
+                                <span className="font-anton text-lg tracking-widest leading-tight group-data-[collapsible=icon]:hidden">
+                                    Uni<span className="text-orange-500">FAST</span>
                                 </span>
                             </Link>
                         </SidebarMenuButton>
@@ -70,6 +71,18 @@ export function AppSidebar() {
             </SidebarContent>
 
             <SidebarFooter>
+                {can.canViewActivityLogs && (
+                    <SidebarMenu>
+                        <SidebarMenuItem>
+                            <SidebarMenuButton asChild>
+                                <Link href="/activity-logs" prefetch>
+                                    <ScrollText />
+                                    <span>Activity Logs</span>
+                                </Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                    </SidebarMenu>
+                )}
                 <NavUser />
             </SidebarFooter>
         </Sidebar>
