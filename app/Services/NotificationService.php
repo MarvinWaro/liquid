@@ -16,6 +16,7 @@ class NotificationService
      * Actions that are relevant for notifications (skip noisy auto-logged CRUD).
      */
     private const NOTIFIABLE_ACTIONS = [
+        'created_liquidation',
         'submitted',
         'endorsed_to_accounting',
         'returned_to_hei',
@@ -29,6 +30,7 @@ class NotificationService
         'toggled_status',
         'updated_tracking',
         'updated_running_data',
+        'mentioned_in_comment',
     ];
 
     /**
@@ -139,6 +141,49 @@ class NotificationService
         }
 
         return $recipients;
+    }
+
+    /**
+     * Backfill notifications for a newly created HEI user.
+     * Creates notifications for all existing liquidations tied to their HEI
+     * so they don't miss events that happened before their account existed.
+     */
+    public static function backfillForNewHEIUser(User $heiUser): void
+    {
+        if (!$heiUser->hei_id) {
+            return;
+        }
+
+        $liquidations = Liquidation::where('hei_id', $heiUser->hei_id)
+            ->with('creator')
+            ->get();
+
+        if ($liquidations->isEmpty()) {
+            return;
+        }
+
+        $rows = [];
+        foreach ($liquidations as $liquidation) {
+            $actor = $liquidation->creator;
+            $actorName = $actor?->name ?? 'System';
+
+            $rows[] = [
+                'id' => \Illuminate\Support\Str::uuid()->toString(),
+                'user_id' => $heiUser->id,
+                'actor_id' => $actor?->id,
+                'actor_name' => $actorName,
+                'action' => 'created_liquidation',
+                'description' => 'Created liquidation '.$liquidation->control_no.' for your institution',
+                'subject_type' => Liquidation::class,
+                'subject_id' => $liquidation->id,
+                'subject_label' => $liquidation->control_no,
+                'module' => 'Liquidation',
+                'created_at' => $liquidation->created_at,
+                'updated_at' => now(),
+            ];
+        }
+
+        Notification::insert($rows);
     }
 
     /**

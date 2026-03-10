@@ -11,6 +11,7 @@ use App\Http\Controllers\LiquidationController;
 use App\Http\Controllers\ProgramController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\DocumentRequirementController;
+use App\Http\Controllers\LiquidationCommentController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SemesterController;
 use App\Http\Controllers\AcademicYearController;
@@ -118,6 +119,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Liquidation Tracking Entry Routes
     Route::post('liquidation/{liquidation}/tracking-entries', [LiquidationController::class, 'saveTrackingEntries'])->name('liquidation.save-tracking-entries');
     Route::post('liquidation/{liquidation}/running-data', [LiquidationController::class, 'saveRunningData'])->name('liquidation.save-running-data');
+
+    // Liquidation Comment Routes
+    Route::get('liquidation/{liquidation}/comments', [LiquidationCommentController::class, 'index'])->name('liquidation.comments.index');
+    Route::post('liquidation/{liquidation}/comments', [LiquidationCommentController::class, 'store'])->name('liquidation.comments.store');
+    Route::delete('liquidation/{liquidation}/comments/{comment}', [LiquidationCommentController::class, 'destroy'])->name('liquidation.comments.destroy');
+    Route::get('liquidation/{liquidation}/mentionable-users', [LiquidationCommentController::class, 'mentionableUsers'])->name('liquidation.mentionable-users');
+    Route::get('liquidation-comments/{comment}/attachment/{index}', [LiquidationCommentController::class, 'downloadAttachment'])->name('liquidation-comments.download-attachment');
 
     // Liquidation Beneficiary Routes
     Route::get('liquidation/{liquidation}', [LiquidationController::class, 'show'])->name('liquidation.show');

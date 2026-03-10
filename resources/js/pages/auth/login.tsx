@@ -130,13 +130,15 @@ export default function Login({
 
                             {/* LOGO HEADER */}
                             <div className="flex justify-center items-center gap-4 mb-8">
-                                {/* <img src="/assets/img/bagong-pilipinas.png" alt="Bagong Pilipinas" className="h-10 w-auto" /> */}
                                 <img src="/assets/img/ched-logo.png" alt="CHED" className="h-11 w-auto" />
                                 <img src="/assets/img/unifast.png" alt="UniFAST" className="h-10 w-auto" />
+                                <img src="/assets/img/bagong-pilipinas.png" alt="Bagong Pilipinas" className="h-10 w-auto" />
+                                <img src="/assets/img/achieve.png" alt="ACHIEVE" className="h-13 w-auto" />
                             </div>
 
                             <div className="flex flex-col items-center gap-1 text-center mb-6">
-                                <h2 className="text-xs font-bold tracking-widest text-muted-foreground uppercase">User Login</h2>
+                                <h1 className="text-sm font-bold tracking-wide text-foreground">Liquidation Management System</h1>
+                                <h2 className="text-xs font-bold tracking-widest text-muted-foreground uppercase mt-2">User Login</h2>
                                 <p className="text-xs text-muted-foreground">
                                     Enter your email and password to continue
                                 </p>

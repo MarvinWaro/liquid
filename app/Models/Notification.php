@@ -23,6 +23,7 @@ class Notification extends Model
         'subject_id',
         'subject_label',
         'module',
+        'metadata',
         'read_at',
     ];
 
@@ -30,6 +31,7 @@ class Notification extends Model
     {
         return [
             'read_at' => 'datetime',
+            'metadata' => 'array',
         ];
     }
 

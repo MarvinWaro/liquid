@@ -1,4 +1,5 @@
 import { AppContent } from '@/components/app-content';
+import { AppFooter } from '@/components/app-footer';
 import { AppShell } from '@/components/app-shell';
 import { AppSidebar } from '@/components/app-sidebar';
 import { AppSidebarHeader } from '@/components/app-sidebar-header';
@@ -14,9 +15,10 @@ export default function AppSidebarLayout({
             <AppSidebar />
             <AppContent variant="sidebar">
                 <AppSidebarHeader breadcrumbs={breadcrumbs} />
-                <div className="flex-1 px-4 md:px-6 py-3">
+                <div className="flex-1 min-w-0 px-4 md:px-6 py-3">
                     {children}
                 </div>
+                <AppFooter />
             </AppContent>
         </AppShell>
     );

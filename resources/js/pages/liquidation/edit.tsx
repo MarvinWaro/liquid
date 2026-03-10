@@ -312,10 +312,10 @@ export default function Edit({ auth, liquidation, heis, can }: Props) {
                         </Button>
                         <div className="flex items-center justify-between">
                             <div>
-                                <h1 className="text-3xl font-bold tracking-tight">
+                                <h1 className="text-lg font-semibold tracking-tight">
                                     {liquidation.reference_number}
                                 </h1>
-                                <p className="text-muted-foreground mt-1">
+                                <p className="text-sm text-muted-foreground">
                                     {liquidation.hei.name} ({liquidation.hei.code})
                                 </p>
                             </div>

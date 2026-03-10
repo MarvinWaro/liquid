@@ -95,6 +95,26 @@ const actionColors: Record<string, string> = {
     updated_running_data: 'border-blue-200 bg-blue-50 text-blue-700',
 };
 
+const actionLeftBorder: Record<string, string> = {
+    created: 'border-l-green-500',
+    updated: 'border-l-blue-500',
+    deleted: 'border-l-red-500',
+    submitted: 'border-l-yellow-500',
+    endorsed_to_accounting: 'border-l-purple-500',
+    endorsed_to_coa: 'border-l-indigo-500',
+    returned_to_hei: 'border-l-orange-500',
+    returned_to_rc: 'border-l-orange-500',
+    uploaded_document: 'border-l-cyan-500',
+    added_gdrive_link: 'border-l-cyan-500',
+    deleted_document: 'border-l-red-500',
+    bulk_imported: 'border-l-teal-500',
+    imported_beneficiaries: 'border-l-teal-500',
+    toggled_status: 'border-l-amber-500',
+    synced_permissions: 'border-l-violet-500',
+    updated_tracking: 'border-l-blue-500',
+    updated_running_data: 'border-l-blue-500',
+};
+
 // Maps subject_type to URL. For Liquidation, we can link directly by ID.
 // For child models (LiquidationFinancial, etc.), the subject_id is the child record,
 // so we link to the liquidation index instead.
@@ -221,6 +241,7 @@ export default function Index({
     const [dateRange, setDateRange] = useState<DateRange | undefined>(
         initialRange,
     );
+    const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
 
     const toggleRow = (id: string) => {
         setExpandedRows((prev) => {
@@ -249,17 +270,15 @@ export default function Index({
 
     const applyDateRange = (range: DateRange | undefined) => {
         setDateRange(range);
+        // Wait until both dates are selected before applying the filter
+        if (!range?.from || !range?.to) return;
+
+        setIsDatePickerOpen(false);
+
         const newFilters = { ...filters };
-        if (range?.from) {
-            newFilters.date_from = format(range.from, 'yyyy-MM-dd');
-        } else {
-            delete newFilters.date_from;
-        }
-        if (range?.to) {
-            newFilters.date_to = format(range.to, 'yyyy-MM-dd');
-        } else {
-            delete newFilters.date_to;
-        }
+        newFilters.date_from = format(range.from, 'yyyy-MM-dd');
+        newFilters.date_to = format(range.to, 'yyyy-MM-dd');
+
         Object.keys(newFilters).forEach((k) => {
             if (!newFilters[k] || newFilters[k] === 'all') {
                 delete newFilters[k];
@@ -399,7 +418,7 @@ export default function Index({
                                         ))}
                                     </SelectContent>
                                 </Select>
-                                <Popover>
+                                <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
                                     <PopoverTrigger asChild>
                                         <Button
                                             variant="outline"
@@ -490,7 +509,7 @@ export default function Index({
                                             </Avatar>
 
                                             {/* Content */}
-                                            <div className="min-w-0 flex-1 rounded-lg border bg-card p-3">
+                                            <div className={`min-w-0 flex-1 rounded-lg border-y border-r bg-card p-3 border-l-4 ${actionLeftBorder[log.action] || 'border-l-gray-400'}`}>
                                                 {/* Header row */}
                                                 <div className="flex items-start justify-between gap-2">
                                                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">

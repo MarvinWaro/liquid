@@ -183,9 +183,8 @@ export default function Index({
                 heis={heis}
             />
 
-            <div className="w-full py-8">
-                {/* Maximized width container */}
-                <div className="mx-auto w-full max-w-[95%]">
+            <div className="w-full min-w-0 py-8">
+                <div className="w-full min-w-0">
                     {/* Header Section */}
                     <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
                         <div>
@@ -291,7 +290,7 @@ export default function Index({
                             </Select>
                         </div>
                     </div>
-                    <div className="overflow-hidden rounded-lg border">
+                    <div className="overflow-x-auto rounded-lg border">
                     <Table>
                         <TableHeader>
                             <TableRow className="hover:bg-transparent border-b">
@@ -385,10 +384,10 @@ export default function Index({
                                                 );
                                             })()}
                                         </TableCell>
-                                        <TableCell className="py-2">
+                                        <TableCell className="py-2 max-w-[200px]">
                                             {user.hei ? (
                                                 <div className="flex flex-col">
-                                                    <span className="text-sm font-medium">
+                                                    <span className="truncate text-sm font-medium" title={user.hei.name}>
                                                         {user.hei.name}
                                                     </span>
                                                     <span className="text-xs text-muted-foreground">

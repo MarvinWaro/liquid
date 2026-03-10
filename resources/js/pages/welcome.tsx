@@ -121,7 +121,7 @@ export default function Welcome() {
                     <div className="space-y-6 sm:space-y-8 max-w-5xl">
 
                         {/* Logos */}
-                        <div className="anim-logos flex items-center gap-3 sm:gap-4 md:gap-6">
+                        <div className="anim-logos flex items-center gap-3 sm:gap-4 md:gap-5">
                             <img
                                 src="/assets/img/ched-logo.png"
                                 alt="CHED Logo"
@@ -130,12 +130,17 @@ export default function Welcome() {
                             <img
                                 src="/assets/img/unifast.png"
                                 alt="UniFAST Logo"
-                                className="h-12 sm:h-16 md:h-18 lg:h-20 w-auto drop-shadow-sm"
+                                className="h-12 sm:h-15 md:h-17 lg:h-19 w-auto drop-shadow-sm"
                             />
                             <img
                                 src="/assets/img/bagong-pilipinas.png"
                                 alt="Bagong Pilipinas Logo"
                                 className="h-12 sm:h-16 md:h-18 lg:h-20 w-auto drop-shadow-sm"
+                            />
+                            <img
+                                src="/assets/img/achieve.png"
+                                alt="ACHIEVE Logo"
+                                className="h-15 sm:h-16 md:h-22 lg:h-29 w-auto drop-shadow-sm pt-5"
                             />
                         </div>
 

@@ -53,12 +53,13 @@ export function AppSidebar() {
                             <Link href={dashboard()} prefetch className="flex items-center gap-2">
                                 <img
                                     src="/assets/img/unifast.png"
-                                    alt="UniFAST Logo"
+                                    alt="UniFAST"
                                     className="h-8 w-8 shrink-0"
                                 />
-                                <span className="font-semibold text-sm leading-tight group-data-[collapsible=icon]:hidden">
-                                    UniFAST
-                                </span>
+                                <div className="flex flex-col group-data-[collapsible=icon]:hidden">
+                                    <span className="text-sm font-bold leading-tight">UniFAST</span>
+                                    <span className="text-[10px] opacity-70 leading-tight">Liquidation Management</span>
+                                </div>
                             </Link>
                         </SidebarMenuButton>
                     </SidebarMenuItem>

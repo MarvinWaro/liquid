@@ -83,6 +83,32 @@ export interface RunningDataEntry {
     group_transmittal_ref_no: string;
 }
 
+export interface LiquidationCommentUser {
+    id: string;
+    name: string;
+    role: string | null;
+}
+
+export interface CommentAttachment {
+    url: string;
+    name: string;
+    size: number;
+}
+
+export interface LiquidationComment {
+    id: string;
+    user_id: string;
+    user_name: string;
+    user_role: string | null;
+    parent_id: string | null;
+    body: string;
+    mentions: string[] | null;
+    attachments: CommentAttachment[];
+    created_at: string;
+    time_ago: string;
+    replies: LiquidationComment[];
+}
+
 export interface Liquidation {
     id: number;
     control_no: string;
@@ -153,6 +179,7 @@ export interface ShowPageProps {
     documentRequirements: DocumentRequirement[];
     permissions: ShowPagePermissions;
     userRole: string;
+    commentCounts: Record<string, number>;
 }
 
 export const RC_NOTES_OPTIONS = [

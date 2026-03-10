@@ -14,6 +14,8 @@
         'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
         'Noto Color Emoji';
 
+    --font-anton: 'Anton', sans-serif;
+
     --font-mono:
         ui-monospace, 'Cascadia Code', 'Source Code Pro',
         Menlo, Consolas, 'DejaVu Sans Mono', monospace;
@@ -92,14 +94,14 @@
     --chart-4: oklch(0.828 0.189 84.429);
     --chart-5: oklch(0.769 0.188 70.08);
     --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.27 0.095 264); /* #1A3263 — navy */
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.50 0.065 220);    /* #547792 — slate */
+    --sidebar: oklch(0.961 0 0);                     /* gray-100 — matches header */
+    --sidebar-foreground: oklch(0.27 0.01 260);      /* dark text */
+    --sidebar-primary: oklch(0.27 0.095 264);        /* navy for active items */
+    --sidebar-primary-foreground: oklch(0.985 0 0);  /* white on active */
+    --sidebar-accent: oklch(0.88 0 0);               /* visible gray hover */
+    --sidebar-accent-foreground: oklch(0.21 0.01 260); /* dark text on hover */
+    --sidebar-border: oklch(0.90 0 0);               /* subtle gray border */
+    --sidebar-ring: oklch(0.50 0.065 220);           /* slate blue ring */
 }
 
 .dark {
@@ -154,6 +156,27 @@
     *, input, textarea, select, button {
         font-feature-settings: "zero" 1;
     }
+}
+
+/* SortableJS drag-and-drop styles */
+.sortable-ghost {
+    opacity: 0.35;
+    outline: 2px dashed hsl(var(--primary));
+    outline-offset: 2px;
+    border-radius: var(--radius);
+}
+
+.sortable-chosen {
+    opacity: 0.95;
+}
+
+.sortable-drag {
+    opacity: 1;
+    box-shadow:
+        0 20px 50px -12px rgba(0, 0, 0, 0.2),
+        0 8px 20px -6px rgba(0, 0, 0, 0.1);
+    border-radius: var(--radius);
+    transform: rotate(0.5deg);
 }
 
 @layer utilities {

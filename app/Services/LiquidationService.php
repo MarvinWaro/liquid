@@ -155,6 +155,8 @@ class LiquidationService
                 'amount_liquidated'  => $data['total_amount_liquidated'] ?? 0,
             ]);
 
+            ActivityLog::log('created_liquidation', 'Created liquidation '.$liquidation->control_no.' for '.$hei->name, $liquidation, 'Liquidation');
+
             return $liquidation;
         });
     }

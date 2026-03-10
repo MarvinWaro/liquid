@@ -13,6 +13,14 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Save, Loader2 } from 'lucide-react';
+import { useMemo } from 'react';
+
+// Category ordering for permission modules
+const PERMISSION_CATEGORIES: Record<string, string[]> = {
+    'Core Operations': ['Liquidation', 'Reports'],
+    'User Management': ['Users', 'Roles'],
+    'System Configuration': ['HEI', 'Regions', 'Programs', 'Semesters', 'Academic Years', 'Document Requirements', 'Activity Logs'],
+};
 
 interface Permission {
     id: number;
@@ -109,6 +117,33 @@ export function RoleModal({ isOpen, onClose, role, permissions }: RoleModalProps
         return moduleIds.every(id => data.permissions.includes(id));
     };
 
+    const groupedPermissions = useMemo(() => {
+        const categorized: { category: string; modules: [string, Permission[]][] }[] = [];
+        const assigned = new Set<string>();
+
+        for (const [category, moduleNames] of Object.entries(PERMISSION_CATEGORIES)) {
+            const modules = moduleNames
+                .filter((name) => permissions[name])
+                .map((name) => {
+                    assigned.add(name);
+                    return [name, permissions[name]] as [string, Permission[]];
+                });
+            if (modules.length > 0) {
+                categorized.push({ category, modules });
+            }
+        }
+
+        // Any uncategorized modules go into "Other"
+        const remaining = Object.entries(permissions)
+            .filter(([name]) => !assigned.has(name))
+            .sort(([a], [b]) => a.localeCompare(b));
+        if (remaining.length > 0) {
+            categorized.push({ category: 'Other', modules: remaining });
+        }
+
+        return categorized;
+    }, [permissions]);
+
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="sm:max-w-6xl max-h-[90vh] flex flex-col p-0 gap-0">
@@ -149,41 +184,48 @@ export function RoleModal({ isOpen, onClose, role, permissions }: RoleModalProps
 
                         <div className="border-t pt-4">
                             <h3 className="text-sm font-semibold mb-3">Permissions</h3>
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-0">
-                                {Object.entries(permissions).map(([module, modulePermissions]) => (
-                                    <div key={module} className="border rounded-lg mb-3 overflow-hidden">
-                                        <div className="flex items-center gap-3 px-3 py-2.5 bg-muted/30">
-                                            <Checkbox
-                                                checked={isModuleSelected(modulePermissions)}
-                                                onCheckedChange={() => handleSelectAllModule(modulePermissions)}
-                                            />
-                                            <span className="font-medium text-sm">{module}</span>
-                                            <span className="text-xs text-muted-foreground ml-auto">
-                                                {modulePermissions.filter(p => data.permissions.includes(p.id)).length}/{modulePermissions.length}
-                                            </span>
-                                        </div>
-                                        <div className="px-3 py-2 space-y-1.5">
-                                            {modulePermissions.map((permission) => (
-                                                <div key={permission.id} className="flex items-center gap-2">
+                            {groupedPermissions.map(({ category, modules }) => (
+                                <div key={category} className="mb-5">
+                                    <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                        {category}
+                                    </span>
+                                    <div className="grid grid-cols-2 gap-x-6 gap-y-0">
+                                        {modules.map(([module, modulePermissions]) => (
+                                            <div key={module} className="border rounded-lg mb-3 overflow-hidden">
+                                                <div className="flex items-center gap-3 px-3 py-2.5 bg-primary/10 border-b">
                                                     <Checkbox
-                                                        id={`permission-${permission.id}`}
-                                                        checked={data.permissions.includes(permission.id)}
-                                                        onCheckedChange={() => handlePermissionToggle(permission.id)}
+                                                        checked={isModuleSelected(modulePermissions)}
+                                                        onCheckedChange={() => handleSelectAllModule(modulePermissions)}
                                                     />
-                                                    <Label
-                                                        htmlFor={`permission-${permission.id}`}
-                                                        className="font-normal cursor-pointer text-sm leading-tight"
-                                                    >
-                                                        {permission.name.split('_').map(word =>
-                                                            word.charAt(0).toUpperCase() + word.slice(1)
-                                                        ).join(' ')}
-                                                    </Label>
+                                                    <span className="font-semibold text-sm text-primary">{module}</span>
+                                                    <span className="text-xs text-muted-foreground ml-auto font-medium">
+                                                        {modulePermissions.filter(p => data.permissions.includes(p.id)).length}/{modulePermissions.length}
+                                                    </span>
                                                 </div>
-                                            ))}
-                                        </div>
+                                                <div className="px-3 py-2 space-y-1.5">
+                                                    {modulePermissions.map((permission) => (
+                                                        <div key={permission.id} className="flex items-center gap-2">
+                                                            <Checkbox
+                                                                id={`permission-${permission.id}`}
+                                                                checked={data.permissions.includes(permission.id)}
+                                                                onCheckedChange={() => handlePermissionToggle(permission.id)}
+                                                            />
+                                                            <Label
+                                                                htmlFor={`permission-${permission.id}`}
+                                                                className="font-normal cursor-pointer text-sm leading-tight"
+                                                            >
+                                                                {permission.name.split('_').map(word =>
+                                                                    word.charAt(0).toUpperCase() + word.slice(1)
+                                                                ).join(' ')}
+                                                            </Label>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))}
-                            </div>
+                                </div>
+                            ))}
                         </div>
                     </form>
                 </div>

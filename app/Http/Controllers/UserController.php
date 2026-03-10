@@ -7,6 +7,7 @@ use App\Models\Role;
 use App\Models\Region;
 use App\Models\HEI;
 use App\Models\ActivityLog;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -68,7 +69,7 @@ class UserController extends Controller
             'status' => 'required|in:active,inactive',
         ]);
 
-        User::create([
+        $user = User::create([
             'name' => $validated['name'],
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']),
@@ -77,6 +78,11 @@ class UserController extends Controller
             'hei_id' => $validated['hei_id'] ?? null,
             'status' => $validated['status'],
         ]);
+
+        // Backfill notifications for HEI users so they see liquidations created before their account
+        if ($isHEIRole && $user->hei_id) {
+            NotificationService::backfillForNewHEIUser($user);
+        }
 
         return redirect()->back()->with('success', 'User created successfully.');
     }

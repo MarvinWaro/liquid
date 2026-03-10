@@ -232,12 +232,12 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                 onSuccess={() => router.reload()}
             />
 
-            <div className="py-8 w-full">
-                <div className="w-full max-w-[100%] mx-auto">
+            <div className="py-8 w-full min-w-0 overflow-hidden">
+                <div>
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                         <div>
-                            <h1 className="text-3xl font-bold tracking-tight">Liquidation Management</h1>
-                            <p className="text-muted-foreground my-1">
+                            <h1 className="text-lg font-semibold tracking-tight">Liquidation Management</h1>
+                            <p className="text-sm text-muted-foreground">
                                 {userRole === 'Regional Coordinator' && 'Review and endorse liquidations to Accounting'}
                                 {userRole === 'Accountant' && 'Review and endorse liquidations to COA'}
                                 {!['Regional Coordinator', 'Accountant'].includes(userRole) && 'Manage liquidation records and submissions'}

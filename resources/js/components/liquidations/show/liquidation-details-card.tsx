@@ -104,36 +104,41 @@ export default function LiquidationDetailsCard({
     return (
         <Card className="flex-1">
             <CardHeader className="pb-2 pt-3">
-                <CardTitle className="text-sm font-semibold">Liquidation Details</CardTitle>
-                <CardDescription className="text-xs">Financial and document information</CardDescription>
+                <div className="flex items-center justify-between">
+                    <div>
+                        <CardTitle className="text-sm font-semibold">Liquidation Details</CardTitle>
+                        <CardDescription className="text-xs">Financial and document information</CardDescription>
+                    </div>
+                    {!isEditing && canEditDetails && !isHEIUser && (
+                        <Button variant="outline" size="sm" onClick={handleStartEdit} className="h-7 text-xs px-3 gap-1.5">
+                            <Pencil className="h-3.5 w-3.5" />
+                            Edit Details
+                        </Button>
+                    )}
+                    {isEditing && (
+                        <div className="flex items-center gap-1.5">
+                            <Button variant="ghost" size="sm" onClick={handleCancelEdit} disabled={isSaving} className="h-7 text-xs px-2">
+                                <RotateCcw className="h-3 w-3 mr-1" />
+                                Cancel
+                            </Button>
+                            <Button size="sm" onClick={handleSaveDetails} disabled={isSaving} className="h-7 text-xs px-3">
+                                <Save className="h-3 w-3 mr-1" />
+                                {isSaving ? 'Saving...' : 'Save'}
+                            </Button>
+                        </div>
+                    )}
+                </div>
             </CardHeader>
             <CardContent className="pb-3">
                 <ContextMenu>
                     <ContextMenuTrigger asChild disabled={!canEditDetails || isHEIUser}>
                         <div className={`${canEditDetails && !isHEIUser && !isEditing ? 'cursor-context-menu' : ''} ${isEditing ? 'ring-2 ring-blue-200 dark:ring-blue-700 rounded-lg p-3 -m-3 bg-blue-50/30 dark:bg-blue-950/20' : ''}`}>
                             {/* Section Header */}
-                            <div className="flex items-center justify-between mb-3">
-                                <div className="flex items-center gap-2">
-                                    <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Liquidation Details</h3>
-                                    {isEditing && (
-                                        <Badge className="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700 shadow-none text-[10px] px-1.5 py-0">Editing</Badge>
-                                    )}
-                                    {!isEditing && canEditDetails && !isHEIUser && (
-                                        <span className="text-[10px] text-muted-foreground italic">Right-click to edit</span>
-                                    )}
-                                </div>
+                            <div className="flex items-center gap-2 mb-3">
+                                <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Liquidation Details</h3>
                                 {isEditing && (
-                                    <div className="flex items-center gap-1.5">
-                                        <Button variant="ghost" size="sm" onClick={handleCancelEdit} disabled={isSaving} className="h-7 text-xs px-2">
-                                            <RotateCcw className="h-3 w-3 mr-1" />
-                                            Cancel
-                                        </Button>
-                                        <Button size="sm" onClick={handleSaveDetails} disabled={isSaving} className="h-7 text-xs px-3">
-                                            <Save className="h-3 w-3 mr-1" />
-                                            {isSaving ? 'Saving...' : 'Save'}
-                                        </Button>
-                                    </div>
+                                    <Badge className="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700 shadow-none text-[10px] px-1.5 py-0">Editing</Badge>
                                 )}
                             </div>
 
