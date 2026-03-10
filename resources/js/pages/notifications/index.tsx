@@ -59,7 +59,7 @@ export default function NotificationsIndex({ notifications, filter, unread_count
                 {/* Header */}
                 <div className="mb-6 flex items-center justify-between">
                     <div>
-                        <h1 className="text-2xl font-bold">Notifications</h1>
+                        <h1 className="text-lg font-semibold">Notifications</h1>
                         {unread_count > 0 && (
                             <p className="mt-1 text-sm text-muted-foreground">
                                 You have {unread_count} unread notification{unread_count !== 1 ? 's' : ''}

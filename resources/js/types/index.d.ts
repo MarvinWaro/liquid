@@ -46,6 +46,7 @@ export interface AppNotification {
     subject_id: string | null;
     subject_label: string | null;
     module: string | null;
+    metadata: Record<string, string> | null;
     read_at: string | null;
     created_at: string;
     time_ago: string;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -91,8 +91,22 @@ export function CreateLiquidationModal({
 }: CreateLiquidationModalProps) {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [heiPopoverOpen, setHeiPopoverOpen] = useState(false);
+    const [heiSearch, setHeiSearch] = useState('');
     const [selectedHei, setSelectedHei] = useState<HEIOption | null>(null);
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+    const MAX_VISIBLE_HEIS = 50;
+
+    const filteredHeis = useMemo(() => {
+        const search = heiSearch.trim().toLowerCase();
+        if (!search) return heis.slice(0, MAX_VISIBLE_HEIS);
+        return heis
+            .filter(hei =>
+                hei.uii.toLowerCase().includes(search) ||
+                hei.name.toLowerCase().includes(search)
+            )
+            .slice(0, MAX_VISIBLE_HEIS);
+    }, [heis, heiSearch]);
 
     const [formData, setFormData] = useState({
         program_id: '',
@@ -129,6 +143,7 @@ export function CreateLiquidationModal({
                 rc_notes: '',
             });
             setSelectedHei(null);
+            setHeiSearch('');
             setFieldErrors({});
         }
     }, [isOpen]);
@@ -250,15 +265,19 @@ export function CreateLiquidationModal({
                                     </Button>
                                 </PopoverTrigger>
                                 <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                                    <Command>
-                                        <CommandInput placeholder="Type UII or school name..." />
+                                    <Command shouldFilter={false}>
+                                        <CommandInput
+                                            placeholder="Type UII or school name..."
+                                            value={heiSearch}
+                                            onValueChange={setHeiSearch}
+                                        />
                                         <CommandList>
                                             <CommandEmpty>No HEI found.</CommandEmpty>
                                             <CommandGroup>
-                                                {heis.map((hei) => (
+                                                {filteredHeis.map((hei) => (
                                                     <CommandItem
                                                         key={hei.id}
-                                                        value={`${hei.uii} ${hei.name}`}
+                                                        value={hei.id}
                                                         onSelect={() => handleSelectHei(hei)}
                                                     >
                                                         <Check
@@ -274,6 +293,11 @@ export function CreateLiquidationModal({
                                                     </CommandItem>
                                                 ))}
                                             </CommandGroup>
+                                            {!heiSearch && heis.length > MAX_VISIBLE_HEIS && (
+                                                <p className="p-2 text-center text-xs text-muted-foreground">
+                                                    Type to search {heis.length.toLocaleString()} HEIs...
+                                                </p>
+                                            )}
                                         </CommandList>
                                     </Command>
                                 </PopoverContent>

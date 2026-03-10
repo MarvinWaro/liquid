@@ -88,9 +88,10 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
 
     return (
         <>
-            {/* Single clean header bar */}
-            <header className="border-b border-sidebar-border/70">
-                <div className="flex h-14 items-center gap-4 px-4 md:px-16">
+        <div className="sticky top-0 z-50">
+            <header className="bg-gray-100 dark:bg-card text-foreground shadow-none">
+                {/* Top row: Logo + controls */}
+                <div className="flex items-center gap-4 px-8 md:px-16 py-1">
                     {/* Mobile Menu */}
                     <div className="lg:hidden">
                         <Sheet>
@@ -99,17 +100,15 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                     <Menu className="h-5 w-5" />
                                 </Button>
                             </SheetTrigger>
-                            <SheetContent
-                                side="left"
-                                className="flex h-full w-64 flex-col items-stretch justify-between"
-                            >
+                            <SheetContent side="left" className="flex h-full w-64 flex-col items-stretch justify-between">
                                 <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
                                 <SheetHeader className="flex justify-start text-left">
-                                    <Link href={dashboard()} prefetch className="flex items-center gap-2">
-                                        <img src="/assets/img/unifast.png" alt="UniFAST Logo" className="h-8 w-8" />
-                                        <span className="font-anton text-base tracking-wide">
-                                            Uni<span className="text-orange-500">FAST</span>
-                                        </span>
+                                    <Link href={dashboard()} prefetch className="flex items-center gap-3">
+                                        <img src="/assets/img/unifast.png" alt="UniFAST" className="h-9 w-9 shrink-0" />
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-bold leading-tight text-foreground">UniFAST</span>
+                                            <span className="text-[10px] text-muted-foreground leading-tight">Liquidation Management</span>
+                                        </div>
                                     </Link>
                                 </SheetHeader>
                                 <div className="flex h-full flex-1 flex-col space-y-1 p-4">
@@ -133,34 +132,21 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                         </Sheet>
                     </div>
 
-                    {/* Logo */}
-                    <Link href={dashboard()} prefetch className="flex shrink-0 items-center gap-2">
-                        <img src="/assets/img/unifast.png" alt="UniFAST Logo" className="h-8 w-8" />
-                        <span className="font-anton text-base tracking-wide">
-                            Uni<span className="text-orange-500">FAST</span>
-                        </span>
-                    </Link>
-
-                    {/* Desktop Navigation */}
-                    <nav className="hidden h-full items-center gap-1 lg:flex">
-                        {mainNavItems.map((item) => (
-                            <Link
-                                key={item.title}
-                                href={item.href}
-                                className={cn(
-                                    'relative inline-flex h-full items-center gap-2 px-3 text-sm font-medium transition-colors',
-                                    'text-muted-foreground hover:text-foreground',
-                                    urlIsActive(item.href) && 'text-foreground',
-                                )}
-                            >
-                                {item.icon && <Icon iconNode={item.icon} className="h-4 w-4" />}
-                                {item.title}
-                                {urlIsActive(item.href) && (
-                                    <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />
-                                )}
-                            </Link>
-                        ))}
-                    </nav>
+                    {/* Logo + Title + ACHIEVE */}
+                    <div className="flex shrink-0 items-center gap-3">
+                        <Link href={dashboard()} prefetch className="flex items-center gap-3">
+                            <img src="/assets/img/unifast.png" alt="UniFAST" className="h-11 w-11 shrink-0" />
+                            <div className="hidden flex-col md:flex">
+                                <span className="text-sm font-bold leading-tight tracking-wide">UniFAST</span>
+                                <span className="text-[11px] text-muted-foreground leading-tight">Liquidation Management System</span>
+                            </div>
+                        </Link>
+                        <div className="hidden md:flex items-center gap-3">
+                            <img src="/assets/img/ched-logo.png" alt="CHED" className="h-12 w-auto shrink-0" />
+                            <img src="/assets/img/bagong-pilipinas.png" alt="Bagong Pilipinas" className="h-12 w-auto shrink-0" />
+                            <img src="/assets/img/achieve.png" alt="ACHIEVE" className="h-17 w-auto shrink-0 pt-1" />
+                        </div>
+                    </div>
 
                     {/* Right section */}
                     <div className="ml-auto flex items-center gap-1">
@@ -168,7 +154,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
 
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
                                     {appearance === 'light' && <Sun className="h-4 w-4" />}
                                     {appearance === 'dark' && <Moon className="h-4 w-4" />}
                                     {appearance === 'system' && <Monitor className="h-4 w-4" />}
@@ -197,22 +183,22 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                             variant="ghost"
                             size="icon"
                             onClick={toggleLayout}
-                            className="h-8 w-8"
+                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
                             title="Switch to sidebar layout"
                         >
                             <PanelLeft className="h-4 w-4" />
                         </Button>
 
-                        <span className="hidden text-sm font-medium text-muted-foreground md:block mx-1">
+                        <span className="hidden text-sm font-medium text-foreground md:block mx-1">
                             {auth.user.name}
                         </span>
 
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" className="size-8 rounded-full p-0">
-                                    <Avatar className="size-8 overflow-hidden rounded-full">
+                                    <Avatar className="size-8 overflow-hidden rounded-full ring-2 ring-border">
                                         <AvatarImage src={auth.user.avatar_url} alt={auth.user.name} />
-                                        <AvatarFallback className="rounded-full text-xs">
+                                        <AvatarFallback className="rounded-full text-xs bg-muted text-foreground">
                                             {getInitials(auth.user.name)}
                                         </AvatarFallback>
                                     </Avatar>
@@ -224,10 +210,34 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                         </DropdownMenu>
                     </div>
                 </div>
+
             </header>
 
+            {/* Desktop Navigation - transparent bar */}
+            <nav className="hidden h-10 items-center gap-1 lg:flex px-8 md:px-16 bg-gray-100 dark:bg-card border-b border-border">
+                {mainNavItems.map((item) => (
+                    <Link
+                        key={item.title}
+                        href={item.href}
+                        className={cn(
+                            'relative inline-flex h-10 items-center gap-2 px-4 text-sm font-medium transition-colors',
+                            urlIsActive(item.href)
+                                ? 'text-primary'
+                                : 'text-muted-foreground hover:text-foreground',
+                        )}
+                    >
+                        {item.icon && <Icon iconNode={item.icon} className="h-4 w-4" />}
+                        {item.title}
+                        {urlIsActive(item.href) && (
+                            <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />
+                        )}
+                    </Link>
+                ))}
+            </nav>
+        </div>
+
             {breadcrumbs.length > 1 && (
-                <div className="flex w-full border-b border-sidebar-border/70">
+                <div className="flex w-full border-b">
                     <div className="flex h-10 w-full items-center justify-start px-4 text-muted-foreground md:px-16">
                         <Breadcrumbs breadcrumbs={breadcrumbs} />
                     </div>

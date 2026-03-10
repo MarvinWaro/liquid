@@ -788,8 +788,8 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                     {/* Page Header */}
                     <div className="flex items-center justify-between">
                         <div>
-                            <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-                            <p className="text-muted-foreground mt-1">
+                            <h2 className="text-lg font-semibold tracking-tight">Dashboard</h2>
+                            <p className="text-sm text-muted-foreground">
                                 Overview of liquidation data and analytics.
                             </p>
                         </div>

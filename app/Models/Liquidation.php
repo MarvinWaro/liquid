@@ -268,6 +268,14 @@ class Liquidation extends Model
     }
 
     /**
+     * Get top-level comments for this liquidation.
+     */
+    public function comments(): HasMany
+    {
+        return $this->hasMany(LiquidationComment::class)->whereNull('parent_id')->orderBy('created_at');
+    }
+
+    /**
      * Get all review history entries.
      */
     public function reviews(): HasMany

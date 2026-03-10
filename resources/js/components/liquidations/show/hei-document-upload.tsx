@@ -9,9 +9,11 @@ import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/compone
 import {
     Upload, FileText, Download, Trash2, Eye, Loader2, Maximize2,
     ClipboardList, CheckCircle2, Circle, ExternalLink, Link2, Info, CircleHelp,
+    ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { LiquidationDocument, DocumentRequirement, DocumentCompleteness } from '@/types/liquidation';
+import RequirementCommentThread from './requirement-comment-thread';
 
 const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
 
@@ -21,6 +23,10 @@ interface HeiDocumentUploadProps {
     requirements: DocumentRequirement[];
     completeness?: DocumentCompleteness;
     isHEIUser: boolean;
+    commentCounts?: Record<string, number>;
+    currentUserId?: string;
+    defaultExpanded?: boolean;
+    focusRequirementId?: string | null;
 }
 
 function formatFileSize(bytes: number): string {
@@ -40,6 +46,10 @@ export default function HeiDocumentUpload({
     requirements,
     completeness,
     isHEIUser,
+    commentCounts = {},
+    currentUserId,
+    defaultExpanded = false,
+    focusRequirementId,
 }: HeiDocumentUploadProps) {
     const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
     const [uploadingId, setUploadingId] = useState<string | null>(null);
@@ -58,6 +68,9 @@ export default function HeiDocumentUpload({
 
     // Fullscreen image viewer state
     const [enlargedImage, setEnlargedImage] = useState<{ url: string; alt: string } | null>(null);
+
+    // Accordion: collapsed by default, auto-expand when navigating from notification
+    const [expanded, setExpanded] = useState(defaultExpanded);
 
     // Memoize the document-to-requirement lookup map
     const docByRequirement = useMemo(() => {
@@ -185,51 +198,8 @@ export default function HeiDocumentUpload({
         });
     }, []);
 
-    // RC sees only the card header + completion status when incomplete (server already filters documents)
-    if (!isHEIUser && !isComplete) {
-        return (
-            <Card className="mb-3">
-                <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-md bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-                                <ClipboardList className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                            </div>
-                            <div>
-                                <CardTitle className="text-base font-semibold">Document Requirements</CardTitle>
-                                <CardDescription className="text-xs">
-                                    HEI document submissions
-                                </CardDescription>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <span className="text-sm font-medium text-muted-foreground">
-                                {fulfilled}/{total}
-                            </span>
-                            <div className="w-24 h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
-                                <div
-                                    className="h-full rounded-full bg-amber-500 transition-all duration-300"
-                                    style={{ width: `${percentage}%` }}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                </CardHeader>
-                <CardContent className="pt-0">
-                    <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50">
-                        <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-                        <p className="text-sm text-amber-700 dark:text-amber-300">
-                            The HEI has not yet completed all required document uploads ({fulfilled} of {total} submitted).
-                            Documents will be visible once all requirements are fulfilled.
-                        </p>
-                    </div>
-                </CardContent>
-            </Card>
-        );
-    }
-
     return (
-        <Card className="mb-3">
+        <Card className="mb-3" id="document-requirements">
             <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -253,12 +223,20 @@ export default function HeiDocumentUpload({
                                 style={{ width: `${percentage}%` }}
                             />
                         </div>
+                        <button
+                            type="button"
+                            onClick={() => setExpanded(!expanded)}
+                            className="flex items-center gap-1.5 text-xs font-medium rounded-full px-3 py-1 border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                        >
+                            {expanded ? 'Hide Documents' : 'View Documents'}
+                            <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
+                        </button>
                     </div>
                 </div>
             </CardHeader>
 
             <CardContent className="pt-0">
-                {/* HEI status alert */}
+                {/* Status alerts (always visible) */}
                 {isHEIUser && !isComplete && (
                     <div className="flex items-center gap-2 p-3 mb-3 rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50">
                         <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
@@ -277,7 +255,16 @@ export default function HeiDocumentUpload({
                     </div>
                 )}
 
-                <div className="space-y-1">
+                {!isHEIUser && !isComplete && (
+                    <div className="flex items-center gap-2 p-3 mb-3 rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50">
+                        <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                        <p className="text-sm text-amber-700 dark:text-amber-300">
+                            The HEI has not yet completed all required document uploads ({fulfilled} of {total} submitted).
+                        </p>
+                    </div>
+                )}
+
+                <div className={`space-y-1 ${!expanded ? 'hidden' : ''}`}>
                     {requirements.map((req, index) => {
                         const doc = docByRequirement.get(req.id);
                         const isFulfilled = !!doc;
@@ -434,6 +421,17 @@ export default function HeiDocumentUpload({
                                                     </PopoverContent>
                                                 </Popover>
                                             </div>
+                                        )}
+
+                                        {/* Per-requirement comment thread */}
+                                        {currentUserId && (
+                                            <RequirementCommentThread
+                                                liquidationId={liquidationId}
+                                                documentRequirementId={req.id}
+                                                initialCount={commentCounts[req.id] ?? 0}
+                                                currentUserId={currentUserId}
+                                                defaultExpanded={focusRequirementId === req.id}
+                                            />
                                         )}
                                     </div>
                                 </div>

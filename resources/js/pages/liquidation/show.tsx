@@ -1,7 +1,7 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import AppLayout from '@/layouts/app-layout';
-import { Head, router } from '@inertiajs/react';
-import { type BreadcrumbItem } from '@/types';
+import { Head, router, usePage } from '@inertiajs/react';
+import { type BreadcrumbItem, type SharedData } from '@/types';
 import type { ShowPageProps, TrackingEntry } from '@/types/liquidation';
 
 // Section components
@@ -39,7 +39,22 @@ export default function Show({
     documentRequirements,
     permissions,
     userRole,
+    commentCounts,
 }: ShowPageProps) {
+    const { auth } = usePage<SharedData>().props;
+    const hash = typeof window !== 'undefined' ? window.location.hash : '';
+    const focusDocuments = hash === '#document-requirements' || hash.startsWith('#doc-comment-');
+    const focusRequirementId = hash.startsWith('#doc-comment-') ? hash.slice('#doc-comment-'.length) : null;
+
+    // ── Scroll to document requirements when navigating from comment notification ──
+    useEffect(() => {
+        if (focusDocuments) {
+            setTimeout(() => {
+                document.getElementById('document-requirements')?.scrollIntoView({ behavior: 'smooth' });
+            }, 300);
+        }
+    }, []);
+
     // ── Modal state ──
     const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -219,6 +234,10 @@ export default function Show({
                     requirements={documentRequirements}
                     completeness={liquidation.document_completeness}
                     isHEIUser={isHEIUser}
+                    commentCounts={commentCounts}
+                    currentUserId={String(auth.user.id)}
+                    defaultExpanded={focusDocuments}
+                    focusRequirementId={focusRequirementId}
                 />
 
                 {/* RC Letter Upload */}

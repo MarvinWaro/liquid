@@ -13,7 +13,7 @@ export function NavMain({ items = [] }: { items: NavItem[] }) {
     const { urlIsActive } = useActiveUrl();
 
     return (
-        <SidebarGroup className="px-2 py-0">
+        <SidebarGroup className="px-2 py-2">
             <SidebarGroupLabel>Platform</SidebarGroupLabel>
             <SidebarMenu>
                 {items.map((item) => (
@@ -22,7 +22,7 @@ export function NavMain({ items = [] }: { items: NavItem[] }) {
                             asChild
                             isActive={urlIsActive(item.href)}
                             tooltip={{ children: item.title }}
-                            className="data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:font-medium"
+                            className="data-[active=true]:bg-primary data-[active=true]:text-primary-foreground data-[active=true]:font-medium"
                         >
                             <Link href={item.href} prefetch>
                                 {item.icon && <item.icon />}

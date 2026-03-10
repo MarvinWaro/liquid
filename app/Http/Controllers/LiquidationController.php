@@ -24,6 +24,7 @@ use App\Models\LiquidationStatus;
 use App\Models\LiquidationTrackingEntry;
 use App\Services\CacheService;
 use App\Services\LiquidationService;
+use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -303,12 +304,19 @@ class LiquidationController extends Controller
             'trackingEntries.documentStatus',
             'trackingEntries.liquidationStatus',
             'trackingEntries.locations',
-            'runningData'
+            'runningData',
         ]);
 
         $heiRegionId = $liquidation->hei?->region_id;
         $isHEIUser = $user->hei !== null;
         $requirements = $this->cacheService->getDocumentRequirements($liquidation->program_id);
+
+        // Comment counts per document requirement (for badge display)
+        $commentCounts = \App\Models\LiquidationComment::where('liquidation_id', $liquidation->id)
+            ->whereNotNull('document_requirement_id')
+            ->selectRaw('document_requirement_id, count(*) as count')
+            ->groupBy('document_requirement_id')
+            ->pluck('count', 'document_requirement_id');
 
         return Inertia::render('liquidation/show', [
             'liquidation' => $this->formatLiquidationDetails($liquidation, $requirements, $isHEIUser),
@@ -323,6 +331,7 @@ class LiquidationController extends Controller
                 'edit' => $user->hasPermission('edit_liquidation'),
             ],
             'userRole' => $user->role->name,
+            'commentCounts' => $commentCounts,
         ]);
     }
 
@@ -1216,10 +1225,6 @@ class LiquidationController extends Controller
                 'remarks' => $b->remarks,
             ]),
             'documents' => $liquidation->documents
-                // RC can only see requirement documents when all requirements are fulfilled
-                ->when(!$isHEIUser && !$isRequirementsComplete, fn ($docs) =>
-                    $docs->filter(fn ($doc) => $doc->document_requirement_id === null)
-                )
                 ->map(fn ($doc) => [
                     'id' => $doc->id,
                     'document_requirement_id' => $doc->document_requirement_id,
@@ -1382,6 +1387,9 @@ class LiquidationController extends Controller
             'amount_disbursed' => $totalDisbursements,
             'amount_liquidated' => $totalLiquidated,
         ]);
+
+        // Dispatch notification per-liquidation so HEI users are properly resolved
+        NotificationService::dispatch('bulk_imported', 'Bulk imported liquidation '.$liquidation->control_no.' for '.$hei->name, $liquidation, 'Liquidation');
 
         return ['success' => true];
     }

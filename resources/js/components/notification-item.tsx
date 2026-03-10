@@ -24,6 +24,7 @@ interface NotificationItemProps {
 }
 
 const actionColors: Record<string, string> = {
+    created_liquidation: 'bg-green-500',
     submitted: 'bg-yellow-500',
     endorsed_to_accounting: 'bg-purple-500',
     endorsed_to_coa: 'bg-indigo-500',
@@ -37,6 +38,8 @@ const actionColors: Record<string, string> = {
     toggled_status: 'bg-amber-500',
     updated_tracking: 'bg-blue-500',
     updated_running_data: 'bg-blue-500',
+    mentioned_in_comment: 'bg-pink-500',
+    replied_to_thread: 'bg-violet-500',
     created: 'bg-green-500',
     updated: 'bg-blue-500',
     deleted: 'bg-red-500',
@@ -48,14 +51,20 @@ function getModelBasename(subjectType: string): string {
     return parts[parts.length - 1];
 }
 
-function getSubjectUrl(subjectType: string | null, subjectId: string | null): string | null {
+function getSubjectUrl(subjectType: string | null, subjectId: string | null, action?: string, metadata?: Record<string, string> | null): string | null {
     if (!subjectType || !subjectId) return null;
 
     const model = getModelBasename(subjectType);
+    const isCommentAction = action === 'mentioned_in_comment' || action === 'replied_to_thread';
 
     switch (model) {
         case 'Liquidation':
-            return `/liquidation/${subjectId}`;
+            if (isCommentAction && metadata?.document_requirement_id) {
+                return `/liquidation/${subjectId}#doc-comment-${metadata.document_requirement_id}`;
+            }
+            return isCommentAction
+                ? `/liquidation/${subjectId}#document-requirements`
+                : `/liquidation/${subjectId}`;
         case 'LiquidationFinancial':
         case 'LiquidationDocument':
         case 'LiquidationBeneficiary':
@@ -111,7 +120,7 @@ export function NotificationItem({ notification, onUpdate }: NotificationItemPro
             axios.patch(`/notifications/${notification.id}/read`).then(() => onUpdate?.());
         }
 
-        const url = getSubjectUrl(notification.subject_type, notification.subject_id);
+        const url = getSubjectUrl(notification.subject_type, notification.subject_id, notification.action, notification.metadata);
         if (url) {
             router.visit(url);
         }
