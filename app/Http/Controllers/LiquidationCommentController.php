@@ -96,6 +96,7 @@ class LiquidationCommentController extends Controller
         $actor = $request->user();
         $this->notifyMentionedUsers($comment, $liquidation, $actor, $mentionIds);
         $this->notifyThreadParticipants($comment, $liquidation, $actor, $mentionIds);
+        $this->notifyLiquidationStakeholders($comment, $liquidation, $actor, $mentionIds);
 
         $comment->load('user.role');
 
@@ -294,12 +295,89 @@ class LiquidationCommentController extends Controller
         Notification::insert($rows);
     }
 
+    /**
+     * Notify liquidation stakeholders about new comments.
+     * If the commenter is an RC/Accountant/Admin, notify the HEI users.
+     * If the commenter is from the HEI, notify the relevant RC users.
+     * Excludes users already notified via mentions or thread replies.
+     */
+    private function notifyLiquidationStakeholders(LiquidationComment $comment, Liquidation $liquidation, User $actor, array $mentionIds): void
+    {
+        $liquidation->loadMissing('hei');
+
+        // Collect user IDs already notified (mentions + thread participants)
+        $alreadyNotified = collect($mentionIds);
+        if ($comment->parent_id) {
+            // Thread participants were already notified by notifyThreadParticipants
+            $rootId = $comment->parent_id;
+            $current = LiquidationComment::find($rootId);
+            while ($current?->parent_id) {
+                $rootId = $current->parent_id;
+                $current = LiquidationComment::find($current->parent_id);
+            }
+            $level0 = [$rootId];
+            $level1 = LiquidationComment::whereIn('parent_id', $level0)->pluck('id')->toArray();
+            $level2 = !empty($level1) ? LiquidationComment::whereIn('parent_id', $level1)->pluck('id')->toArray() : [];
+            $threadUserIds = LiquidationComment::whereIn('id', array_merge($level0, $level1, $level2))
+                ->pluck('user_id');
+            $alreadyNotified = $alreadyNotified->merge($threadUserIds);
+        }
+        $alreadyNotified = $alreadyNotified->unique()->toArray();
+
+        $isActorHei = $actor->hei_id && $actor->hei_id === $liquidation->hei_id;
+
+        if ($isActorHei) {
+            // HEI user commented → notify RC users for the region
+            $recipients = User::where('status', 'active')
+                ->where('id', '!=', $actor->id)
+                ->whereNotIn('id', $alreadyNotified)
+                ->where('region_id', $liquidation->hei?->region_id)
+                ->whereHas('role', fn ($q) => $q->where('name', 'Regional Coordinator'))
+                ->get();
+        } else {
+            // RC/Accountant/Admin commented → notify HEI users
+            $recipients = User::where('status', 'active')
+                ->where('id', '!=', $actor->id)
+                ->whereNotIn('id', $alreadyNotified)
+                ->where('hei_id', $liquidation->hei_id)
+                ->get();
+        }
+
+        if ($recipients->isEmpty()) {
+            return;
+        }
+
+        $description = 'commented on a document requirement on ' . $liquidation->control_no;
+        $metadata = $comment->document_requirement_id
+            ? json_encode(['document_requirement_id' => $comment->document_requirement_id])
+            : null;
+
+        $rows = $recipients->map(fn (User $user) => [
+            'id' => Str::uuid()->toString(),
+            'user_id' => $user->id,
+            'actor_id' => $actor->id,
+            'actor_name' => $actor->name,
+            'action' => 'commented_on_requirement',
+            'description' => $description,
+            'subject_type' => Liquidation::class,
+            'subject_id' => $liquidation->id,
+            'subject_label' => $liquidation->control_no,
+            'module' => 'Liquidation',
+            'metadata' => $metadata,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ])->toArray();
+
+        Notification::insert($rows);
+    }
+
     private function formatComment(LiquidationComment $comment): array
     {
         return [
             'id' => $comment->id,
             'user_id' => $comment->user_id,
             'user_name' => $comment->user?->name ?? 'Unknown',
+            'user_avatar_url' => $comment->user?->avatar_url,
             'user_role' => $comment->user?->role?->name,
             'parent_id' => $comment->parent_id,
             'body' => $comment->body,

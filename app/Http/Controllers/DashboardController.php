@@ -73,11 +73,12 @@ class DashboardController extends Controller
 
         // Role-specific queries
         if ($userRole === 'Regional Coordinator') {
+            $regionId = $user->region_id;
             $userStats = $this->getRCUserStats($user);
-            $rcTotalStats = $this->getTotalStats();
-            $rcStatusDistribution = $this->getLiquidationStatusDistribution();
-            $rcSummaryPerAY = $this->getSummaryPerAY();
-            $rcSummaryPerHEI = $this->getSummaryPerHEI();
+            $rcTotalStats = $this->getTotalStats($regionId);
+            $rcStatusDistribution = $this->getLiquidationStatusDistribution(null, $regionId);
+            $rcSummaryPerAY = $this->getSummaryPerAY(null, $regionId);
+            $rcSummaryPerHEI = $this->getSummaryPerHEI($regionId);
 
         } elseif ($userRole === 'Accountant') {
             $userStats = $this->getAccountantUserStats();
@@ -111,7 +112,7 @@ class DashboardController extends Controller
     /**
      * Get summary per academic year with joins to liquidation_financials.
      */
-    private function getSummaryPerAY(?string $heiId = null)
+    private function getSummaryPerAY(?string $heiId = null, ?string $regionId = null)
     {
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
@@ -120,6 +121,11 @@ class DashboardController extends Controller
 
         if ($heiId) {
             $query->where('liquidations.hei_id', $heiId);
+        }
+
+        if ($regionId) {
+            $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
+                ->where('heis.region_id', $regionId);
         }
 
         return $query->leftJoin('academic_years', 'liquidations.academic_year_id', '=', 'academic_years.id')
@@ -140,13 +146,19 @@ class DashboardController extends Controller
     /**
      * Get summary per HEI with joins to liquidation_financials.
      */
-    private function getSummaryPerHEI()
+    private function getSummaryPerHEI(?string $regionId = null)
     {
-        return DB::table('liquidations')
+        $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->leftJoin('liquidation_compliance', 'liquidations.id', '=', 'liquidation_compliance.liquidation_id')
             ->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
-            ->whereNull('liquidations.deleted_at')
+            ->whereNull('liquidations.deleted_at');
+
+        if ($regionId) {
+            $query->where('heis.region_id', $regionId);
+        }
+
+        return $query
             ->select('liquidations.hei_id', 'heis.name as hei_name')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursements')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_amount_liquidated')
@@ -175,21 +187,32 @@ class DashboardController extends Controller
     /**
      * Get total stats with joins to liquidation_financials.
      */
-    private function getTotalStats(): array
+    private function getTotalStats(?string $regionId = null): array
     {
-        $stats = DB::table('liquidations')
+        $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->whereNull('liquidations.deleted_at')
-            ->selectRaw('COUNT(*) as total_liquidations')
+            ->whereNull('liquidations.deleted_at');
+
+        if ($regionId) {
+            $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
+                ->where('heis.region_id', $regionId);
+        }
+
+        $stats = $query->selectRaw('COUNT(*) as total_liquidations')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursed')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_liquidated')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_unliquidated')
             ->first();
 
         // Pending review = submitted but not yet endorsed to COA
-        $pendingReview = Liquidation::whereNotNull('date_submitted')
-            ->whereNull('coa_endorsed_at')
-            ->count();
+        $pendingQuery = Liquidation::whereNotNull('date_submitted')
+            ->whereNull('coa_endorsed_at');
+
+        if ($regionId) {
+            $pendingQuery->whereHas('hei', fn($q) => $q->where('region_id', $regionId));
+        }
+
+        $pendingReview = $pendingQuery->count();
 
         return [
             'total_liquidations' => $stats->total_liquidations ?? 0,
@@ -203,7 +226,7 @@ class DashboardController extends Controller
     /**
      * Get liquidation status distribution (using liquidation_statuses lookup table).
      */
-    private function getLiquidationStatusDistribution(?string $heiId = null)
+    private function getLiquidationStatusDistribution(?string $heiId = null, ?string $regionId = null)
     {
         $query = Liquidation::join('liquidation_statuses', 'liquidations.liquidation_status_id', '=', 'liquidation_statuses.id')
             ->select('liquidation_statuses.name as status')
@@ -211,6 +234,10 @@ class DashboardController extends Controller
 
         if ($heiId) {
             $query->where('liquidations.hei_id', $heiId);
+        }
+
+        if ($regionId) {
+            $query->whereHas('hei', fn($q) => $q->where('region_id', $regionId));
         }
 
         return $query->groupBy('liquidation_statuses.name')->get();
@@ -234,13 +261,20 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_unliquidated')
             ->first();
 
-        // Pending action = submitted but not reviewed by RC
-        $pendingAction = Liquidation::whereNotNull('date_submitted')
-            ->whereNull('reviewed_at')
-            ->count();
+        // Pending action = submitted but not reviewed by RC (in RC's region)
+        $pendingActionQuery = Liquidation::whereNotNull('date_submitted')
+            ->whereNull('reviewed_at');
+        if ($user->region_id) {
+            $pendingActionQuery->whereHas('hei', fn($q) => $q->where('region_id', $user->region_id));
+        }
+        $pendingAction = $pendingActionQuery->count();
 
-        // Completed = endorsed to accounting (reviewed by RC)
-        $completed = Liquidation::whereNotNull('reviewed_at')->count();
+        // Completed = endorsed to accounting (reviewed by RC, in RC's region)
+        $completedQuery = Liquidation::whereNotNull('reviewed_at');
+        if ($user->region_id) {
+            $completedQuery->whereHas('hei', fn($q) => $q->where('region_id', $user->region_id));
+        }
+        $completed = $completedQuery->count();
 
         return [
             'my_liquidations' => $stats->my_liquidations ?? 0,
@@ -360,7 +394,7 @@ class DashboardController extends Controller
     private function getRecentLiquidations($user, ?string $userRole)
     {
         if ($userRole === 'Regional Coordinator') {
-            return Liquidation::with(['hei:id,name', 'financial', 'semester', 'academicYear', 'liquidationStatus'])
+            $query = Liquidation::with(['hei:id,name,region_id', 'financial', 'semester', 'academicYear', 'liquidationStatus'])
                 ->where(function ($q) use ($user) {
                     // Pending RC review (submitted but not reviewed)
                     $q->where(function ($q2) {
@@ -369,8 +403,13 @@ class DashboardController extends Controller
                     })
                     // Or already reviewed by this RC
                     ->orWhere('reviewed_by', $user->id);
-                })
-                ->orderBy('created_at', 'desc')
+                });
+
+            if ($user->region_id) {
+                $query->whereHas('hei', fn($q) => $q->where('region_id', $user->region_id));
+            }
+
+            return $query->orderBy('created_at', 'desc')
                 ->limit(10)
                 ->get()
                 ->map(fn ($liq) => $this->formatRecentLiquidation($liq));

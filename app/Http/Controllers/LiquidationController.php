@@ -982,6 +982,16 @@ class LiquidationController extends Controller
     }
 
     /**
+     * Return the next auto-generated DV control number for preview.
+     */
+    public function nextControlNo(): JsonResponse
+    {
+        $controlNo = $this->liquidationService->generateControlNo();
+
+        return response()->json(['control_no' => $controlNo]);
+    }
+
+    /**
      * Lookup HEI by UII for auto-fill.
      */
     public function lookupHEI(Request $request): JsonResponse

@@ -37,12 +37,16 @@ export function VerticalStepper({ steps, currentStep, isFullyCompleted = false, 
                 {/* Circle and Connector Column */}
                 <div className="flex flex-col items-center">
                   {/* Circle */}
+                  <div className={cn("relative shrink-0 z-10", isCurrent && "")}>
+                    {isCurrent && (
+                      <span className="absolute inset-0 rounded-full bg-blue-400 opacity-30 animate-ping" />
+                    )}
                   <div
                     className={cn(
-                      "w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm transition-all z-10 border-2 shrink-0",
+                      "w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm transition-all border-2",
                       isFullyCompleted && "bg-green-600 border-green-600 text-white",
                       !isFullyCompleted && isCompleted && "bg-blue-600 border-blue-600 text-white",
-                      !isFullyCompleted && isCurrent && "bg-blue-600 border-blue-600 text-white ring-4 ring-blue-100",
+                      !isFullyCompleted && isCurrent && "bg-blue-600 border-blue-600 text-white",
                       isUpcoming && "bg-background border-gray-300 text-gray-400"
                     )}
                   >
@@ -51,6 +55,7 @@ export function VerticalStepper({ steps, currentStep, isFullyCompleted = false, 
                     ) : (
                       stepNumber
                     )}
+                  </div>
                   </div>
 
                   {/* Vertical Connector Line */}

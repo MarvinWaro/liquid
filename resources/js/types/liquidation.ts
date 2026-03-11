@@ -99,6 +99,7 @@ export interface LiquidationComment {
     id: string;
     user_id: string;
     user_name: string;
+    user_avatar_url: string | null;
     user_role: string | null;
     parent_id: string | null;
     body: string;

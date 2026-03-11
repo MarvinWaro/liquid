@@ -81,7 +81,7 @@ export default function DocumentTrackingTable({
     }, [liquidationId, entries]);
 
     return (
-        <div className="mb-3">
+        <div id="document-tracking" className="mb-3">
             <Card>
                 <CardHeader className="pb-2 pt-3">
                     <div className="flex items-center justify-between">

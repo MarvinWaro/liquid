@@ -106,7 +106,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                     <Link href={dashboard()} prefetch className="flex items-center gap-3">
                                         <img src="/assets/img/unifast.png" alt="UniFAST" className="h-9 w-9 shrink-0" />
                                         <div className="flex flex-col">
-                                            <span className="text-sm font-bold leading-tight text-foreground">UniFAST</span>
+                                            <span className="text-sm font-bold leading-tight text-foreground">Uni<span className="text-orange-500">FAST</span></span>
                                             <span className="text-[10px] text-muted-foreground leading-tight">Liquidation Management</span>
                                         </div>
                                     </Link>
@@ -137,7 +137,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                         <Link href={dashboard()} prefetch className="flex items-center gap-3">
                             <img src="/assets/img/unifast.png" alt="UniFAST" className="h-11 w-11 shrink-0" />
                             <div className="hidden flex-col md:flex">
-                                <span className="text-sm font-bold leading-tight tracking-wide">UniFAST</span>
+                                <span className="text-sm font-bold leading-tight tracking-wide">Uni<span className="text-orange-500">FAST</span></span>
                                 <span className="text-[11px] text-muted-foreground leading-tight">Liquidation Management System</span>
                             </div>
                         </Link>

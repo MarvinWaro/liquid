@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useInitials } from '@/hooks/use-initials';
 import { cn } from '@/lib/utils';
 import type { LiquidationComment, LiquidationCommentUser, CommentAttachment } from '@/types/liquidation';
@@ -151,6 +151,7 @@ function InlineComment({
     return (
         <div className={cn('group/cmt flex gap-2', indent)}>
             <Avatar className="size-6 shrink-0 mt-0.5">
+                <AvatarImage src={comment.user_avatar_url || undefined} alt={comment.user_name} />
                 <AvatarFallback className={cn('text-[9px] font-medium', getAvatarColor(comment.user_name))}>
                     {getInitials(comment.user_name)}
                 </AvatarFallback>
@@ -263,8 +264,12 @@ export default function RequirementCommentThread({
 
     // Auto-expand when navigating from notification deep-link
     useEffect(() => {
-        if (defaultExpanded && !loaded) {
-            loadComments().then(() => setExpanded(true));
+        if (defaultExpanded) {
+            if (!loaded) {
+                loadComments().then(() => setExpanded(true));
+            } else {
+                setExpanded(true);
+            }
         }
     }, [defaultExpanded]);
 

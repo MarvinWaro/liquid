@@ -42,17 +42,81 @@ export default function Show({
     commentCounts,
 }: ShowPageProps) {
     const { auth } = usePage<SharedData>().props;
-    const hash = typeof window !== 'undefined' ? window.location.hash : '';
-    const focusDocuments = hash === '#document-requirements' || hash.startsWith('#doc-comment-');
-    const focusRequirementId = hash.startsWith('#doc-comment-') ? hash.slice('#doc-comment-'.length) : null;
+    const initialHash = typeof window !== 'undefined' ? window.location.hash : '';
 
-    // ── Scroll to document requirements when navigating from comment notification ──
+    // Reactive state so late hash changes (Inertia onFinish) trigger re-render
+    const [focusDocuments, setFocusDocuments] = useState(
+        initialHash === '#document-requirements' || initialHash.startsWith('#doc-comment-'),
+    );
+    const [focusRequirementId, setFocusRequirementId] = useState<string | null>(
+        initialHash.startsWith('#doc-comment-') ? initialHash.slice('#doc-comment-'.length) : null,
+    );
+
+    // ── Scroll to the relevant section and highlight when navigating from a notification ──
     useEffect(() => {
-        if (focusDocuments) {
+        const highlight = (el: HTMLElement) => {
+            el.classList.add('notification-highlight');
+            el.addEventListener('animationend', () => {
+                el.classList.remove('notification-highlight');
+            }, { once: true });
+        };
+
+        // Poll for an element to become visible (not inside a hidden parent), then scroll + highlight
+        const waitAndScroll = (id: string) => {
+            let attempts = 0;
+            const maxAttempts = 30; // 30 × 100ms = 3s max
+            const interval = setInterval(() => {
+                attempts++;
+                const el = document.getElementById(id);
+                if (el && el.offsetParent !== null) {
+                    clearInterval(interval);
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    setTimeout(() => highlight(el), 600);
+                } else if (attempts >= maxAttempts) {
+                    clearInterval(interval);
+                }
+            }, 100);
+        };
+
+        const scrollAndHighlight = (hash: string) => {
+            if (!hash) return;
+            const isDocComment = hash.startsWith('#doc-comment-');
+            const isDocFocus = hash === '#document-requirements' || isDocComment;
+            const sectionId = isDocFocus ? 'document-requirements' : hash.slice(1);
+            const specificId = isDocComment ? hash.slice(1) : null;
+
+            // Update reactive state so HeiDocumentUpload expands & comment thread opens
+            if (isDocFocus) setFocusDocuments(true);
+            if (isDocComment) setFocusRequirementId(hash.slice('#doc-comment-'.length));
+
+            // Start from top so the scroll animation is visible
+            window.scrollTo(0, 0);
+
             setTimeout(() => {
-                document.getElementById('document-requirements')?.scrollIntoView({ behavior: 'smooth' });
-            }, 300);
+                const el = document.getElementById(sectionId);
+                if (!el) return;
+
+                if (specificId) {
+                    // First scroll to the section, then poll for the specific item
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    waitAndScroll(specificId);
+                } else {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    const card = el.querySelector(':scope > [data-slot="card"]') as HTMLElement | null;
+                    setTimeout(() => highlight(card ?? el), 600);
+                }
+            }, 200);
+        };
+
+        // Handle hash present on initial load
+        if (initialHash) {
+            scrollAndHighlight(initialHash);
         }
+
+        // Handle hash set after Inertia navigation (onFinish sets it late)
+        const onHashChange = () => scrollAndHighlight(window.location.hash);
+        window.addEventListener('hashchange', onHashChange);
+        return () => window.removeEventListener('hashchange', onHashChange);
     }, []);
 
     // ── Modal state ──
@@ -93,6 +157,12 @@ export default function Show({
         const latest = trackingEntries[trackingEntries.length - 1];
         return latest?.reviewed_by || null;
     }, [liquidation.reviewed_by_name, trackingEntries]);
+
+    // ── Latest RC note (from tracking entries) ──
+    const latestRcNote = useMemo(() => {
+        const latest = trackingEntries[trackingEntries.length - 1];
+        return latest?.rc_note || null;
+    }, [trackingEntries]);
 
     // ── Running data total (for LiquidationDetailsCard) ──
     const initialRunningTotal = useMemo(() => {
@@ -186,6 +256,7 @@ export default function Show({
                             isHEIUser={isHEIUser}
                             runningDataTotalLiquidated={runningDataTotalLiquidated}
                             totalDisbursements={totalDisbursements}
+                            latestRcNote={latestRcNote ?? undefined}
                         />
                     </div>
                     <div className="lg:col-span-4 flex flex-col">
