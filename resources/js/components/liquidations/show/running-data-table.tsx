@@ -127,7 +127,7 @@ export default function RunningDataTable({
     }, [liquidationId, entries, totalDisbursements, totalGrantees]);
 
     return (
-        <div className="mb-3">
+        <div id="running-data" className="mb-3">
             <Card>
                 <CardHeader className="pb-2 pt-3">
                     <div className="flex items-center justify-between">

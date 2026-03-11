@@ -36,7 +36,7 @@ class StoreLiquidationRequest extends FormRequest
             'academic_year_id' => 'required|exists:academic_years,id',
             'semester' => 'required|string|max:50',
             'batch_no' => 'nullable|string|max:50',
-            'dv_control_no' => 'required|string|max:100|unique:liquidations,control_no',
+            'dv_control_no' => 'sometimes|nullable|string|max:100',
             'number_of_grantees' => 'nullable|integer|min:0',
             'total_disbursements' => 'required|numeric|min:0',
             'total_amount_liquidated' => 'nullable|numeric|min:0',
@@ -53,7 +53,6 @@ class StoreLiquidationRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'dv_control_no.unique' => 'This DV Control No. already exists.',
             'uii.required' => 'The UII (Unique Institutional Identifier) is required.',
             'program_id.required' => 'Please select a program.',
             'program_id.exists' => 'The selected program is invalid.',

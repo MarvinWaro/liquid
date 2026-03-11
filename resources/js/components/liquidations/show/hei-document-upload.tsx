@@ -1,8 +1,8 @@
-import { useRef, useState, useCallback, useMemo } from 'react';
+import { useRef, useState, useCallback, useMemo, useEffect } from 'react';
 import { router } from '@inertiajs/react';
 import axios from 'axios';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -71,6 +71,11 @@ export default function HeiDocumentUpload({
 
     // Accordion: collapsed by default, auto-expand when navigating from notification
     const [expanded, setExpanded] = useState(defaultExpanded);
+
+    // Sync with late prop changes (e.g. Inertia onFinish sets hash after mount)
+    useEffect(() => {
+        if (defaultExpanded) setExpanded(true);
+    }, [defaultExpanded]);
 
     // Memoize the document-to-requirement lookup map
     const docByRequirement = useMemo(() => {
@@ -273,6 +278,7 @@ export default function HeiDocumentUpload({
                         return (
                             <div
                                 key={req.id}
+                                id={`doc-comment-${req.id}`}
                                 className={`rounded-lg border p-3 transition-colors ${
                                     isFulfilled
                                         ? 'bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/50'
@@ -444,6 +450,7 @@ export default function HeiDocumentUpload({
             {/* Fullscreen image viewer */}
             <Dialog open={enlargedImage !== null} onOpenChange={(open) => { if (!open) setEnlargedImage(null); }}>
                 <DialogContent className="max-w-[95vw] sm:max-w-[95vw] max-h-[95vh] p-2 overflow-auto">
+                    <DialogTitle className="sr-only">Image Preview</DialogTitle>
                     {enlargedImage && (
                         <img
                             src={enlargedImage.url}
@@ -465,6 +472,7 @@ export default function HeiDocumentUpload({
                 }
             }}>
                 <DialogContent className="max-w-md p-0 overflow-hidden" showCloseButton={false}>
+                    <DialogTitle className="sr-only">Upload Confirmation</DialogTitle>
                     <div className="bg-purple-50 dark:bg-purple-950/30 border-b border-purple-200 dark:border-purple-800/50 px-5 py-3">
                         <p className="text-sm font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wide">Before you upload</p>
                     </div>

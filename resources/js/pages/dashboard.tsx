@@ -26,7 +26,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Label, Sector } from 'recharts';
+import type { PieSectorDataItem } from 'recharts/types/polar/Pie';
 import { DollarSign, FileText, CheckCircle, Clock, AlertCircle, Filter, Search } from 'lucide-react';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import { SortableDashboard, DashboardCard, DashboardToolbar } from '@/components/sortable-dashboard';
@@ -137,6 +138,9 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
         total_unliquidated: rawUserStats?.total_unliquidated ?? 0,
     };
 
+    // State for interactive pie chart
+    const [activePieIndex, setActivePieIndex] = useState(0);
+
     // State for filters
     const [chartAYFilter, setChartAYFilter] = useState<string>('all');
     const [tableAYFilter, setTableAYFilter] = useState<string>('all');
@@ -187,6 +191,14 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
 
     // ---------- Chart constants ----------
 
+    const STATUS_COLORS: Record<string, string> = {
+        draft: '#94a3b8',
+        for_initial_review: '#3b82f6',
+        endorsed_to_accounting: '#8b5cf6',
+        endorsed_to_coa: '#10b981',
+        returned_to_hei: '#ef4444',
+        returned_to_rc: '#f59e0b',
+    };
     const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
     const BAR_COLORS = {
@@ -200,9 +212,11 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
 
     const academicYears = ['all', ...Array.from(new Set(summaryPerAY.map(item => item.academic_year)))];
 
-    const chartData = statusDistribution?.map(item => ({
+    const chartData = statusDistribution?.map((item, index) => ({
         name: item.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-        value: item.count
+        value: item.count,
+        status: item.status,
+        fill: STATUS_COLORS[item.status] || COLORS[index % COLORS.length],
     })) || [];
 
     const filteredChartData = chartAYFilter === 'all'
@@ -506,28 +520,94 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
     };
 
     const renderStatusDistribution = () => (
-        <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-                <Pie
-                    data={chartData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
+        <div className="flex flex-col gap-3">
+            <div className="px-1">
+                <Select
+                    value={chartData[activePieIndex]?.status || ''}
+                    onValueChange={(val) => {
+                        const idx = chartData.findIndex((d) => d.status === val);
+                        if (idx >= 0) setActivePieIndex(idx);
+                    }}
                 >
-                    {chartData.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                </Pie>
-                {pieTooltip}
-                <Legend
-                    wrapperStyle={{ fontSize: '12px' }}
-                    formatter={(value) => <span className="text-foreground text-xs">{value}</span>}
-                />
-            </PieChart>
-        </ResponsiveContainer>
+                    <SelectTrigger className="h-8 w-full text-xs">
+                        <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {chartData.map((item) => (
+                            <SelectItem key={item.status} value={item.status} className="text-xs">
+                                <div className="flex items-center gap-2">
+                                    <div className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: item.fill }} />
+                                    {item.name}
+                                </div>
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
+            <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                    <Pie
+                        data={chartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={90}
+                        strokeWidth={2}
+                        dataKey="value"
+                        activeIndex={activePieIndex}
+                        activeShape={({ outerRadius = 0, ...props }: PieSectorDataItem) => (
+                            <g>
+                                <Sector {...props} outerRadius={outerRadius + 10} />
+                                <Sector
+                                    {...props}
+                                    outerRadius={outerRadius + 20}
+                                    innerRadius={outerRadius + 12}
+                                />
+                            </g>
+                        )}
+                        onMouseEnter={(_, index) => setActivePieIndex(index)}
+                    >
+                        {chartData.map((entry) => (
+                            <Cell key={entry.status} fill={entry.fill} stroke={entry.fill} />
+                        ))}
+                        <Label
+                            content={({ viewBox }) => {
+                                if (viewBox && 'cx' in viewBox && 'cy' in viewBox) {
+                                    const active = chartData[activePieIndex];
+                                    return (
+                                        <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
+                                            <tspan x={viewBox.cx} y={(viewBox.cy || 0) - 8} className="fill-foreground text-2xl font-bold">
+                                                {active?.value.toLocaleString() ?? 0}
+                                            </tspan>
+                                            <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 12} className="fill-muted-foreground text-xs">
+                                                {active?.name ?? 'Liquidations'}
+                                            </tspan>
+                                        </text>
+                                    );
+                                }
+                                return null;
+                            }}
+                        />
+                    </Pie>
+                    {pieTooltip}
+                </PieChart>
+            </ResponsiveContainer>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 px-2 text-xs">
+                {chartData.map((item, index) => (
+                    <button
+                        key={item.status}
+                        className={`flex items-center gap-1.5 py-0.5 rounded transition-opacity text-left ${
+                            activePieIndex === index ? 'opacity-100' : 'opacity-60 hover:opacity-80'
+                        }`}
+                        onClick={() => setActivePieIndex(index)}
+                    >
+                        <div className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: item.fill }} />
+                        <span className="truncate text-muted-foreground">{item.name}</span>
+                        <span className="ml-auto font-medium tabular-nums text-foreground">{item.value}</span>
+                    </button>
+                ))}
+            </div>
+        </div>
     );
 
     const renderLiquidationProgress = () => (

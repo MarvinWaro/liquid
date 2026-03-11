@@ -91,6 +91,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('liquidation', [LiquidationController::class, 'index'])->name('liquidation.index');
     Route::post('liquidation', [LiquidationController::class, 'store'])->name('liquidation.store');
     Route::get('liquidation/lookup-hei', [LiquidationController::class, 'lookupHEI'])->name('liquidation.lookup-hei');
+    Route::get('liquidation/next-control-no', [LiquidationController::class, 'nextControlNo'])->name('liquidation.next-control-no');
     Route::get('liquidation/{liquidation}/edit', [LiquidationController::class, 'edit'])->name('liquidation.edit');
     Route::put('liquidation/{liquidation}', [LiquidationController::class, 'update'])->name('liquidation.update');
     Route::delete('liquidation/{liquidation}', [LiquidationController::class, 'destroy'])->name('liquidation.destroy');

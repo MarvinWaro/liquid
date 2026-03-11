@@ -28,6 +28,7 @@ interface LiquidationDetailsCardProps {
     isHEIUser: boolean;
     runningDataTotalLiquidated: number;
     totalDisbursements: number;
+    latestRcNote?: string;
 }
 
 export default function LiquidationDetailsCard({
@@ -36,6 +37,7 @@ export default function LiquidationDetailsCard({
     isHEIUser,
     runningDataTotalLiquidated,
     totalDisbursements,
+    latestRcNote,
 }: LiquidationDetailsCardProps) {
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -312,7 +314,7 @@ export default function LiquidationDetailsCard({
                                         </div>
                                     </>
                                 )}
-                                {(liquidation.review_remarks || isEditing) && (
+                                {(latestRcNote || liquidation.review_remarks || isEditing) && (
                                     <div className="space-y-1">
                                         <Label className="text-[10px] text-muted-foreground">Regional Coordinator's Note</Label>
                                         {isEditing ? (
@@ -329,7 +331,7 @@ export default function LiquidationDetailsCard({
                                                 </SelectContent>
                                             </Select>
                                         ) : (
-                                            <Input value={liquidation.review_remarks || ''} disabled className="h-8 text-xs disabled:opacity-100 disabled:cursor-default" />
+                                            <Input value={latestRcNote || liquidation.review_remarks || ''} disabled className="h-8 text-xs disabled:opacity-100 disabled:cursor-default" />
                                         )}
                                     </div>
                                 )}

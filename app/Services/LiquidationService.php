@@ -134,7 +134,7 @@ class LiquidationService
             $documentStatusId = DocumentStatus::findByCode($documentStatusCode)?->id;
 
             $liquidation = Liquidation::create([
-                'control_no'            => $data['dv_control_no'],
+                'control_no'            => $this->generateControlNo(),
                 'hei_id'                => $hei->id,
                 'program_id'            => $data['program_id'],
                 'academic_year_id'      => $data['academic_year_id'],
@@ -442,6 +442,23 @@ class LiquidationService
         }
 
         return DocumentStatus::findByCode($code)?->id;
+    }
+
+    /**
+     * Generate a unique DV control number in the format YYYY-NNNN.
+     */
+    public function generateControlNo(): string
+    {
+        $year = now()->year;
+        $prefix = $year . '-';
+
+        $last = Liquidation::where('control_no', 'like', $prefix . '%')
+            ->orderByRaw('CAST(SUBSTRING(control_no, ' . (strlen($prefix) + 1) . ') AS UNSIGNED) DESC')
+            ->value('control_no');
+
+        $next = $last ? ((int) substr($last, strlen($prefix))) + 1 : 1;
+
+        return $prefix . str_pad((string) $next, 4, '0', STR_PAD_LEFT);
     }
 
     /**

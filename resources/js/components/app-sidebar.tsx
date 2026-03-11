@@ -57,7 +57,7 @@ export function AppSidebar() {
                                     className="h-8 w-8 shrink-0"
                                 />
                                 <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-                                    <span className="text-sm font-bold leading-tight">UniFAST</span>
+                                    <span className="text-sm font-bold leading-tight">Uni<span className="text-orange-500">FAST</span></span>
                                     <span className="text-[10px] opacity-70 leading-tight">Liquidation Management</span>
                                 </div>
                             </Link>

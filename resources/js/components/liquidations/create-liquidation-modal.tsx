@@ -94,6 +94,7 @@ export function CreateLiquidationModal({
     const [heiSearch, setHeiSearch] = useState('');
     const [selectedHei, setSelectedHei] = useState<HEIOption | null>(null);
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+    const [nextControlNo, setNextControlNo] = useState<string>('');
 
     const MAX_VISIBLE_HEIS = 50;
 
@@ -124,9 +125,13 @@ export function CreateLiquidationModal({
         rc_notes: '',
     });
 
-    // Reset form when modal closes
+    // Reset form and fetch next control number when modal opens/closes
     useEffect(() => {
-        if (!isOpen) {
+        if (isOpen) {
+            axios.get(route('liquidation.next-control-no'))
+                .then(res => setNextControlNo(res.data.control_no))
+                .catch(() => setNextControlNo(''));
+        } else {
             setFormData({
                 program_id: '',
                 uii: '',
@@ -145,6 +150,7 @@ export function CreateLiquidationModal({
             setSelectedHei(null);
             setHeiSearch('');
             setFieldErrors({});
+            setNextControlNo('');
         }
     }, [isOpen]);
 
@@ -415,17 +421,15 @@ export function CreateLiquidationModal({
 
                         {/* DV Control No */}
                         <div className="space-y-2">
-                            <Label htmlFor="dv_control_no">DV Control No. *</Label>
+                            <Label htmlFor="dv_control_no">DV Control No.</Label>
                             <Input
                                 id="dv_control_no"
-                                value={formData.dv_control_no}
-                                onChange={(e) => handleInputChange('dv_control_no', e.target.value)}
-                                placeholder="e.g., 2025-0001"
-                                className={fieldErrors.dv_control_no ? 'border-red-500' : ''}
+                                value={nextControlNo}
+                                disabled
+                                placeholder="Loading..."
+                                className="bg-muted font-mono cursor-not-allowed"
                             />
-                            {fieldErrors.dv_control_no && (
-                                <p className="text-sm text-red-500">{fieldErrors.dv_control_no}</p>
-                            )}
+                            <p className="text-xs text-muted-foreground">Auto-generated upon creation.</p>
                         </div>
 
                         {/* Number of Grantees */}
