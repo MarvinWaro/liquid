@@ -17,7 +17,7 @@ import { edit } from '@/routes/profile';
 import AvatarCropModal from '@/components/avatar-crop-modal';
 import { Camera, Trash2, Upload } from 'lucide-react';
 import { type ChangeEvent, type DragEvent, type FormEventHandler, useCallback, useRef, useState } from 'react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {

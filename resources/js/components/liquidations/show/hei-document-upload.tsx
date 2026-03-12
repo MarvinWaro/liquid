@@ -11,7 +11,7 @@ import {
     ClipboardList, CheckCircle2, Circle, ExternalLink, Link2, Info, CircleHelp,
     ChevronDown,
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import type { LiquidationDocument, DocumentRequirement, DocumentCompleteness } from '@/types/liquidation';
 import RequirementCommentThread from './requirement-comment-thread';
 

@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Upload, FileText, Download, Trash2, Eye, Loader2, Mail } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import type { LiquidationDocument } from '@/types/liquidation';
 
 const RC_LETTER_TYPE = 'RC Letter';

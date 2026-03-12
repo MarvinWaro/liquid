@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { CurrencyInput } from '@/components/ui/currency-input';
 import { Label } from '@/components/ui/label';
 import {
     Select,
@@ -30,26 +31,16 @@ import {
 } from '@/components/ui/command';
 import { Loader2, Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import axios from 'axios';
-
-interface Program {
-    id: string;
-    name: string;
-    code: string;
-}
-
-interface HEIOption {
-    id: string;
-    uii: string;
-    name: string;
-}
-
-interface AcademicYearOption {
-    id: string;
-    code: string;
-    name: string;
-}
+import {
+    SEMESTERS,
+    DOCUMENT_STATUSES,
+    RC_NOTES_OPTIONS,
+    type Program,
+    type HEIOption,
+    type AcademicYearOption,
+} from './liquidation-constants';
 
 interface CreateLiquidationModalProps {
     isOpen: boolean;
@@ -59,27 +50,6 @@ interface CreateLiquidationModalProps {
     heis: HEIOption[];
     onSuccess: () => void;
 }
-
-const SEMESTERS = [
-    { value: '1st Semester', label: '1st Semester' },
-    { value: '2nd Semester', label: '2nd Semester' },
-    { value: 'Summer', label: 'Summer' },
-];
-
-const DOCUMENT_STATUSES = [
-    { value: 'NONE', label: 'No Submission' },
-    { value: 'PARTIAL', label: 'Partial Submission' },
-    { value: 'COMPLETE', label: 'Complete Submission' },
-];
-
-// Matches the Excel list provided
-const RC_NOTES_OPTIONS = [
-    { value: 'For Review', label: 'For Review' },
-    { value: 'For Compliance', label: 'For Compliance' },
-    { value: 'For Endorsement', label: 'For Endorsement' },
-    { value: 'Fully Endorsed', label: 'Fully Endorsed' },
-    { value: 'Partially Endorsed', label: 'Partially Endorsed' },
-];
 
 export function CreateLiquidationModal({
     isOpen,
@@ -125,12 +95,18 @@ export function CreateLiquidationModal({
         rc_notes: '',
     });
 
-    // Reset form and fetch next control number when modal opens/closes
+    // Fetch next control number scoped by program
+    const fetchNextControlNo = (programId?: string) => {
+        const params = programId ? { program_id: programId } : {};
+        axios.get(route('liquidation.next-control-no'), { params })
+            .then(res => setNextControlNo(res.data.control_no))
+            .catch(() => setNextControlNo(''));
+    };
+
+    // Reset form when modal opens/closes
     useEffect(() => {
         if (isOpen) {
-            axios.get(route('liquidation.next-control-no'))
-                .then(res => setNextControlNo(res.data.control_no))
-                .catch(() => setNextControlNo(''));
+            fetchNextControlNo();
         } else {
             setFormData({
                 program_id: '',
@@ -169,6 +145,10 @@ export function CreateLiquidationModal({
 
     const handleInputChange = (field: string, value: string) => {
         setFormData(prev => ({ ...prev, [field]: value }));
+        // Re-fetch control number when program changes
+        if (field === 'program_id') {
+            fetchNextControlNo(value || undefined);
+        }
         // Clear field error when user starts typing
         if (fieldErrors[field]) {
             setFieldErrors(prev => {
@@ -452,13 +432,10 @@ export function CreateLiquidationModal({
                         {/* Total Disbursements */}
                         <div className="space-y-2">
                             <Label htmlFor="total_disbursements">Total Disbursements *</Label>
-                            <Input
+                            <CurrencyInput
                                 id="total_disbursements"
-                                type="number"
-                                min="0"
-                                step="0.01"
                                 value={formData.total_disbursements}
-                                onChange={(e) => handleInputChange('total_disbursements', e.target.value)}
+                                onValueChange={(v) => handleInputChange('total_disbursements', v)}
                                 placeholder="Enter amount"
                                 className={fieldErrors.total_disbursements ? 'border-red-500' : ''}
                             />
@@ -470,13 +447,10 @@ export function CreateLiquidationModal({
                         {/* Total Amount Liquidated */}
                         <div className="space-y-2">
                             <Label htmlFor="total_amount_liquidated">Total Amount Liquidated</Label>
-                            <Input
+                            <CurrencyInput
                                 id="total_amount_liquidated"
-                                type="number"
-                                min="0"
-                                step="0.01"
                                 value={formData.total_amount_liquidated}
-                                onChange={(e) => handleInputChange('total_amount_liquidated', e.target.value)}
+                                onValueChange={(v) => handleInputChange('total_amount_liquidated', v)}
                                 placeholder="Enter amount (default: 0)"
                                 className={fieldErrors.total_amount_liquidated ? 'border-red-500' : ''}
                             />

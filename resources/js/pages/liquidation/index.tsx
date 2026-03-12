@@ -23,9 +23,10 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Search, FileText, Eye, Download, Upload, Plus } from 'lucide-react';
+import { Search, FileText, Eye, Download, Upload, Plus, TableProperties } from 'lucide-react';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
-import { toast } from 'sonner';
+import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
+import { toast } from '@/lib/toast';
 import axios from 'axios';
 import { type BreadcrumbItem } from '@/types';
 
@@ -102,6 +103,7 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
     const [documentStatusFilter, setDocumentStatusFilter] = useState(filters.document_status || '');
     const [liquidationStatusFilter, setLiquidationStatusFilter] = useState(filters.liquidation_status || '');
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [isBulkEntryOpen, setIsBulkEntryOpen] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -232,6 +234,16 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                 onSuccess={() => router.reload()}
             />
 
+            {/* Bulk Entry Modal */}
+            <BulkEntryModal
+                isOpen={isBulkEntryOpen}
+                onClose={() => setIsBulkEntryOpen(false)}
+                programs={programs}
+                academicYears={academicYears}
+                heis={heis}
+                onSuccess={() => router.reload()}
+            />
+
             <div className="py-8 w-full min-w-0 overflow-hidden">
                 <div>
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
@@ -248,6 +260,10 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                                 <Button onClick={() => setIsCreateModalOpen(true)}>
                                     <Plus className="h-4 w-4 mr-2" />
                                     Create Liquidation
+                                </Button>
+                                <Button variant="outline" onClick={() => setIsBulkEntryOpen(true)}>
+                                    <TableProperties className="h-4 w-4 mr-2" />
+                                    Bulk Entry
                                 </Button>
                                 <Button variant="outline" onClick={handleDownloadTemplate}>
                                     <Download className="h-4 w-4 mr-2" />

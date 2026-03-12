@@ -134,7 +134,7 @@ class LiquidationService
             $documentStatusId = DocumentStatus::findByCode($documentStatusCode)?->id;
 
             $liquidation = Liquidation::create([
-                'control_no'            => $this->generateControlNo(),
+                'control_no'            => $this->generateControlNo($data['program_id']),
                 'hei_id'                => $hei->id,
                 'program_id'            => $data['program_id'],
                 'academic_year_id'      => $data['academic_year_id'],
@@ -445,14 +445,24 @@ class LiquidationService
     }
 
     /**
-     * Generate a unique DV control number in the format YYYY-NNNN.
+     * Generate a unique DV control number in the format CODE-YYYY-NNNN, scoped per program.
+     * Each program (TES, TDP, etc.) maintains its own independent sequence.
+     * e.g. TES-2026-0001, TDP-2026-0001
      */
-    public function generateControlNo(): string
+    public function generateControlNo(?string $programId = null): string
     {
         $year = now()->year;
-        $prefix = $year . '-';
+        $programCode = $programId
+            ? Program::where('id', $programId)->value('code')
+            : null;
 
-        $last = Liquidation::where('control_no', 'like', $prefix . '%')
+        $prefix = $programCode
+            ? $programCode . '-' . $year . '-'
+            : $year . '-';
+
+        $query = Liquidation::where('control_no', 'like', $prefix . '%');
+
+        $last = $query
             ->orderByRaw('CAST(SUBSTRING(control_no, ' . (strlen($prefix) + 1) . ') AS UNSIGNED) DESC')
             ->value('control_no');
 
@@ -542,21 +552,29 @@ class LiquidationService
     }
 
     /**
-     * Generate a unique control number.
+     * Generate a unique control number for bulk import.
+     * Format: CODE-LIQ-YYYY-NNNNN (e.g. TES-LIQ-2026-00001)
      *
      * Uses SELECT ... FOR UPDATE inside a transaction to serialize concurrent
      * calls. Must be invoked within the same DB::transaction() that performs
      * the INSERT so the lock is held until the row is committed.
      */
-    public function generateControlNumber(): string
+    public function generateControlNumber(?string $programId = null): string
     {
-        return DB::transaction(function () {
-            $year   = date('Y');
-            $prefix = "LIQ-{$year}-";
+        return DB::transaction(function () use ($programId) {
+            $year = date('Y');
+            $programCode = $programId
+                ? Program::where('id', $programId)->value('code')
+                : null;
 
-            $latestControlNo = Liquidation::where('control_no', 'like', $prefix . '%')
-                ->lockForUpdate()
-                ->orderBy('control_no', 'desc')
+            $prefix = $programCode
+                ? "{$programCode}-LIQ-{$year}-"
+                : "LIQ-{$year}-";
+
+            $query = Liquidation::where('control_no', 'like', $prefix . '%')
+                ->lockForUpdate();
+
+            $latestControlNo = $query->orderBy('control_no', 'desc')
                 ->value('control_no');
 
             $newNumber = $latestControlNo

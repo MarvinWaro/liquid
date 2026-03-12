@@ -234,6 +234,75 @@ class LiquidationController extends Controller
     }
 
     /**
+     * Bulk store multiple liquidations from in-app form entry.
+     * Reuses the same createLiquidation service as single-entry.
+     */
+    public function bulkStore(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if (!in_array($user->role->name, ['Regional Coordinator', 'Admin']) && !$user->isSuperAdmin()) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+
+        $request->validate([
+            'entries'                          => 'required|array|min:1|max:100',
+            'entries.*.program_id'             => 'required|exists:programs,id',
+            'entries.*.uii'                    => 'required|string',
+            'entries.*.date_fund_released'     => 'required|date',
+            'entries.*.due_date'               => 'nullable|date',
+            'entries.*.academic_year_id'       => 'required|exists:academic_years,id',
+            'entries.*.semester'               => 'required|string|max:50',
+            'entries.*.batch_no'               => 'nullable|string|max:50',
+            'entries.*.number_of_grantees'     => 'nullable|integer|min:0',
+            'entries.*.total_disbursements'    => 'required|numeric|min:0',
+            'entries.*.total_amount_liquidated' => 'nullable|numeric|min:0',
+            'entries.*.document_status'        => 'nullable|string|in:NONE,PARTIAL,COMPLETE',
+            'entries.*.rc_notes'               => 'nullable|string|max:1000',
+        ]);
+
+        $imported = 0;
+        $errors = [];
+
+        foreach ($request->input('entries') as $index => $entry) {
+            try {
+                $this->liquidationService->createLiquidation($entry, $user);
+                $imported++;
+            } catch (\Exception $e) {
+                $errors[] = ['row' => $index + 1, 'error' => $e->getMessage()];
+            }
+        }
+
+        if ($imported > 0) {
+            ActivityLog::log('bulk_entry', 'Bulk entered '.$imported.' liquidation(s)', null, 'Liquidation');
+        }
+
+        if (count($errors) > 0 && $imported === 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'All entries failed. Please check the errors.',
+                'imported' => 0,
+                'errors' => $errors,
+            ], 422);
+        }
+
+        if (count($errors) > 0) {
+            return response()->json([
+                'success' => true,
+                'message' => "Created {$imported} liquidation(s) with " . count($errors) . ' error(s).',
+                'imported' => $imported,
+                'errors' => $errors,
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => "Successfully created {$imported} liquidation(s).",
+            'imported' => $imported,
+        ]);
+    }
+
+    /**
      * Bulk import liquidations from Excel file (for RC).
      */
     public function bulkImportLiquidations(BulkImportRequest $request): JsonResponse
@@ -984,9 +1053,10 @@ class LiquidationController extends Controller
     /**
      * Return the next auto-generated DV control number for preview.
      */
-    public function nextControlNo(): JsonResponse
+    public function nextControlNo(Request $request): JsonResponse
     {
-        $controlNo = $this->liquidationService->generateControlNo();
+        $programId = $request->query('program_id');
+        $controlNo = $this->liquidationService->generateControlNo($programId);
 
         return response()->json(['control_no' => $controlNo]);
     }
@@ -1340,14 +1410,14 @@ class LiquidationController extends Controller
             }
         }
 
-        $controlNo = !empty($dvControlNo) ? $dvControlNo : $this->liquidationService->generateControlNumber();
+        $programCode = trim($row[1] ?? '');
+        $program = $this->findProgram($programCode);
+
+        $controlNo = !empty($dvControlNo) ? $dvControlNo : $this->liquidationService->generateControlNumber($program?->id);
 
         if (Liquidation::where('control_no', $controlNo)->exists()) {
             return ['success' => false, 'error' => "DV Control No '{$controlNo}' already exists."];
         }
-
-        $programCode = trim($row[1] ?? '');
-        $program = $this->findProgram($programCode);
         $semesterId = $this->liquidationService->findSemesterId($row[7] ?? '');
 
         // Lookup academic year by code string (e.g. "2024-2025"), auto-create if not found

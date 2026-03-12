@@ -116,6 +116,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // RC Bulk Liquidation Routes
     Route::get('liquidation/rc-template/download', [LiquidationController::class, 'downloadRCTemplate'])->name('liquidation.download-rc-template');
     Route::post('liquidation/bulk-import', [LiquidationController::class, 'bulkImportLiquidations'])->name('liquidation.bulk-import');
+    Route::post('liquidation/bulk-store', [LiquidationController::class, 'bulkStore'])->name('liquidation.bulk-store');
 
     // Liquidation Tracking Entry Routes
     Route::post('liquidation/{liquidation}/tracking-entries', [LiquidationController::class, 'saveTrackingEntries'])->name('liquidation.save-tracking-entries');

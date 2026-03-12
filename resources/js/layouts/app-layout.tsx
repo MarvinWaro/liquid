@@ -5,7 +5,7 @@ import { type BreadcrumbItem } from '@/types';
 import { type ReactNode, useEffect } from 'react';
 import { usePage } from '@inertiajs/react';
 import { Toaster } from '@/components/ui/sonner';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 interface AppLayoutProps {
     children: ReactNode;
