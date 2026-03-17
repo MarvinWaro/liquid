@@ -2,6 +2,10 @@ export interface Program {
     id: string;
     name: string;
     code: string;
+    parent_id: string | null;
+    parent?: { id: string; code: string; name: string } | null;
+    children_count?: number;
+    is_selectable?: boolean;
 }
 
 export interface HEIOption {

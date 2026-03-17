@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { router } from '@inertiajs/react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Plus, Save, Trash2 } from 'lucide-react';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { BarChart3, Plus, Save, Trash2 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import AmountInput from './amount-input';
 import {
@@ -38,7 +39,6 @@ export default function RunningDataTable({
     const updateEntries = useCallback((updater: (prev: RunningDataEntry[]) => RunningDataEntry[]) => {
         setEntries(prev => {
             const next = updater(prev);
-            // Notify parent of total liquidated change
             const total = next.reduce((sum, entry) =>
                 sum + Number(entry.amount_complete_docs ?? 0) + Number(entry.amount_refunded ?? 0), 0);
             onTotalLiquidatedChange(total);
@@ -126,61 +126,68 @@ export default function RunningDataTable({
         });
     }, [liquidationId, entries, totalDisbursements, totalGrantees]);
 
+    const fmt = (n: number) => n.toLocaleString('en-PH', { minimumFractionDigits: 2 });
+
     return (
-        <div id="running-data" className="mb-3">
+        <div id="running-data" className="mb-6">
             <Card>
-                <CardHeader className="pb-2 pt-3">
+                <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
-                        <div>
-                            <CardTitle className="text-sm font-semibold">Running Data</CardTitle>
-                            <CardDescription className="text-xs">Liquidation running financial data and transmittal references</CardDescription>
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-md bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
+                                <BarChart3 className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+                            </div>
+                            <div>
+                                <CardTitle className="text-base font-semibold">Running Data</CardTitle>
+                                <CardDescription className="text-xs">Liquidation running financial data and transmittal references</CardDescription>
+                            </div>
                         </div>
                         {!isHEIUser && (
-                            <Button size="sm" onClick={save} disabled={isSaving} className="h-7 text-xs px-3">
-                                <Save className="h-3 w-3 mr-1" />
+                            <Button size="sm" onClick={save} disabled={isSaving} className="h-8 text-xs px-3 bg-foreground text-background hover:bg-foreground/90">
+                                <Save className="h-3.5 w-3.5 mr-1.5" />
                                 {isSaving ? 'Saving...' : 'Save'}
                             </Button>
                         )}
                     </div>
                 </CardHeader>
-                <CardContent className="pb-3">
-                    <div className="overflow-x-auto -mx-3">
-                        <table className="w-full text-xs min-w-[1400px]">
+                <CardContent className="pb-5">
+                    <div className="overflow-x-auto -mx-6">
+                        <table className="w-full text-sm">
                             <thead>
-                                <tr className="bg-emerald-50 dark:bg-emerald-950/30 border-b border-emerald-100 dark:border-emerald-800">
-                                    <th className="text-left font-semibold text-emerald-700 dark:text-emerald-300 px-2 py-2 text-xs">Total Disbursements</th>
-                                    <th className="text-left font-semibold text-emerald-700 dark:text-emerald-300 px-2 py-2 text-xs">Total Grantees</th>
-                                    <th className="text-left font-semibold text-emerald-700 dark:text-emerald-300 px-2 py-2 text-xs">No. of Grantees Liquidated</th>
-                                    <th className="text-left font-semibold text-emerald-700 dark:text-emerald-300 px-2 py-2 text-xs">Amt w/ Complete Docs</th>
-                                    <th className="text-left font-semibold text-emerald-700 dark:text-emerald-300 px-2 py-2 text-xs">Amt Refunded</th>
-                                    <th className="text-left font-semibold text-emerald-700 dark:text-emerald-300 px-2 py-2 text-xs">Refund OR No.</th>
-                                    <th className="text-left font-semibold text-emerald-700 dark:text-emerald-300 px-2 py-2 text-xs">Total Amt Liquidated</th>
-                                    <th className="text-left font-semibold text-emerald-700 dark:text-emerald-300 px-2 py-2 text-xs">Total Unliquidated Amt</th>
-                                    <th className="text-left font-semibold text-emerald-700 dark:text-emerald-300 px-2 py-2 text-xs">% of Liquidation</th>
-                                    <th className="text-left font-semibold text-emerald-700 dark:text-emerald-300 px-2 py-2 text-xs">Transmittal Ref No.</th>
-                                    <th className="text-left font-semibold text-emerald-700 dark:text-emerald-300 px-2 py-2 text-xs">Group Transmittal Ref No.</th>
-                                    <th className="px-2 py-2 w-8 bg-emerald-50 dark:bg-emerald-950/30"></th>
+                                <tr className="border-b bg-muted/40">
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Disbursements</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Grantees</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Liquidated</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Amt w/ Docs</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Refunded</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Refund OR</th>
+                                    <th className="text-right font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Total Liq.</th>
+                                    <th className="text-right font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Unliquidated</th>
+                                    <th className="text-right font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">%</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Transmittal Ref</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Group Ref</th>
+                                    {!isHEIUser && <th className="px-3 py-2.5 w-8"></th>}
                                 </tr>
                             </thead>
-                            <tbody className={isHEIUser ? 'pointer-events-none opacity-75' : ''}>
+                            <tbody className={isHEIUser ? 'pointer-events-none opacity-60' : ''}>
                                 {entries.map((entry, index) => {
                                     const computed = computeRunningTotals[index];
                                     return (
-                                        <tr key={entry.id || index} className="border-b last:border-0 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20">
-                                            {/* Total Disbursements (running) */}
-                                            <td className="px-2 py-1.5">
-                                                <span className="font-medium text-xs">
-                                                    {computed.remainingDisbursements.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                                        <tr key={entry.id || index} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                                            {/* Disbursements (read-only running) */}
+                                            <td className="px-3 py-2">
+                                                <span className="text-sm tabular-nums text-muted-foreground">
+                                                    {fmt(computed.remainingDisbursements)}
                                                 </span>
                                             </td>
-                                            {/* Total Grantees (running) */}
-                                            <td className="px-2 py-1.5">
-                                                <span className="font-medium text-xs">
+                                            {/* Grantees (read-only running) */}
+                                            <td className="px-3 py-2">
+                                                <span className="text-sm tabular-nums text-muted-foreground">
                                                     {index === 0 ? totalGrantees : computed.remainingGrantees}
                                                 </span>
                                             </td>
                                             {/* No. of Grantees Liquidated */}
-                                            <td className="px-2 py-1.5">
+                                            <td className="px-3 py-2">
                                                 <Input
                                                     type="number"
                                                     min="0"
@@ -196,12 +203,12 @@ export default function RunningDataTable({
                                                         const clamped = val !== null ? Math.min(Math.max(0, val), computed.remainingGrantees) : null;
                                                         updateField(index, 'grantees_liquidated', clamped);
                                                     }}
-                                                    className="h-7 text-xs min-w-[90px]"
+                                                    className="h-8 text-xs min-w-[70px]"
                                                     placeholder="0"
                                                 />
                                             </td>
                                             {/* Amt w/ Complete Docs */}
-                                            <td className="px-2 py-1.5">
+                                            <td className="px-3 py-2">
                                                 <AmountInput
                                                     value={entry.amount_complete_docs}
                                                     onValueChange={(val) => {
@@ -217,16 +224,16 @@ export default function RunningDataTable({
                                                             });
                                                             const newCumulative = otherEntriesTotal + val + refunded;
                                                             if (newCumulative > totalDisbursements) {
-                                                                toast.error(`Total amount liquidated across all entries (${newCumulative.toLocaleString('en-PH', { minimumFractionDigits: 2 })}) would exceed total disbursements (${totalDisbursements.toLocaleString('en-PH', { minimumFractionDigits: 2 })}).`);
+                                                                toast.error(`Total amount liquidated across all entries (${fmt(newCumulative)}) would exceed total disbursements (${fmt(totalDisbursements)}).`);
                                                             }
                                                         }
                                                         updateField(index, 'amount_complete_docs', val);
                                                     }}
-                                                    className="h-7 text-xs min-w-[120px]"
+                                                    className="h-8 text-xs min-w-[100px]"
                                                 />
                                             </td>
                                             {/* Amt Refunded */}
-                                            <td className="px-2 py-1.5">
+                                            <td className="px-3 py-2">
                                                 <AmountInput
                                                     value={entry.amount_refunded}
                                                     onValueChange={(val) => {
@@ -242,48 +249,50 @@ export default function RunningDataTable({
                                                             });
                                                             const newCumulative = otherEntriesTotal + completeDocs + val;
                                                             if (newCumulative > totalDisbursements) {
-                                                                toast.error(`Total amount liquidated across all entries (${newCumulative.toLocaleString('en-PH', { minimumFractionDigits: 2 })}) would exceed total disbursements (${totalDisbursements.toLocaleString('en-PH', { minimumFractionDigits: 2 })}).`);
+                                                                toast.error(`Total amount liquidated across all entries (${fmt(newCumulative)}) would exceed total disbursements (${fmt(totalDisbursements)}).`);
                                                             }
                                                         }
                                                         updateField(index, 'amount_refunded', val);
                                                     }}
-                                                    className="h-7 text-xs min-w-[120px]"
+                                                    className="h-8 text-xs min-w-[100px]"
                                                 />
                                             </td>
                                             {/* Refund OR No. */}
-                                            <td className="px-2 py-1.5">
-                                                <Input type="text" value={entry.refund_or_no ?? ''} onChange={(e) => updateField(index, 'refund_or_no', e.target.value)} className="h-7 text-xs min-w-[100px]" placeholder="OR No." />
+                                            <td className="px-3 py-2">
+                                                <Input type="text" value={entry.refund_or_no ?? ''} onChange={(e) => updateField(index, 'refund_or_no', e.target.value)} className="h-8 text-xs min-w-[80px]" placeholder="OR No." />
                                             </td>
                                             {/* Total Amt Liquidated (computed) */}
-                                            <td className="px-2 py-1.5">
-                                                <span className="font-medium text-xs text-green-700">
-                                                    {computed.totalAmtLiquidated.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                                            <td className="px-3 py-2 text-right">
+                                                <span className="text-sm font-medium tabular-nums text-foreground">
+                                                    {fmt(computed.totalAmtLiquidated)}
                                                 </span>
                                             </td>
                                             {/* Total Unliquidated (computed) */}
-                                            <td className="px-2 py-1.5">
-                                                <span className="font-medium text-xs text-orange-600">
-                                                    {computed.totalUnliquidated.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                                            <td className="px-3 py-2 text-right">
+                                                <span className={`text-sm font-medium tabular-nums ${computed.totalUnliquidated > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-foreground'}`}>
+                                                    {fmt(computed.totalUnliquidated)}
                                                 </span>
                                             </td>
                                             {/* % of Liquidation (computed) */}
-                                            <td className="px-2 py-1.5">
-                                                <span className="font-medium text-xs">{computed.percentage.toFixed(2)}%</span>
+                                            <td className="px-3 py-2 text-right">
+                                                <span className="text-sm font-medium tabular-nums text-foreground">{computed.percentage.toFixed(2)}%</span>
                                             </td>
                                             {/* Transmittal Ref No. */}
-                                            <td className="px-2 py-1.5">
-                                                <Input type="text" value={entry.transmittal_ref_no ?? ''} onChange={(e) => updateField(index, 'transmittal_ref_no', e.target.value)} className="h-7 text-xs min-w-[120px]" placeholder="Ref No." />
+                                            <td className="px-3 py-2">
+                                                <Input type="text" value={entry.transmittal_ref_no ?? ''} onChange={(e) => updateField(index, 'transmittal_ref_no', e.target.value)} className="h-8 text-xs min-w-[90px]" placeholder="Ref No." />
                                             </td>
                                             {/* Group Transmittal Ref No. */}
-                                            <td className="px-2 py-1.5">
-                                                <Input type="text" value={entry.group_transmittal_ref_no ?? ''} onChange={(e) => updateField(index, 'group_transmittal_ref_no', e.target.value)} className="h-7 text-xs min-w-[120px]" placeholder="Group Ref No." />
+                                            <td className="px-3 py-2">
+                                                <Input type="text" value={entry.group_transmittal_ref_no ?? ''} onChange={(e) => updateField(index, 'group_transmittal_ref_no', e.target.value)} className="h-8 text-xs min-w-[90px]" placeholder="Group Ref" />
                                             </td>
                                             {/* Delete */}
-                                            <td className="px-2 py-1.5">
-                                                {!isHEIUser && entries.length > 1 && (
-                                                    <DeleteRowButton isFilled={isRunningDataEntryFilled(entry)} onDelete={() => removeEntry(index)} />
-                                                )}
-                                            </td>
+                                            {!isHEIUser && (
+                                                <td className="px-3 py-2">
+                                                    {entries.length > 1 && (
+                                                        <DeleteRowButton isFilled={isRunningDataEntryFilled(entry)} onDelete={() => removeEntry(index)} />
+                                                    )}
+                                                </td>
+                                            )}
                                         </tr>
                                     );
                                 })}
@@ -291,7 +300,7 @@ export default function RunningDataTable({
                         </table>
                     </div>
                     {!isHEIUser && (
-                        <Button size="sm" onClick={addEntry} className="mt-3 h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 shadow-sm">
+                        <Button size="sm" onClick={addEntry} className="mt-4 h-8 text-xs px-3 bg-foreground text-background hover:bg-foreground/90">
                             <Plus className="h-3.5 w-3.5 mr-1.5" />
                             Add Entry
                         </Button>
@@ -302,10 +311,19 @@ export default function RunningDataTable({
     );
 }
 
+function CellTooltip({ content, children }: { content?: string | null; children: React.ReactNode }) {
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>{children}</TooltipTrigger>
+            {content && <TooltipContent side="top" className="max-w-xs break-words">{content}</TooltipContent>}
+        </Tooltip>
+    );
+}
+
 function DeleteRowButton({ isFilled, onDelete }: { isFilled: boolean; onDelete: () => void }) {
     if (!isFilled) {
         return (
-            <Button variant="ghost" size="sm" onClick={onDelete} className="h-7 w-7 p-0 text-destructive hover:text-destructive">
+            <Button variant="ghost" size="sm" onClick={onDelete} className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive">
                 <Trash2 className="h-3.5 w-3.5" />
             </Button>
         );
@@ -314,7 +332,7 @@ function DeleteRowButton({ isFilled, onDelete }: { isFilled: boolean; onDelete: 
     return (
         <Popover>
             <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive">
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive">
                     <Trash2 className="h-3.5 w-3.5" />
                 </Button>
             </PopoverTrigger>

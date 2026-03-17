@@ -107,8 +107,8 @@ export default function RcLetterUpload({ liquidationId, documents, userRole }: R
         <Card className="mb-3">
             <CardHeader className="flex flex-row items-center justify-between pb-3">
                 <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-md bg-blue-100 flex items-center justify-center">
-                        <Mail className="w-4 h-4 text-blue-600" />
+                    <div className="w-8 h-8 rounded-md bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                        <Mail className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                     </div>
                     <div>
                         <CardTitle className="text-base font-semibold">RC Letters</CardTitle>

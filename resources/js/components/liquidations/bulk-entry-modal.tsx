@@ -11,7 +11,9 @@ import { CurrencyInput } from '@/components/ui/currency-input';
 import {
     Select,
     SelectContent,
+    SelectGroup,
     SelectItem,
+    SelectLabel,
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
@@ -35,7 +37,7 @@ import {
     TooltipContent,
 } from '@/components/ui/tooltip';
 import { Loader2, Plus, Trash2, AlertCircle, Copy, Save, FileWarning, ChevronsUpDown, Check, CalendarIcon } from 'lucide-react';
-import { format, parse, isValid } from 'date-fns';
+import { addDays, format, parse, isValid } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import axios from 'axios';
@@ -113,6 +115,38 @@ interface BulkEntryRow {
     total_amount_liquidated: string;
     document_status: string;
     rc_notes: string;
+}
+
+/** Grouped program items for the compact bulk-entry select (shows code only). */
+function BulkProgramItems({ programs }: { programs: Program[] }) {
+    const parents = programs.filter((p) => !p.parent_id && (p.children_count ?? 0) > 0);
+    const standalone = programs.filter((p) => !p.parent_id && (p.children_count ?? 0) === 0 && p.is_selectable !== false);
+    const childrenByParent = new Map<string, Program[]>();
+    programs.filter((p) => p.parent_id).forEach((p) => {
+        const list = childrenByParent.get(p.parent_id!) || [];
+        list.push(p);
+        childrenByParent.set(p.parent_id!, list);
+    });
+
+    return (
+        <>
+            {standalone.map((p) => (
+                <SelectItem key={p.id} value={p.id}>{p.code}</SelectItem>
+            ))}
+            {parents.map((parent) => {
+                const children = childrenByParent.get(parent.id) || [];
+                if (children.length === 0) return null;
+                return (
+                    <SelectGroup key={parent.id}>
+                        <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{parent.code}</SelectLabel>
+                        {children.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>{p.code}</SelectItem>
+                        ))}
+                    </SelectGroup>
+                );
+            })}
+        </>
+    );
 }
 
 interface BulkEntryModalProps {
@@ -205,7 +239,7 @@ function HeiComboboxCell({
                     <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[280px] p-0" align="start">
+            <PopoverContent className="w-[280px] p-0" align="start" onWheel={(e) => e.stopPropagation()}>
                 <Command shouldFilter={false}>
                     <CommandInput
                         placeholder="Search UII or name..."
@@ -213,7 +247,7 @@ function HeiComboboxCell({
                         onValueChange={setSearch}
                         className="h-8 text-xs"
                     />
-                    <CommandList>
+                    <CommandList onWheel={(e) => e.stopPropagation()}>
                         <CommandEmpty className="py-2 text-center text-xs">No HEI found.</CommandEmpty>
                         <CommandGroup>
                             {filtered.map(hei => (
@@ -357,6 +391,13 @@ export function BulkEntryModal({
             if (field === 'uii') {
                 const match = heiMap.get(value.trim().toLowerCase());
                 updated[index].hei_name = match?.name || '';
+            }
+            // Auto-compute due date: fund release + 90 days
+            if (field === 'date_fund_released' && value) {
+                const released = parse(value, 'yyyy-MM-dd', new Date());
+                if (isValid(released)) {
+                    updated[index].due_date = format(addDays(released, 90), 'yyyy-MM-dd');
+                }
             }
             return updated;
         });
@@ -610,7 +651,9 @@ export function BulkEntryModal({
                                             <CellTooltip content={programLabel}>
                                                 <Select value={row.program_id} onValueChange={v => updateRow(index, 'program_id', v)}>
                                                     <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="--" /></SelectTrigger>
-                                                    <SelectContent>{programs.map(p => <SelectItem key={p.id} value={p.id}>{p.code}</SelectItem>)}</SelectContent>
+                                                    <SelectContent>
+                                                        <BulkProgramItems programs={programs} />
+                                                    </SelectContent>
                                                 </Select>
                                             </CellTooltip>
                                         </td>

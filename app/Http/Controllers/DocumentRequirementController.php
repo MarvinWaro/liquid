@@ -24,8 +24,10 @@ class DocumentRequirementController extends Controller
         }
 
         $programs = Program::where('status', 'active')
+            ->withCount('children')
+            ->with('parent:id,code,name')
             ->orderBy('name')
-            ->get(['id', 'name', 'code']);
+            ->get(['id', 'name', 'code', 'parent_id']);
 
         $requirements = DocumentRequirement::with('program:id,name,code')
             ->orderBy('sort_order')

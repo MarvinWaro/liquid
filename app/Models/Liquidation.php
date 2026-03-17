@@ -150,6 +150,7 @@ class Liquidation extends Model
     public const LIQUIDATION_STATUS_UNLIQUIDATED = 'UNLIQUIDATED';
     public const LIQUIDATION_STATUS_PARTIALLY = 'PARTIALLY_LIQUIDATED';
     public const LIQUIDATION_STATUS_FULLY = 'FULLY_LIQUIDATED';
+    public const LIQUIDATION_STATUS_VOIDED = 'VOIDED';
 
     // ========================================
     // RELATIONSHIPS - Core Entities
@@ -546,6 +547,14 @@ class Liquidation extends Model
         return $this->liquidationStatus?->code === self::LIQUIDATION_STATUS_UNLIQUIDATED;
     }
 
+    /**
+     * Check if the liquidation has been voided.
+     */
+    public function isVoided(): bool
+    {
+        return $this->liquidationStatus?->code === self::LIQUIDATION_STATUS_VOIDED;
+    }
+
     // ========================================
     // SCOPES
     // ========================================
@@ -556,6 +565,24 @@ class Liquidation extends Model
     public function scopeForHEI(Builder $query, string $heiId): Builder
     {
         return $query->where('hei_id', $heiId);
+    }
+
+    /**
+     * Scope to filter by academic period.
+     */
+    /**
+     * Scope to exclude voided liquidations.
+     */
+    public function scopeExcludeVoided(Builder $query): Builder
+    {
+        $voidedId = LiquidationStatus::voided()?->id;
+        if ($voidedId) {
+            return $query->where(function ($q) use ($voidedId) {
+                $q->where('liquidation_status_id', '!=', $voidedId)
+                  ->orWhereNull('liquidation_status_id');
+            });
+        }
+        return $query;
     }
 
     /**

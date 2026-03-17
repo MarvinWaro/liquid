@@ -161,22 +161,22 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
         switch (status) {
             case 'draft':
             case 'Draft':
-                return 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-200';
+                return 'bg-muted text-muted-foreground border-border';
             case 'for_initial_review':
-                return 'bg-gray-800 text-gray-100 hover:bg-gray-900 border-gray-800';
+                return 'bg-foreground text-background border-foreground';
             case 'endorsed_to_accounting':
-                return 'bg-purple-100 text-purple-700 hover:bg-purple-200 border-purple-200';
+                return 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-400 dark:border-violet-800/60';
             case 'endorsed_to_coa':
             case 'Endorsed to COA':
-                return 'bg-green-100 text-green-700 hover:bg-green-200 border-green-200';
+                return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60';
             case 'returned_to_hei':
             case 'returned_to_rc':
             case 'Returned':
-                return 'bg-red-100 text-red-700 hover:bg-red-200 border-red-200';
-            case 'Submitted': return 'bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-200';
-            case 'Verified': return 'bg-amber-100 text-amber-700 hover:bg-amber-200 border-amber-200';
-            case 'Cleared': return 'bg-green-100 text-green-700 hover:bg-green-200 border-green-200';
-            default: return 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-200';
+                return 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800/60';
+            case 'Submitted': return 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-400 dark:border-sky-800/60';
+            case 'Verified': return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800/60';
+            case 'Cleared': return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60';
+            default: return 'bg-muted text-muted-foreground border-border';
         }
     };
 
@@ -192,20 +192,20 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
     // ---------- Chart constants ----------
 
     const STATUS_COLORS: Record<string, string> = {
-        draft: '#94a3b8',
-        for_initial_review: '#3b82f6',
+        draft: '#a1a1aa',
+        for_initial_review: '#71717a',
         endorsed_to_accounting: '#8b5cf6',
         endorsed_to_coa: '#10b981',
         returned_to_hei: '#ef4444',
         returned_to_rc: '#f59e0b',
     };
-    const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+    const COLORS = ['#71717a', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#a1a1aa'];
 
     const BAR_COLORS = {
-        totalDisbursements: '#22c55e',
-        liquidatedAmount: '#3b82f6',
+        totalDisbursements: '#a1a1aa',
+        liquidatedAmount: '#10b981',
         unliquidatedAmount: '#ef4444',
-        forCompliance: '#eab308',
+        forCompliance: '#f59e0b',
     };
 
     // ---------- Computed data ----------
@@ -373,7 +373,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                             <CheckCircle className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold text-green-600">{formatCurrency(totalStats.total_liquidated)}</div>
+                            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(totalStats.total_liquidated)}</div>
                             <p className="text-xs text-muted-foreground">Amount disbursed to students</p>
                         </CardContent>
                     </Card>
@@ -383,7 +383,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                             <AlertCircle className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold text-orange-600">{formatCurrency(totalStats.total_unliquidated)}</div>
+                            <div className="text-2xl font-bold text-red-600 dark:text-red-400">{formatCurrency(totalStats.total_unliquidated)}</div>
                             <p className="text-xs text-muted-foreground">Remaining from CHED funds</p>
                         </CardContent>
                     </Card>
@@ -499,7 +499,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                 <CheckCircle className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold text-green-600">{formatCurrency(userStats.total_liquidated)}</div>
+                                <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(userStats.total_liquidated)}</div>
                                 <p className="text-xs text-muted-foreground">Disbursed to students</p>
                             </CardContent>
                         </Card>
@@ -509,7 +509,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                 <AlertCircle className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold text-orange-600">{formatCurrency(userStats.total_unliquidated || 0)}</div>
+                                <div className="text-2xl font-bold text-red-600 dark:text-red-400">{formatCurrency(userStats.total_unliquidated || 0)}</div>
                                 <p className="text-xs text-muted-foreground">Remaining from CHED</p>
                             </CardContent>
                         </Card>
@@ -619,13 +619,13 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
                 <XAxis
                     dataKey="name"
-                    tick={{ fontSize: 11, fill: '#94a3b8' }}
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                     tickLine={false}
                     axisLine={false}
                 />
                 <YAxis
                     tickFormatter={formatYAxis}
-                    tick={{ fontSize: 11, fill: '#94a3b8' }}
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                     tickLine={false}
                     axisLine={false}
                     width={50}
@@ -646,16 +646,16 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
     const renderSummaryPerAY = () => (
         <Table>
             <TableHeader>
-                <TableRow>
-                    <TableHead className="pl-6">Academic Year</TableHead>
-                    <TableHead>Total Disbursements</TableHead>
-                    <TableHead>Liquidated Amount</TableHead>
-                    <TableHead>Unliquidated Amount</TableHead>
-                    <TableHead>For Endorsement</TableHead>
-                    <TableHead>For Compliance</TableHead>
-                    <TableHead>% Age of Liquidation</TableHead>
-                    <TableHead>% Age for Compliance</TableHead>
-                    <TableHead className="pr-6">% Age of Submission</TableHead>
+                <TableRow className="border-b hover:bg-transparent">
+                    <TableHead className="h-9 pl-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">Academic Year</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Disbursements</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Liquidated Amount</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated Amount</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Endorsement</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Compliance</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Age of Liquidation</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Age for Compliance</TableHead>
+                    <TableHead className="h-9 pr-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Age of Submission</TableHead>
                 </TableRow>
             </TableHeader>
             <TableBody>
@@ -687,16 +687,16 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
     const renderSummaryPerHEI = () => (
         <Table>
             <TableHeader>
-                <TableRow>
-                    <TableHead className="pl-6">No.</TableHead>
-                    <TableHead>Name of HEI</TableHead>
-                    <TableHead>Total Disbursements</TableHead>
-                    <TableHead>Total Amount Liquidated</TableHead>
-                    <TableHead>For Endorsement</TableHead>
-                    <TableHead>Unliquidated Amount</TableHead>
-                    <TableHead>For Compliance</TableHead>
-                    <TableHead>% Age of Liquidation</TableHead>
-                    <TableHead className="pr-6">% Age of Submission</TableHead>
+                <TableRow className="border-b hover:bg-transparent">
+                    <TableHead className="h-9 pl-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">No.</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Name of HEI</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Disbursements</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Amount Liquidated</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Endorsement</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated Amount</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Compliance</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Age of Liquidation</TableHead>
+                    <TableHead className="h-9 pr-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Age of Submission</TableHead>
                 </TableRow>
             </TableHeader>
             <TableBody>
@@ -728,13 +728,13 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
     const renderRecentLiquidations = () => (
         <Table>
             <TableHeader>
-                <TableRow>
-                    <TableHead className="pl-6">Control No.</TableHead>
-                    <TableHead>HEI</TableHead>
-                    <TableHead>Academic Year</TableHead>
-                    <TableHead>Total Disbursements</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="pr-6">Date</TableHead>
+                <TableRow className="border-b hover:bg-transparent">
+                    <TableHead className="h-9 pl-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">Control No.</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">HEI</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Academic Year</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Disbursements</TableHead>
+                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Status</TableHead>
+                    <TableHead className="h-9 pr-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">Date</TableHead>
                 </TableRow>
             </TableHeader>
             <TableBody>

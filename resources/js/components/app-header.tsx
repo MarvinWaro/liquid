@@ -119,7 +119,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                             className={cn(
                                                 'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
                                                 urlIsActive(item.href)
-                                                    ? 'bg-primary/10 text-primary'
+                                                    ? 'bg-foreground text-background'
                                                     : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                                             )}
                                         >
@@ -222,14 +222,14 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                         className={cn(
                             'relative inline-flex h-10 items-center gap-2 px-4 text-sm font-medium transition-colors',
                             urlIsActive(item.href)
-                                ? 'text-primary'
+                                ? 'text-foreground'
                                 : 'text-muted-foreground hover:text-foreground',
                         )}
                     >
                         {item.icon && <Icon iconNode={item.icon} className="h-4 w-4" />}
                         {item.title}
                         {urlIsActive(item.href) && (
-                            <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />
+                            <span className="absolute inset-x-0 bottom-0 h-0.5 bg-foreground" />
                         )}
                     </Link>
                 ))}

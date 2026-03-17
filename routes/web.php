@@ -15,6 +15,7 @@ use App\Http\Controllers\LiquidationCommentController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SemesterController;
 use App\Http\Controllers\AcademicYearController;
+use App\Http\Controllers\AcademicYearRequirementController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
@@ -64,6 +65,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('academic-years/{academicYear}', [AcademicYearController::class, 'update'])->name('academic-years.update');
     Route::delete('academic-years/{academicYear}', [AcademicYearController::class, 'destroy'])->name('academic-years.destroy');
 
+    // Academic Year — Per-AY Document Requirements
+    Route::get('academic-years/{academicYear}/requirements', [AcademicYearRequirementController::class, 'index'])->name('academic-years.requirements.index');
+    Route::post('academic-years/{academicYear}/requirements/sync', [AcademicYearRequirementController::class, 'sync'])->name('academic-years.requirements.sync');
+    Route::post('academic-years/{academicYear}/requirements/copy', [AcademicYearRequirementController::class, 'copyFromYear'])->name('academic-years.requirements.copy');
+    Route::delete('academic-years/{academicYear}/requirements', [AcademicYearRequirementController::class, 'reset'])->name('academic-years.requirements.reset');
+
     // Document Requirement Management Routes
     Route::get('document-requirements', [DocumentRequirementController::class, 'index'])->name('document-requirements.index');
     Route::post('document-requirements', [DocumentRequirementController::class, 'store'])->name('document-requirements.store');
@@ -95,6 +102,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('liquidation/{liquidation}/edit', [LiquidationController::class, 'edit'])->name('liquidation.edit');
     Route::put('liquidation/{liquidation}', [LiquidationController::class, 'update'])->name('liquidation.update');
     Route::delete('liquidation/{liquidation}', [LiquidationController::class, 'destroy'])->name('liquidation.destroy');
+    Route::post('liquidation/{liquidation}/void', [LiquidationController::class, 'void'])->name('liquidation.void');
+    Route::post('liquidation/{liquidation}/restore', [LiquidationController::class, 'restore'])->name('liquidation.restore');
 
     // Liquidation Workflow Routes
     Route::post('liquidation/{liquidation}/submit', [LiquidationController::class, 'submit'])->name('liquidation.submit');

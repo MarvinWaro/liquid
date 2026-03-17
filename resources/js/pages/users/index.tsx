@@ -199,7 +199,7 @@ export default function Index({
                         {canCreate && (
                             <Button
                                 onClick={handleCreate}
-                                className="bg-primary shadow-sm hover:bg-primary/90"
+                                className="bg-foreground text-background shadow-sm hover:bg-foreground/90"
                             >
                                 <UserRoundPlus className="mr-2 h-4 w-4" />
                                 Add User
@@ -276,13 +276,13 @@ export default function Index({
                                     </SelectItem>
                                     <SelectItem value="active">
                                         <span className="flex items-center gap-2">
-                                            <span className="h-2 w-2 rounded-full bg-green-500"></span>
+                                            <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
                                             Active
                                         </span>
                                     </SelectItem>
                                     <SelectItem value="inactive">
                                         <span className="flex items-center gap-2">
-                                            <span className="h-2 w-2 rounded-full bg-gray-500"></span>
+                                            <span className="h-2 w-2 rounded-full bg-muted-foreground/50"></span>
                                             Inactive
                                         </span>
                                     </SelectItem>
@@ -369,7 +369,7 @@ export default function Index({
                                                     return (
                                                         <Badge
                                                             variant="outline"
-                                                            className="border-blue-200 bg-blue-50 font-medium text-blue-900"
+                                                            className="border-border bg-muted font-medium text-foreground"
                                                         >
                                                             {getRegionLabel(
                                                                 region,
@@ -404,15 +404,15 @@ export default function Index({
                                             <Badge
                                                 className={`${
                                                     user.status === 'active'
-                                                        ? 'border-green-200 bg-green-100 text-green-700 hover:bg-green-200'
-                                                        : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60'
+                                                        : 'bg-muted text-muted-foreground border-border'
                                                 } shadow-none`}
                                             >
                                                 <span
                                                     className={`mr-2 h-1.5 w-1.5 rounded-full ${
                                                         user.status === 'active'
-                                                            ? 'bg-green-600'
-                                                            : 'bg-gray-500'
+                                                            ? 'bg-emerald-500'
+                                                            : 'bg-muted-foreground/50'
                                                     }`}
                                                 ></span>
                                                 {user.status === 'active'
@@ -466,7 +466,7 @@ export default function Index({
                                                                     'active' ? (
                                                                         <PowerOff className="h-4 w-4 text-muted-foreground hover:text-destructive" />
                                                                     ) : (
-                                                                        <Power className="h-4 w-4 text-green-600" />
+                                                                        <Power className="h-4 w-4 text-emerald-500" />
                                                                     )}
                                                                 </Button>
                                                             )}
@@ -475,7 +475,7 @@ export default function Index({
                                                             <Button
                                                                 variant="ghost"
                                                                 size="icon"
-                                                                className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
                                                                 onClick={() =>
                                                                     handleEdit(
                                                                         user,

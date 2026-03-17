@@ -1,5 +1,6 @@
 import { ClipboardList } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Badge } from '@/components/ui/badge';
 import AvatarStack from './avatar-stack';
 import { type TrackingEntry, type LiquidationUser, formatDate, parseNames, joinNames } from '@/types/liquidation';
 
@@ -35,60 +36,60 @@ export default function LatestTrackingSummary({ trackingEntries, avatarMap, regi
     const restLocs = documentLocations.slice(3);
 
     return (
-        <div className="mb-3">
-            <div className="bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-800 rounded-lg px-4 py-3">
+        <div className="mb-6">
+            <div className="bg-muted/50 dark:bg-muted/30 border rounded-lg px-5 py-4">
                 {/* Header */}
-                <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-1.5">
-                        <ClipboardList className="h-3.5 w-3.5 text-blue-500 dark:text-blue-400" />
-                        <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">Latest Document Tracking</span>
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                        <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium text-foreground">Latest Document Tracking</span>
                     </div>
-                    <span className="text-[10px] text-blue-500 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/50 px-2 py-0.5 rounded-full font-medium">
+                    <Badge variant="outline" className="text-xs font-normal text-muted-foreground">
                         Entry {entryIndex} of {trackingEntries.length}
-                    </span>
+                    </Badge>
                 </div>
 
                 {/* Fields */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-5 gap-y-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-4">
                     {/* Row 1 */}
                     <div>
-                        <p className="text-[10px] text-muted-foreground mb-1">Received by</p>
+                        <p className="text-xs text-muted-foreground mb-1.5">Received by</p>
                         {allReceivers.length > 0
                             ? <AvatarStack namesStr={joinNames(allReceivers)} avatarMap={avatarMap} knownNames={knownNames} />
-                            : <p className="text-xs font-medium text-foreground">—</p>
+                            : <p className="text-sm font-medium text-foreground">—</p>
                         }
                     </div>
                     <div>
-                        <p className="text-[10px] text-muted-foreground mb-1">Date Received</p>
-                        <p className="text-xs font-medium text-foreground">{formatDate(latest.date_received)}</p>
+                        <p className="text-xs text-muted-foreground mb-1.5">Date Received</p>
+                        <p className="text-sm font-medium text-foreground">{formatDate(latest.date_received)}</p>
                     </div>
                     <div>
-                        <p className="text-[10px] text-muted-foreground mb-1">Reviewed by</p>
+                        <p className="text-xs text-muted-foreground mb-1.5">Reviewed by</p>
                         {allReviewers.length > 0
                             ? <AvatarStack namesStr={joinNames(allReviewers)} avatarMap={avatarMap} knownNames={knownNames} />
-                            : <p className="text-xs font-medium text-foreground">—</p>
+                            : <p className="text-sm font-medium text-foreground">—</p>
                         }
                     </div>
                     <div>
-                        <p className="text-[10px] text-muted-foreground mb-1">Date Reviewed</p>
-                        <p className="text-xs font-medium text-foreground">{formatDate(latest.date_reviewed)}</p>
+                        <p className="text-xs text-muted-foreground mb-1.5">Date Reviewed</p>
+                        <p className="text-sm font-medium text-foreground">{formatDate(latest.date_reviewed)}</p>
                     </div>
 
                     {/* Row 2 */}
                     <div>
-                        <p className="text-[10px] text-muted-foreground mb-1">Document Location</p>
+                        <p className="text-xs text-muted-foreground mb-1.5">Document Location</p>
                         {documentLocations.length === 0 ? (
-                            <p className="text-xs font-medium text-foreground">—</p>
+                            <p className="text-sm font-medium text-foreground">—</p>
                         ) : (
                             <div className="flex flex-wrap gap-1">
                                 {visibleLocs.map((loc, i) => (
-                                    <span key={i} className="inline-flex items-center text-[10px] bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded font-medium">{loc}</span>
+                                    <Badge key={i} variant="outline" className="text-[11px] font-normal px-1.5 py-0">{loc}</Badge>
                                 ))}
                                 {restLocs.length > 0 && (
                                     <TooltipProvider>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
-                                                <span className="inline-flex items-center text-[10px] bg-blue-200 dark:bg-blue-800 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded font-medium cursor-help">+{restLocs.length} more</span>
+                                                <Badge variant="outline" className="text-[11px] font-normal px-1.5 py-0 cursor-help">+{restLocs.length} more</Badge>
                                             </TooltipTrigger>
                                             <TooltipContent side="bottom" className="p-2 max-w-[220px]">
                                                 <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
@@ -102,12 +103,12 @@ export default function LatestTrackingSummary({ trackingEntries, avatarMap, regi
                         )}
                     </div>
                     <div>
-                        <p className="text-[10px] text-muted-foreground mb-1">RC Note</p>
-                        <p className="text-xs font-medium text-foreground">{latest.rc_note || '—'}</p>
+                        <p className="text-xs text-muted-foreground mb-1.5">RC Note</p>
+                        <p className="text-sm font-medium text-foreground">{latest.rc_note || '—'}</p>
                     </div>
                     <div>
-                        <p className="text-[10px] text-muted-foreground mb-1">Date of Endorsement</p>
-                        <p className="text-xs font-medium text-foreground">{formatDate(latest.date_endorsement)}</p>
+                        <p className="text-xs text-muted-foreground mb-1.5">Date of Endorsement</p>
+                        <p className="text-sm font-medium text-foreground">{formatDate(latest.date_endorsement)}</p>
                     </div>
                 </div>
             </div>

@@ -95,6 +95,14 @@ class DocumentRequirement extends Model
     }
 
     /**
+     * Get per-academic-year configurations for this requirement.
+     */
+    public function academicYearConfigs(): HasMany
+    {
+        return $this->hasMany(AcademicYearDocumentRequirement::class);
+    }
+
+    /**
      * Scope to get only active requirements.
      */
     public function scopeActive(Builder $query): Builder

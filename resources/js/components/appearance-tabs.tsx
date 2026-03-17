@@ -116,13 +116,13 @@ export default function AppearanceTabs({
                         className={cn(
                             'relative flex flex-col rounded-xl border-2 p-4 text-left transition-all',
                             isActive
-                                ? 'border-primary bg-primary/5 dark:bg-primary/10'
+                                ? 'border-foreground bg-foreground/5 dark:bg-foreground/10'
                                 : 'border-neutral-200 hover:border-neutral-300 dark:border-neutral-700 dark:hover:border-neutral-600',
                         )}
                     >
                         {/* Checkmark */}
                         {isActive && (
-                            <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white">
+                            <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-foreground text-background">
                                 <Check className="h-3 w-3" />
                             </div>
                         )}
@@ -132,7 +132,7 @@ export default function AppearanceTabs({
                             className={cn(
                                 'mb-3 flex h-10 w-10 items-center justify-center rounded-lg',
                                 isActive
-                                    ? 'bg-primary/10 text-primary dark:bg-primary/20'
+                                    ? 'bg-foreground/10 text-foreground dark:bg-foreground/20'
                                     : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400',
                             )}
                         >

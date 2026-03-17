@@ -71,13 +71,14 @@ class LiquidationController extends Controller
             'userHei' => $this->formatUserHei($user->hei),
             'regionalCoordinators' => $this->cacheService->getRegionalCoordinators(),
             'accountants' => $this->cacheService->getAccountants(),
-            'programs' => $this->cacheService->getPrograms(),
+            'programs' => $this->cacheService->getSelectablePrograms(),
             'academicYears' => \App\Models\AcademicYear::getDropdownOptions(),
             'heis' => $heis,
             'filters' => $filters,
             'permissions' => [
                 'review' => $user->hasPermission('review_liquidation'),
                 'create' => $user->hasPermission('create_liquidation'),
+                'void' => $user->hasPermission('delete_liquidation'),
             ],
             'userRole' => $user->role->name,
         ]);
@@ -378,7 +379,7 @@ class LiquidationController extends Controller
 
         $heiRegionId = $liquidation->hei?->region_id;
         $isHEIUser = $user->hei !== null;
-        $requirements = $this->cacheService->getDocumentRequirements($liquidation->program_id);
+        $requirements = $this->cacheService->getDocumentRequirementsForAY($liquidation->program_id, $liquidation->academic_year_id);
 
         // Comment counts per document requirement (for badge display)
         $commentCounts = \App\Models\LiquidationComment::where('liquidation_id', $liquidation->id)
@@ -613,6 +614,52 @@ class LiquidationController extends Controller
 
         return redirect()->route('liquidation.index')
             ->with('success', 'Liquidation deleted successfully.');
+    }
+
+    /**
+     * Void a liquidation (Admin/Super Admin only).
+     * Changes status to VOIDED — record stays in DB but is excluded from totals.
+     */
+    public function void(Request $request, Liquidation $liquidation): RedirectResponse
+    {
+        if (!$request->user()->hasPermission('delete_liquidation')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        if ($liquidation->isVoided()) {
+            return redirect()->back()->with('error', 'This liquidation is already voided.');
+        }
+
+        $liquidation->update([
+            'liquidation_status_id' => LiquidationStatus::voided()?->id,
+            'remarks' => trim(($liquidation->remarks ? $liquidation->remarks . ' | ' : '') . 'Voided by ' . $request->user()->name . ' on ' . now()->format('M d, Y')),
+        ]);
+
+        ActivityLog::log('voided_liquidation', 'Voided liquidation ' . $liquidation->control_no, $liquidation, 'Liquidation');
+
+        return redirect()->back()->with('success', 'Liquidation has been voided.');
+    }
+
+    /**
+     * Restore a voided liquidation back to Unliquidated status.
+     */
+    public function restore(Request $request, Liquidation $liquidation): RedirectResponse
+    {
+        if (!$request->user()->hasPermission('delete_liquidation')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        if (!$liquidation->isVoided()) {
+            return redirect()->back()->with('error', 'This liquidation is not voided.');
+        }
+
+        $liquidation->update([
+            'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
+        ]);
+
+        ActivityLog::log('restored_liquidation', 'Restored voided liquidation ' . $liquidation->control_no, $liquidation, 'Liquidation');
+
+        return redirect()->back()->with('success', 'Liquidation has been restored.');
     }
 
     /**
@@ -1182,6 +1229,8 @@ class LiquidationController extends Controller
             'document_status_code' => $documentStatusCode ?? 'NONE',
             'rc_notes' => $liquidation->remarks,
             'liquidation_status' => $liquidationStatus,
+            'liquidation_status_code' => $liquidation->liquidationStatus?->code ?? 'UNLIQUIDATED',
+            'is_voided' => $liquidation->isVoided(),
             'percentage_liquidation' => $percentageLiquidation,
             'lapsing_period' => $financial?->lapsing_period ?? 0,
         ];

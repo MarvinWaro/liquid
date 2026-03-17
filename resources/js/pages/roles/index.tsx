@@ -129,7 +129,7 @@ export default function Index({
                             {canCreate && (
                                 <Button
                                     onClick={handleCreate}
-                                    className="bg-primary shadow-sm hover:bg-primary/90"
+                                    className="bg-foreground text-background shadow-sm hover:bg-foreground/90"
                                 >
                                     <Plus className="mr-2 h-4 w-4" />
                                     Add Role
@@ -206,7 +206,7 @@ export default function Index({
                                             {/* Permission Logic: Show "All" for Super Admin */}
                                             <Badge
                                                 variant="outline"
-                                                className="border-primary/20 bg-primary/5 font-normal text-primary"
+                                                className="border-border bg-muted font-normal text-foreground"
                                             >
                                                 {role.name === 'Super Admin'
                                                     ? 'All Permissions'
@@ -226,7 +226,7 @@ export default function Index({
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"
-                                                            className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
                                                             onClick={() =>
                                                                 handleEdit(role)
                                                             }

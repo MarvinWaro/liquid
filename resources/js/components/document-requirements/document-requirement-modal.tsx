@@ -14,7 +14,9 @@ import { Textarea } from '@/components/ui/textarea';
 import {
     Select,
     SelectContent,
+    SelectGroup,
     SelectItem,
+    SelectLabel,
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
@@ -23,6 +25,9 @@ interface Program {
     id: string;
     code: string;
     name: string;
+    parent_id: string | null;
+    parent?: { id: string; code: string; name: string } | null;
+    children_count?: number;
 }
 
 interface DocumentRequirement {
@@ -44,6 +49,51 @@ interface DocumentRequirementModalProps {
     requirement: DocumentRequirement | null;
     programs: Program[];
     defaultProgramId?: string;
+}
+
+function GroupedProgramItems({ programs }: { programs: Program[] }) {
+    const parents = programs.filter((p) => (p.children_count ?? 0) > 0);
+    const childrenByParent = new Map<string, Program[]>();
+    const standalone: Program[] = [];
+
+    for (const p of programs) {
+        if ((p.children_count ?? 0) > 0) continue; // skip parents
+        if (p.parent_id) {
+            const siblings = childrenByParent.get(p.parent_id) ?? [];
+            siblings.push(p);
+            childrenByParent.set(p.parent_id, siblings);
+        } else {
+            standalone.push(p);
+        }
+    }
+
+    return (
+        <>
+            {/* Standalone programs (no parent) */}
+            {standalone.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                    {p.code} — {p.name}
+                </SelectItem>
+            ))}
+            {/* Grouped under parent */}
+            {parents.map((parent) => {
+                const children = childrenByParent.get(parent.id) ?? [];
+                if (children.length === 0) return null;
+                return (
+                    <SelectGroup key={parent.id}>
+                        <SelectLabel className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            {parent.code} — {parent.name}
+                        </SelectLabel>
+                        {children.map((child) => (
+                            <SelectItem key={child.id} value={child.id}>
+                                {child.code} — {child.name}
+                            </SelectItem>
+                        ))}
+                    </SelectGroup>
+                );
+            })}
+        </>
+    );
 }
 
 export function DocumentRequirementModal({
@@ -146,11 +196,7 @@ export function DocumentRequirementModal({
                                 <SelectValue placeholder="Select program" />
                             </SelectTrigger>
                             <SelectContent>
-                                {programs.map((p) => (
-                                    <SelectItem key={p.id} value={p.id}>
-                                        {p.code} — {p.name}
-                                    </SelectItem>
-                                ))}
+                                <GroupedProgramItems programs={programs} />
                             </SelectContent>
                         </Select>
                         {errors.program_id && (

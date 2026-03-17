@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { router } from '@inertiajs/react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
-import { Check, ChevronsUpDown, Plus, Save, Trash2 } from 'lucide-react';
+import { Check, ChevronsUpDown, FileSearch, Plus, Save, Trash2 } from 'lucide-react';
 import AvatarStack from './avatar-stack';
 import {
     type TrackingEntry,
@@ -44,7 +45,6 @@ export default function DocumentTrackingTable({
     const [isSaving, setIsSaving] = useState(false);
     const isFirstRender = useRef(true);
 
-    // Notify parent of entry changes AFTER render (avoids setState-during-render)
     useEffect(() => {
         if (isFirstRender.current) {
             isFirstRender.current = false;
@@ -81,141 +81,139 @@ export default function DocumentTrackingTable({
     }, [liquidationId, entries]);
 
     return (
-        <div id="document-tracking" className="mb-3">
+        <div id="document-tracking" className="mb-6">
             <Card>
-                <CardHeader className="pb-2 pt-3">
+                <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
-                        <div>
-                            <CardTitle className="text-sm font-semibold">Document Tracking</CardTitle>
-                            <CardDescription className="text-xs">Track document submissions and review status</CardDescription>
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-md bg-sky-100 dark:bg-sky-900/30 flex items-center justify-center">
+                                <FileSearch className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                            </div>
+                            <div>
+                                <CardTitle className="text-base font-semibold">Document Tracking</CardTitle>
+                                <CardDescription className="text-xs">Track document submissions and review status</CardDescription>
+                            </div>
                         </div>
                         {!isHEIUser && (
-                            <Button size="sm" onClick={save} disabled={isSaving} className="h-7 text-xs px-3">
-                                <Save className="h-3 w-3 mr-1" />
+                            <Button size="sm" onClick={save} disabled={isSaving} className="h-8 text-xs px-3 bg-foreground text-background hover:bg-foreground/90">
+                                <Save className="h-3.5 w-3.5 mr-1.5" />
                                 {isSaving ? 'Saving...' : 'Save'}
                             </Button>
                         )}
                     </div>
                 </CardHeader>
-                <CardContent className="pb-3">
-                    <div className="overflow-x-auto -mx-3">
-                        <table className="w-full text-xs min-w-[900px]">
+                <CardContent className="pb-5">
+                    <div className="overflow-x-auto -mx-6">
+                        <table className="w-full text-sm">
                             <thead>
-                                <tr className="bg-blue-50 dark:bg-blue-950/30 border-b border-blue-100 dark:border-blue-800">
-                                    <th className="text-left font-semibold text-blue-700 dark:text-blue-300 px-2 py-2 text-xs">Status of Documents</th>
-                                    <th className="text-left font-semibold text-blue-700 dark:text-blue-300 px-2 py-2 text-xs">Received by</th>
-                                    <th className="text-left font-semibold text-blue-700 dark:text-blue-300 px-2 py-2 text-xs">Date Received</th>
-                                    <th className="text-left font-semibold text-blue-700 dark:text-blue-300 px-2 py-2 text-xs">Document Location</th>
-                                    <th className="text-left font-semibold text-blue-700 dark:text-blue-300 px-2 py-2 text-xs">Reviewed by</th>
-                                    <th className="text-left font-semibold text-blue-700 dark:text-blue-300 px-2 py-2 text-xs">Date Reviewed</th>
-                                    <th className="text-left font-semibold text-blue-700 dark:text-blue-300 px-2 py-2 text-xs">RC Note</th>
-                                    <th className="text-left font-semibold text-blue-700 dark:text-blue-300 px-2 py-2 text-xs">Date of Endorsement</th>
-                                    <th className="text-left font-semibold text-blue-700 dark:text-blue-300 px-2 py-2 text-xs">Status of Liquidation</th>
-                                    <th className="px-2 py-2 w-8 bg-blue-50 dark:bg-blue-950/30"></th>
+                                <tr className="border-b bg-muted/40">
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Status</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Received by</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Date Received</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Location</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Reviewed by</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Date Reviewed</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">RC Note</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Endorsement</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Liquidation</th>
+                                    {!isHEIUser && <th className="px-3 py-2.5 w-8"></th>}
                                 </tr>
                             </thead>
-                            <tbody className={isHEIUser ? 'pointer-events-none opacity-75' : ''}>
+                            <tbody className={isHEIUser ? 'pointer-events-none opacity-60' : ''}>
                                 {entries.map((entry, index) => (
-                                    <tr key={entry.id || index} className="border-b last:border-0 hover:bg-blue-50/50 dark:hover:bg-blue-950/20">
-                                        {/* Document Status */}
-                                        <td className="px-2 py-1.5">
-                                            <Select value={entry.document_status} onValueChange={(v) => updateField(index, 'document_status', v)}>
-                                                <SelectTrigger className="h-7 text-xs min-w-[130px]">
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="No Submission" className="text-xs">No Submission</SelectItem>
-                                                    <SelectItem value="Partial Submission" className="text-xs">Partial Submission</SelectItem>
-                                                    <SelectItem value="Complete Submission" className="text-xs">Complete Submission</SelectItem>
-                                                </SelectContent>
-                                            </Select>
+                                    <tr key={entry.id || index} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                                        <td className="px-3 py-2">
+                                            <CellTooltip content={entry.document_status || null}>
+                                                <Select value={entry.document_status} onValueChange={(v) => updateField(index, 'document_status', v)}>
+                                                    <SelectTrigger className="h-8 text-xs min-w-[120px]">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="No Submission">No Submission</SelectItem>
+                                                        <SelectItem value="Partial Submission">Partial Submission</SelectItem>
+                                                        <SelectItem value="Complete Submission">Complete Submission</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </CellTooltip>
                                         </td>
-
-                                        {/* Received By */}
-                                        <td className="px-2 py-1.5">
-                                            <RCMultiSelect
-                                                value={entry.received_by}
-                                                users={regionalCoordinators}
-                                                avatarMap={avatarMap}
-                                                onChange={(v) => updateField(index, 'received_by', v)}
-                                            />
+                                        <td className="px-3 py-2">
+                                            <CellTooltip content={entry.received_by || null}>
+                                                <div>
+                                                    <RCMultiSelect value={entry.received_by} users={regionalCoordinators} avatarMap={avatarMap} onChange={(v) => updateField(index, 'received_by', v)} />
+                                                </div>
+                                            </CellTooltip>
                                         </td>
-
-                                        {/* Date Received */}
-                                        <td className="px-2 py-1.5">
-                                            <Input type="date" value={entry.date_received ?? ''} onChange={(e) => updateField(index, 'date_received', e.target.value)} className="h-7 text-xs min-w-[120px]" />
+                                        <td className="px-3 py-2">
+                                            <CellTooltip content={entry.date_received || null}>
+                                                <Input type="date" value={entry.date_received ?? ''} onChange={(e) => updateField(index, 'date_received', e.target.value)} className="h-8 text-xs min-w-[110px]" />
+                                            </CellTooltip>
                                         </td>
-
-                                        {/* Document Location */}
-                                        <td className="px-2 py-1.5">
-                                            <LocationMultiSelect
-                                                value={entry.document_location}
-                                                locations={documentLocations}
-                                                onChange={(v) => updateField(index, 'document_location', v)}
-                                            />
+                                        <td className="px-3 py-2">
+                                            <CellTooltip content={entry.document_location || null}>
+                                                <div>
+                                                    <LocationMultiSelect value={entry.document_location} locations={documentLocations} onChange={(v) => updateField(index, 'document_location', v)} />
+                                                </div>
+                                            </CellTooltip>
                                         </td>
-
-                                        {/* Reviewed By */}
-                                        <td className="px-2 py-1.5">
-                                            <RCMultiSelect
-                                                value={entry.reviewed_by}
-                                                users={regionalCoordinators}
-                                                avatarMap={avatarMap}
-                                                onChange={(v) => updateField(index, 'reviewed_by', v)}
-                                            />
+                                        <td className="px-3 py-2">
+                                            <CellTooltip content={entry.reviewed_by || null}>
+                                                <div>
+                                                    <RCMultiSelect value={entry.reviewed_by} users={regionalCoordinators} avatarMap={avatarMap} onChange={(v) => updateField(index, 'reviewed_by', v)} />
+                                                </div>
+                                            </CellTooltip>
                                         </td>
-
-                                        {/* Date Reviewed */}
-                                        <td className="px-2 py-1.5">
-                                            <Input type="date" value={entry.date_reviewed ?? ''} onChange={(e) => updateField(index, 'date_reviewed', e.target.value)} className="h-7 text-xs min-w-[120px]" />
+                                        <td className="px-3 py-2">
+                                            <CellTooltip content={entry.date_reviewed || null}>
+                                                <Input type="date" value={entry.date_reviewed ?? ''} onChange={(e) => updateField(index, 'date_reviewed', e.target.value)} className="h-8 text-xs min-w-[110px]" />
+                                            </CellTooltip>
                                         </td>
-
-                                        {/* RC Note */}
-                                        <td className="px-2 py-1.5">
-                                            <Select value={entry.rc_note || ''} onValueChange={(v) => updateField(index, 'rc_note', v)}>
-                                                <SelectTrigger className="h-7 text-xs min-w-[130px]">
-                                                    <SelectValue placeholder="Select note" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {RC_NOTES_OPTIONS.map((opt) => (
-                                                        <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
+                                        <td className="px-3 py-2">
+                                            <CellTooltip content={entry.rc_note || null}>
+                                                <Select value={entry.rc_note || ''} onValueChange={(v) => updateField(index, 'rc_note', v)}>
+                                                    <SelectTrigger className="h-8 text-xs min-w-[120px]">
+                                                        <SelectValue placeholder="Select note" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {RC_NOTES_OPTIONS.map((opt) => (
+                                                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </CellTooltip>
                                         </td>
-
-                                        {/* Date of Endorsement */}
-                                        <td className="px-2 py-1.5">
-                                            <Input type="date" value={entry.date_endorsement ?? ''} onChange={(e) => updateField(index, 'date_endorsement', e.target.value)} className="h-7 text-xs min-w-[120px]" />
+                                        <td className="px-3 py-2">
+                                            <CellTooltip content={entry.date_endorsement || null}>
+                                                <Input type="date" value={entry.date_endorsement ?? ''} onChange={(e) => updateField(index, 'date_endorsement', e.target.value)} className="h-8 text-xs min-w-[110px]" />
+                                            </CellTooltip>
                                         </td>
-
-                                        {/* Liquidation Status */}
-                                        <td className="px-2 py-1.5">
-                                            <Select value={entry.liquidation_status} onValueChange={(v) => updateField(index, 'liquidation_status', v)}>
-                                                <SelectTrigger className="h-7 text-xs min-w-[130px]">
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="Unliquidated" className="text-xs">Unliquidated</SelectItem>
-                                                    <SelectItem value="Partially Liquidated" className="text-xs">Partially Liquidated</SelectItem>
-                                                    <SelectItem value="Fully Liquidated" className="text-xs">Fully Liquidated</SelectItem>
-                                                </SelectContent>
-                                            </Select>
+                                        <td className="px-3 py-2">
+                                            <CellTooltip content={entry.liquidation_status || null}>
+                                                <Select value={entry.liquidation_status} onValueChange={(v) => updateField(index, 'liquidation_status', v)}>
+                                                    <SelectTrigger className="h-8 text-xs min-w-[120px]">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="Unliquidated">Unliquidated</SelectItem>
+                                                        <SelectItem value="Partially Liquidated">Partially Liquidated</SelectItem>
+                                                        <SelectItem value="Fully Liquidated">Fully Liquidated</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </CellTooltip>
                                         </td>
-
-                                        {/* Delete */}
-                                        <td className="px-2 py-1.5">
-                                            {!isHEIUser && entries.length > 1 && (
-                                                <DeleteRowButton isFilled={isTrackingEntryFilled(entry)} onDelete={() => removeEntry(index)} />
-                                            )}
-                                        </td>
+                                        {!isHEIUser && (
+                                            <td className="px-3 py-2">
+                                                {entries.length > 1 && (
+                                                    <DeleteRowButton isFilled={isTrackingEntryFilled(entry)} onDelete={() => removeEntry(index)} />
+                                                )}
+                                            </td>
+                                        )}
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
                     {!isHEIUser && (
-                        <Button size="sm" onClick={addEntry} className="mt-3 h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 shadow-sm">
+                        <Button size="sm" onClick={addEntry} className="mt-4 h-8 text-xs px-3 bg-foreground text-background hover:bg-foreground/90">
                             <Plus className="h-3.5 w-3.5 mr-1.5" />
                             Add Entry
                         </Button>
@@ -228,10 +226,19 @@ export default function DocumentTrackingTable({
 
 /* ── Sub-components ── */
 
+function CellTooltip({ content, children }: { content?: string | null; children: React.ReactNode }) {
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>{children}</TooltipTrigger>
+            {content && <TooltipContent side="top" className="max-w-xs break-words">{content}</TooltipContent>}
+        </Tooltip>
+    );
+}
+
 function DeleteRowButton({ isFilled, onDelete }: { isFilled: boolean; onDelete: () => void }) {
     if (!isFilled) {
         return (
-            <Button variant="ghost" size="sm" onClick={onDelete} className="h-7 w-7 p-0 text-destructive hover:text-destructive">
+            <Button variant="ghost" size="sm" onClick={onDelete} className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive">
                 <Trash2 className="h-3.5 w-3.5" />
             </Button>
         );
@@ -240,7 +247,7 @@ function DeleteRowButton({ isFilled, onDelete }: { isFilled: boolean; onDelete: 
     return (
         <Popover>
             <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive">
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive">
                     <Trash2 className="h-3.5 w-3.5" />
                 </Button>
             </PopoverTrigger>
@@ -272,7 +279,7 @@ function RCMultiSelect({ value, users, avatarMap, onChange }: {
     return (
         <Popover>
             <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-auto min-h-[28px] text-xs min-w-[130px] justify-between font-normal py-1">
+                <Button variant="outline" size="sm" className="h-auto min-h-[32px] text-xs min-w-[110px] justify-between font-normal py-1">
                     {value
                         ? <AvatarStack namesStr={value} avatarMap={avatarMap} knownNames={knownNames} disableTooltip />
                         : <span className="text-muted-foreground">Select RC</span>
@@ -313,7 +320,7 @@ function LocationMultiSelect({ value, locations, onChange }: {
     return (
         <Popover>
             <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-7 text-xs min-w-[140px] justify-between font-normal">
+                <Button variant="outline" size="sm" className="h-8 text-xs min-w-[110px] justify-between font-normal">
                     <span className="truncate">
                         {value ? value.split(',').length + ' selected' : 'Select location'}
                     </span>

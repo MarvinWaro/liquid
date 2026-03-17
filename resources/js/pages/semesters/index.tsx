@@ -103,7 +103,7 @@ export default function Index({ semesters, canCreate, canEdit, canDelete }: Prop
                                 {canCreate && (
                                     <Button
                                         onClick={handleCreate}
-                                        className="bg-primary shadow-sm hover:bg-primary/90"
+                                        className="bg-foreground text-background shadow-sm hover:bg-foreground/90"
                                     >
                                         <Plus className="mr-2 h-4 w-4" />
                                         Add Semester
@@ -156,7 +156,7 @@ export default function Index({ semesters, canCreate, canEdit, canDelete }: Prop
                                                 className="transition-colors hover:bg-muted/50"
                                             >
                                                 <TableCell className="py-2 pl-6">
-                                                    <span className="font-mono text-sm font-semibold text-primary">
+                                                    <span className="font-mono text-sm font-semibold text-foreground">
                                                         {semester.code}
                                                     </span>
                                                 </TableCell>
@@ -173,7 +173,7 @@ export default function Index({ semesters, canCreate, canEdit, canDelete }: Prop
                                                 <TableCell className="py-2 text-center">
                                                     <Badge
                                                         variant="outline"
-                                                        className="border-blue-200 bg-blue-50 text-blue-800"
+                                                        className="border-border bg-muted text-foreground"
                                                     >
                                                         {semester.liquidations_count}
                                                     </Badge>
@@ -182,15 +182,15 @@ export default function Index({ semesters, canCreate, canEdit, canDelete }: Prop
                                                     <Badge
                                                         className={`${
                                                             semester.is_active
-                                                                ? 'border-green-200 bg-green-100 text-green-700 hover:bg-green-200'
-                                                                : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60'
+                                                                : 'bg-muted text-muted-foreground border-border'
                                                         } shadow-none`}
                                                     >
                                                         <span
                                                             className={`mr-2 h-1.5 w-1.5 rounded-full ${
                                                                 semester.is_active
-                                                                    ? 'bg-green-600'
-                                                                    : 'bg-gray-500'
+                                                                    ? 'bg-emerald-500'
+                                                                    : 'bg-muted-foreground/50'
                                                             }`}
                                                         />
                                                         {semester.is_active ? 'Active' : 'Inactive'}
@@ -202,7 +202,7 @@ export default function Index({ semesters, canCreate, canEdit, canDelete }: Prop
                                                             <Button
                                                                 variant="ghost"
                                                                 size="icon"
-                                                                className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
                                                                 onClick={() => handleEdit(semester)}
                                                             >
                                                                 <Pencil className="h-4 w-4" />

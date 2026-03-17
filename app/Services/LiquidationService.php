@@ -35,6 +35,13 @@ class LiquidationService
             ->orderBy('control_no', 'asc');
 
         $this->applyRoleFilter($query, $user);
+
+        // Exclude voided records unless explicitly filtering for them
+        $isFilteringVoided = ($filters['liquidation_status'] ?? '') === 'voided';
+        if (!$isFilteringVoided) {
+            $query->excludeVoided();
+        }
+
         $this->applyFilters($query, $filters);
 
         return $query->paginate(15);

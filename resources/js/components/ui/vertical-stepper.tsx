@@ -24,7 +24,6 @@ export function VerticalStepper({ steps, currentStep, isFullyCompleted = false, 
         {steps.map((step, index) => {
           const stepNumber = index + 1
 
-          // When lastCompletedStep is provided, use it to drive state instead of currentStep
           const isCompleted = isFullyCompleted
             || (lastCompletedStep !== undefined ? stepNumber <= lastCompletedStep : stepNumber < currentStep)
           const isCurrent = lastCompletedStep === undefined && !isFullyCompleted && stepNumber === currentStep
@@ -32,41 +31,36 @@ export function VerticalStepper({ steps, currentStep, isFullyCompleted = false, 
 
           return (
             <React.Fragment key={index}>
-              {/* Step Item */}
               <div className="flex items-start gap-3 relative">
                 {/* Circle and Connector Column */}
                 <div className="flex flex-col items-center">
-                  {/* Circle */}
                   <div className={cn("relative shrink-0 z-10", isCurrent && "")}>
                     {isCurrent && (
-                      <span className="absolute inset-0 rounded-full bg-blue-400 opacity-30 animate-ping" />
+                      <span className="absolute inset-0 rounded-full bg-foreground/20 animate-ping" />
                     )}
-                  <div
-                    className={cn(
-                      "w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm transition-all border-2",
-                      isFullyCompleted && "bg-green-600 border-green-600 text-white",
-                      !isFullyCompleted && isCompleted && "bg-blue-600 border-blue-600 text-white",
-                      !isFullyCompleted && isCurrent && "bg-blue-600 border-blue-600 text-white",
-                      isUpcoming && "bg-background border-gray-300 text-gray-400"
-                    )}
-                  >
-                    {(isCompleted || isFullyCompleted) ? (
-                      <Check className="h-5 w-5" />
-                    ) : (
-                      stepNumber
-                    )}
-                  </div>
+                    <div
+                      className={cn(
+                        "w-9 h-9 rounded-full flex items-center justify-center font-medium text-sm transition-all border-2",
+                        (isCompleted || isFullyCompleted) && "bg-foreground border-foreground text-background",
+                        isCurrent && "bg-foreground border-foreground text-background",
+                        isUpcoming && "bg-background border-border text-muted-foreground"
+                      )}
+                    >
+                      {(isCompleted || isFullyCompleted) ? (
+                        <Check className="h-4 w-4" />
+                      ) : (
+                        stepNumber
+                      )}
+                    </div>
                   </div>
 
                   {/* Vertical Connector Line */}
                   {index < steps.length - 1 && (
-                    <div className="w-0.5 h-16 mt-1">
+                    <div className="w-px h-14 mt-1">
                       <div
                         className={cn(
                           "w-full h-full transition-all",
-                          isFullyCompleted
-                            ? "bg-green-600"
-                            : (isCompleted ? "bg-blue-600" : "bg-gray-300")
+                          (isCompleted || isFullyCompleted) ? "bg-foreground" : "bg-border"
                         )}
                       />
                     </div>
@@ -74,13 +68,12 @@ export function VerticalStepper({ steps, currentStep, isFullyCompleted = false, 
                 </div>
 
                 {/* Label */}
-                <div className={cn("flex-1", index < steps.length - 1 ? "pb-8" : "")}>
+                <div className={cn("flex-1 pt-1.5", index < steps.length - 1 ? "pb-6" : "")}>
                   <p
                     className={cn(
-                      "text-sm font-semibold leading-tight",
-                      isFullyCompleted && "text-green-900 dark:text-green-100",
-                      !isFullyCompleted && (isCompleted || isCurrent) && "text-blue-900 dark:text-blue-100",
-                      isUpcoming && "text-gray-400"
+                      "text-sm font-medium leading-tight",
+                      (isCompleted || isFullyCompleted || isCurrent) && "text-foreground",
+                      isUpcoming && "text-muted-foreground"
                     )}
                   >
                     {step.label}
@@ -88,10 +81,7 @@ export function VerticalStepper({ steps, currentStep, isFullyCompleted = false, 
                   {step.description && (
                     <p
                       className={cn(
-                        "text-xs mt-1 leading-tight",
-                        isFullyCompleted && "text-green-700 dark:text-green-300",
-                        !isFullyCompleted && (isCompleted || isCurrent) && "text-blue-700 dark:text-blue-300",
-                        isUpcoming && "text-muted-foreground"
+                        "text-xs mt-0.5 leading-tight text-muted-foreground"
                       )}
                     >
                       {step.description}

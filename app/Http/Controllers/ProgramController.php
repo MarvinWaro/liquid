@@ -20,15 +20,25 @@ class ProgramController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        $programs = Program::withCount('documentRequirements')
-            ->orderBy('name')
+        // Load all programs with children counts and document requirement counts
+        $programs = Program::withCount(['documentRequirements', 'children', 'liquidations'])
+            ->with('parent:id,code,name')
+            ->orderByRaw('COALESCE(parent_id, id), parent_id IS NOT NULL, name')
             ->get();
 
+        // Possible parent programs for the modal dropdown
+        // A parent is any top-level program (no parent_id) that has no liquidations directly attached
+        $parentOptions = Program::active()
+            ->topLevel()
+            ->orderBy('name')
+            ->get(['id', 'code', 'name']);
+
         return Inertia::render('programs/index', [
-            'programs'  => $programs,
-            'canCreate' => auth()->user()->hasPermission('create_programs'),
-            'canEdit'   => auth()->user()->hasPermission('edit_programs'),
-            'canDelete' => auth()->user()->hasPermission('delete_programs'),
+            'programs'      => $programs,
+            'parentOptions' => $parentOptions,
+            'canCreate'     => auth()->user()->hasPermission('create_programs'),
+            'canEdit'       => auth()->user()->hasPermission('edit_programs'),
+            'canDelete'     => auth()->user()->hasPermission('delete_programs'),
         ]);
     }
 
@@ -39,6 +49,7 @@ class ProgramController extends Controller
         }
 
         $validated = $request->validate([
+            'parent_id'   => 'nullable|uuid|exists:programs,id',
             'code'        => 'required|string|max:50|unique:programs,code',
             'name'        => 'required|string|max:255|unique:programs,name',
             'description' => 'nullable|string|max:1000',
@@ -60,6 +71,7 @@ class ProgramController extends Controller
         }
 
         $validated = $request->validate([
+            'parent_id'   => ['nullable', 'uuid', 'exists:programs,id', Rule::notIn([$program->id])],
             'code'        => ['required', 'string', 'max:50', Rule::unique('programs')->ignore($program->id)],
             'name'        => ['required', 'string', 'max:255', Rule::unique('programs')->ignore($program->id)],
             'description' => 'nullable|string|max:1000',
@@ -82,6 +94,10 @@ class ProgramController extends Controller
 
         if ($program->liquidations()->exists()) {
             return redirect()->back()->with('error', 'Cannot delete program: it has associated liquidation records.');
+        }
+
+        if ($program->children()->exists()) {
+            return redirect()->back()->with('error', 'Cannot delete program: it has sub-programs. Remove them first.');
         }
 
         $program->delete();

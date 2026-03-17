@@ -52,6 +52,7 @@ class LiquidationStatus extends Model
     public const CODE_UNLIQUIDATED = 'UNLIQUIDATED';
     public const CODE_PARTIALLY_LIQUIDATED = 'PARTIALLY_LIQUIDATED';
     public const CODE_FULLY_LIQUIDATED = 'FULLY_LIQUIDATED';
+    public const CODE_VOIDED = 'VOIDED';
 
     /**
      * Get liquidations with this liquidation status.
@@ -120,5 +121,13 @@ class LiquidationStatus extends Model
     public static function fullyLiquidated(): ?self
     {
         return static::findByCode(self::CODE_FULLY_LIQUIDATED);
+    }
+
+    /**
+     * Get the voided status.
+     */
+    public static function voided(): ?self
+    {
+        return static::findByCode(self::CODE_VOIDED);
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Models\AcademicYearDocumentRequirement;
 use App\Models\ComplianceStatus;
 use App\Models\DocumentRequirement;
 use App\Models\DocumentStatus;
@@ -65,14 +66,33 @@ class CacheService
     }
 
     /**
-     * Get all active programs (cached).
+     * Get all active programs (cached), with parent info for grouping.
+     * Includes parent programs (for grouping labels) and leaf programs (for selection).
      */
     public function getPrograms(): Collection
     {
         return Cache::remember('lookup:programs', self::TTL_MEDIUM, function () {
             return Program::where('status', 'active')
-                ->orderBy('name')
-                ->get(['id', 'name', 'code']);
+                ->with('parent:id,code,name')
+                ->withCount('children')
+                ->orderByRaw('COALESCE(parent_id, id), parent_id IS NOT NULL, name')
+                ->get(['id', 'parent_id', 'name', 'code']);
+        });
+    }
+
+    /**
+     * Get selectable programs for liquidation forms/filters.
+     * Returns leaf programs (no children) plus any parent programs needed for group labels.
+     * Frontend uses `is_selectable` to determine which items can be chosen.
+     */
+    public function getSelectablePrograms(): Collection
+    {
+        $all = $this->getPrograms();
+
+        // Mark each program as selectable (leaf) or group-only (parent)
+        return $all->map(function ($program) {
+            $program->is_selectable = ($program->children_count ?? 0) === 0;
+            return $program;
         });
     }
 
@@ -176,6 +196,67 @@ class CacheService
                 ->forProgram($programId)
                 ->get(['id', 'code', 'name', 'description', 'reference_image_path', 'upload_message', 'is_required', 'sort_order']);
         });
+    }
+
+    /**
+     * Get document requirements for a program scoped to an academic year.
+     *
+     * If the academic year has custom configuration, those overrides are applied.
+     * Otherwise falls back to the global program requirements.
+     */
+    public function getDocumentRequirementsForAY(string $programId, ?string $academicYearId): Collection
+    {
+        if (!$academicYearId) {
+            return $this->getDocumentRequirements($programId);
+        }
+
+        $cacheKey = "lookup:document_requirements:{$programId}:ay:{$academicYearId}";
+
+        return Cache::remember($cacheKey, self::TTL_LONG, function () use ($programId, $academicYearId) {
+            // Load global requirements for this program
+            $globals = DocumentRequirement::active()
+                ->ordered()
+                ->forProgram($programId)
+                ->get(['id', 'code', 'name', 'description', 'reference_image_path', 'upload_message', 'is_required', 'sort_order']);
+
+            // Load AY-specific overrides for these requirements
+            $reqIds = $globals->pluck('id');
+            $overrides = AcademicYearDocumentRequirement::where('academic_year_id', $academicYearId)
+                ->whereIn('document_requirement_id', $reqIds)
+                ->get()
+                ->keyBy('document_requirement_id');
+
+            if ($overrides->isEmpty()) {
+                return $globals;
+            }
+
+            // Merge overrides into global requirements and re-sort
+            return $globals
+                ->map(function ($req) use ($overrides) {
+                    $override = $overrides->get($req->id);
+                    if ($override) {
+                        $req->is_required = $override->is_required;
+                        $req->is_active   = $override->is_active;
+                        $req->sort_order  = $override->sort_order;
+                    }
+                    return $req;
+                })
+                ->filter(fn ($req) => $req->is_active)
+                ->sortBy('sort_order')
+                ->values();
+        });
+    }
+
+    /**
+     * Clear all cached requirement entries for a given academic year.
+     */
+    public function clearAYRequirementCache(string $academicYearId): void
+    {
+        // Clear program-scoped AY caches for all programs
+        $programIds = Program::where('status', 'active')->pluck('id');
+        foreach ($programIds as $programId) {
+            Cache::forget("lookup:document_requirements:{$programId}:ay:{$academicYearId}");
+        }
     }
 
     /**

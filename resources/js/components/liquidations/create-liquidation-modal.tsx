@@ -12,7 +12,9 @@ import { Label } from '@/components/ui/label';
 import {
     Select,
     SelectContent,
+    SelectGroup,
     SelectItem,
+    SelectLabel,
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
@@ -29,7 +31,9 @@ import {
     CommandItem,
     CommandList,
 } from '@/components/ui/command';
-import { Loader2, Check, ChevronsUpDown } from 'lucide-react';
+import { Calendar } from '@/components/ui/calendar';
+import { CalendarIcon, Loader2, Check, ChevronsUpDown } from 'lucide-react';
+import { addDays, format, parse, isValid } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import axios from 'axios';
@@ -41,6 +45,51 @@ import {
     type HEIOption,
     type AcademicYearOption,
 } from './liquidation-constants';
+
+/**
+ * Renders program items grouped by parent program.
+ * Top-level programs without children render as plain items.
+ * Parent programs render as group labels with their children as selectable items.
+ */
+function GroupedProgramItems({ programs }: { programs: Program[] }) {
+    // Parents = programs that have children (not selectable themselves)
+    const parents = programs.filter((p) => !p.parent_id && (p.children_count ?? 0) > 0);
+    // Standalone = top-level programs with no children (selectable)
+    const standalone = programs.filter((p) => !p.parent_id && (p.children_count ?? 0) === 0 && p.is_selectable !== false);
+    // Children grouped by parent_id
+    const childrenByParent = new Map<string, Program[]>();
+    programs.filter((p) => p.parent_id).forEach((p) => {
+        const list = childrenByParent.get(p.parent_id!) || [];
+        list.push(p);
+        childrenByParent.set(p.parent_id!, list);
+    });
+
+    return (
+        <>
+            {standalone.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                    {p.code} — {p.name}
+                </SelectItem>
+            ))}
+            {parents.map((parent) => {
+                const children = childrenByParent.get(parent.id) || [];
+                if (children.length === 0) return null;
+                return (
+                    <SelectGroup key={parent.id}>
+                        <SelectLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                            {parent.code} — {parent.name}
+                        </SelectLabel>
+                        {children.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                                {p.code} — {p.name}
+                            </SelectItem>
+                        ))}
+                    </SelectGroup>
+                );
+            })}
+        </>
+    );
+}
 
 interface CreateLiquidationModalProps {
     isOpen: boolean;
@@ -144,7 +193,18 @@ export function CreateLiquidationModal({
     };
 
     const handleInputChange = (field: string, value: string) => {
-        setFormData(prev => ({ ...prev, [field]: value }));
+        setFormData(prev => {
+            const updated = { ...prev, [field]: value };
+            // Auto-compute due date: fund release date + 90 days
+            if (field === 'date_fund_released' && value) {
+                const released = parse(value, 'yyyy-MM-dd', new Date());
+                if (isValid(released)) {
+                    const due = addDays(released, 90);
+                    updated.due_date = format(due, 'yyyy-MM-dd');
+                }
+            }
+            return updated;
+        });
         // Re-fetch control number when program changes
         if (field === 'program_id') {
             fetchNextControlNo(value || undefined);
@@ -215,11 +275,7 @@ export function CreateLiquidationModal({
                                     <SelectValue placeholder="Select program" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {programs.map((program) => (
-                                        <SelectItem key={program.id} value={program.id}>
-                                            {program.code} - {program.name}
-                                        </SelectItem>
-                                    ))}
+                                    <GroupedProgramItems programs={programs} />
                                 </SelectContent>
                             </Select>
                             {fieldErrors.program_id && (
@@ -307,14 +363,32 @@ export function CreateLiquidationModal({
 
                         {/* Date of Fund Released */}
                         <div className="space-y-2">
-                            <Label htmlFor="date_fund_released">Date of Fund Released *</Label>
-                            <Input
-                                id="date_fund_released"
-                                type="date"
-                                value={formData.date_fund_released}
-                                onChange={(e) => handleInputChange('date_fund_released', e.target.value)}
-                                className={fieldErrors.date_fund_released ? 'border-red-500' : ''}
-                            />
+                            <Label>Date of Fund Released *</Label>
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        className={cn(
+                                            'w-full justify-start text-left font-normal',
+                                            !formData.date_fund_released && 'text-muted-foreground',
+                                            fieldErrors.date_fund_released && 'border-red-500',
+                                        )}
+                                    >
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {formData.date_fund_released
+                                            ? format(parse(formData.date_fund_released, 'yyyy-MM-dd', new Date()), 'MMM dd, yyyy')
+                                            : 'Pick a date'}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                    <Calendar
+                                        mode="single"
+                                        selected={formData.date_fund_released ? parse(formData.date_fund_released, 'yyyy-MM-dd', new Date()) : undefined}
+                                        onSelect={(date) => handleInputChange('date_fund_released', date ? format(date, 'yyyy-MM-dd') : '')}
+                                        initialFocus
+                                    />
+                                </PopoverContent>
+                            </Popover>
                             {fieldErrors.date_fund_released && (
                                 <p className="text-sm text-red-500">{fieldErrors.date_fund_released}</p>
                             )}
@@ -322,14 +396,32 @@ export function CreateLiquidationModal({
 
                         {/* Due Date */}
                         <div className="space-y-2">
-                            <Label htmlFor="due_date">Due Date</Label>
-                            <Input
-                                id="due_date"
-                                type="date"
-                                value={formData.due_date}
-                                onChange={(e) => handleInputChange('due_date', e.target.value)}
-                                className={fieldErrors.due_date ? 'border-red-500' : ''}
-                            />
+                            <Label>Due Date</Label>
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        className={cn(
+                                            'w-full justify-start text-left font-normal',
+                                            !formData.due_date && 'text-muted-foreground',
+                                            fieldErrors.due_date && 'border-red-500',
+                                        )}
+                                    >
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {formData.due_date
+                                            ? format(parse(formData.due_date, 'yyyy-MM-dd', new Date()), 'MMM dd, yyyy')
+                                            : 'Pick a date'}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                    <Calendar
+                                        mode="single"
+                                        selected={formData.due_date ? parse(formData.due_date, 'yyyy-MM-dd', new Date()) : undefined}
+                                        onSelect={(date) => handleInputChange('due_date', date ? format(date, 'yyyy-MM-dd') : '')}
+                                        initialFocus
+                                    />
+                                </PopoverContent>
+                            </Popover>
                             {fieldErrors.due_date && (
                                 <p className="text-sm text-red-500">{fieldErrors.due_date}</p>
                             )}
@@ -399,9 +491,9 @@ export function CreateLiquidationModal({
                             )}
                         </div>
 
-                        {/* DV Control No */}
+                        {/* Control No */}
                         <div className="space-y-2">
-                            <Label htmlFor="dv_control_no">DV Control No.</Label>
+                            <Label htmlFor="dv_control_no">Control No.</Label>
                             <Input
                                 id="dv_control_no"
                                 value={nextControlNo}

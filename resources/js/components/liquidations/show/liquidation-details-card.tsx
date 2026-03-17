@@ -13,7 +13,7 @@ import {
     ContextMenuSeparator,
     ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { Building2, Pencil, Save, RotateCcw } from 'lucide-react';
+import { Pencil, Save, RotateCcw } from 'lucide-react';
 import AmountInput from './amount-input';
 import {
     type Liquidation,
@@ -29,6 +29,24 @@ interface LiquidationDetailsCardProps {
     runningDataTotalLiquidated: number;
     totalDisbursements: number;
     latestRcNote?: string;
+}
+
+/** Read-only display value — replaces disabled <Input> for Vercel-clean look */
+function DisplayValue({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+    return (
+        <p className={`text-sm font-medium text-foreground truncate ${className}`}>
+            {children}
+        </p>
+    );
+}
+
+/** Currency display with monospace numbers */
+function CurrencyValue({ amount, className = '' }: { amount: number; className?: string }) {
+    return (
+        <p className={`text-sm font-semibold tabular-nums ${className}`}>
+            ₱{amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+        </p>
+    );
 }
 
 export default function LiquidationDetailsCard({
@@ -101,240 +119,199 @@ export default function LiquidationDetailsCard({
         });
     }, [liquidation.id, editForm]);
 
-    const editingClass = isEditing ? 'border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900' : '';
+    const unliquidated = Math.max(0, totalDisbursements - runningDataTotalLiquidated);
+    const percentage = totalDisbursements > 0 ? ((runningDataTotalLiquidated / totalDisbursements) * 100) : 0;
+
+    const editInputClass = 'h-9 text-sm border-ring/30 bg-background focus:border-ring';
 
     return (
         <Card className="flex-1">
-            <CardHeader className="pb-2 pt-3">
+            <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                     <div>
-                        <CardTitle className="text-sm font-semibold">Liquidation Details</CardTitle>
-                        <CardDescription className="text-xs">Financial and document information</CardDescription>
+                        <CardTitle className="text-base">Liquidation Details</CardTitle>
+                        <CardDescription>Financial and document information</CardDescription>
                     </div>
                     {!isEditing && canEditDetails && !isHEIUser && (
-                        <Button variant="outline" size="sm" onClick={handleStartEdit} className="h-7 text-xs px-3 gap-1.5">
+                        <Button variant="outline" size="sm" onClick={handleStartEdit} className="h-8 text-xs px-3 gap-1.5">
                             <Pencil className="h-3.5 w-3.5" />
                             Edit Details
                         </Button>
                     )}
                     {isEditing && (
-                        <div className="flex items-center gap-1.5">
-                            <Button variant="ghost" size="sm" onClick={handleCancelEdit} disabled={isSaving} className="h-7 text-xs px-2">
-                                <RotateCcw className="h-3 w-3 mr-1" />
+                        <div className="flex items-center gap-2">
+                            <Button variant="ghost" size="sm" onClick={handleCancelEdit} disabled={isSaving} className="h-8 text-xs px-3">
+                                <RotateCcw className="h-3.5 w-3.5 mr-1" />
                                 Cancel
                             </Button>
-                            <Button size="sm" onClick={handleSaveDetails} disabled={isSaving} className="h-7 text-xs px-3">
-                                <Save className="h-3 w-3 mr-1" />
+                            <Button size="sm" onClick={handleSaveDetails} disabled={isSaving} className="h-8 text-xs px-3">
+                                <Save className="h-3.5 w-3.5 mr-1" />
                                 {isSaving ? 'Saving...' : 'Save'}
                             </Button>
                         </div>
                     )}
                 </div>
             </CardHeader>
-            <CardContent className="pb-3">
+            <CardContent className="pb-5">
                 <ContextMenu>
                     <ContextMenuTrigger asChild disabled={!canEditDetails || isHEIUser}>
-                        <div className={`${canEditDetails && !isHEIUser && !isEditing ? 'cursor-context-menu' : ''} ${isEditing ? 'ring-2 ring-blue-200 dark:ring-blue-700 rounded-lg p-3 -m-3 bg-blue-50/30 dark:bg-blue-950/20' : ''}`}>
-                            {/* Section Header */}
-                            <div className="flex items-center gap-2 mb-3">
-                                <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Liquidation Details</h3>
-                                {isEditing && (
-                                    <Badge className="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700 shadow-none text-[10px] px-1.5 py-0">Editing</Badge>
-                                )}
-                            </div>
+                        <div className={`${canEditDetails && !isHEIUser && !isEditing ? 'cursor-context-menu' : ''} ${isEditing ? 'ring-1 ring-ring/20 rounded-lg p-4 -m-4 bg-muted/30' : ''}`}>
 
                             {/* General Info */}
-                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1.5 mt-1">General Info</p>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-3 gap-y-3 mb-4">
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Academic Year</Label>
-                                    <Input
-                                        value={isEditing ? editForm.academic_year : liquidation.academic_year}
-                                        onChange={(e) => updateField('academic_year', e.target.value)}
-                                        disabled={!isEditing}
-                                        className={`h-8 text-xs disabled:opacity-100 disabled:cursor-default ${editingClass}`}
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Semester</Label>
-                                    <Input
-                                        value={isEditing ? editForm.semester : liquidation.semester}
-                                        onChange={(e) => updateField('semester', e.target.value)}
-                                        disabled={!isEditing}
-                                        className={`h-8 text-xs disabled:opacity-100 disabled:cursor-default ${editingClass}`}
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Batch No.</Label>
-                                    <Input
-                                        value={isEditing ? editForm.batch_no : (liquidation.batch_no || 'N/A')}
-                                        onChange={(e) => updateField('batch_no', e.target.value)}
-                                        disabled={!isEditing}
-                                        className={`h-8 text-xs disabled:opacity-100 disabled:cursor-default ${editingClass}`}
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">DV Control No.</Label>
-                                    <Input value={liquidation.dv_control_no} disabled className="h-8 text-xs disabled:opacity-100 disabled:cursor-default" />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Date of Fund Release</Label>
-                                    <Input
-                                        type="date"
-                                        value={isEditing ? editForm.date_fund_released : (liquidation.date_fund_released || '')}
-                                        onChange={(e) => updateField('date_fund_released', e.target.value)}
-                                        disabled={!isEditing}
-                                        className={`h-8 text-xs disabled:opacity-100 disabled:cursor-default ${editingClass}`}
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Due Date</Label>
-                                    <Input
-                                        type="date"
-                                        value={isEditing ? editForm.due_date : (liquidation.due_date || '')}
-                                        onChange={(e) => updateField('due_date', e.target.value)}
-                                        disabled={!isEditing}
-                                        className={`h-8 text-xs disabled:opacity-100 disabled:cursor-default ${editingClass}`}
-                                    />
-                                </div>
+                            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">General Info</p>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 mb-6">
+                                <FieldBlock label="Academic Year">
+                                    {isEditing ? (
+                                        <Input value={editForm.academic_year} onChange={(e) => updateField('academic_year', e.target.value)} className={editInputClass} />
+                                    ) : (
+                                        <DisplayValue>{liquidation.academic_year}</DisplayValue>
+                                    )}
+                                </FieldBlock>
+                                <FieldBlock label="Semester">
+                                    {isEditing ? (
+                                        <Input value={editForm.semester} onChange={(e) => updateField('semester', e.target.value)} className={editInputClass} />
+                                    ) : (
+                                        <DisplayValue>{liquidation.semester}</DisplayValue>
+                                    )}
+                                </FieldBlock>
+                                <FieldBlock label="Batch No.">
+                                    {isEditing ? (
+                                        <Input value={editForm.batch_no} onChange={(e) => updateField('batch_no', e.target.value)} className={editInputClass} />
+                                    ) : (
+                                        <DisplayValue>{liquidation.batch_no || 'N/A'}</DisplayValue>
+                                    )}
+                                </FieldBlock>
+                                <FieldBlock label="DV Control No.">
+                                    <DisplayValue className="font-mono-nums">{liquidation.dv_control_no}</DisplayValue>
+                                </FieldBlock>
+                                <FieldBlock label="Date of Fund Release">
+                                    {isEditing ? (
+                                        <Input type="date" value={editForm.date_fund_released} onChange={(e) => updateField('date_fund_released', e.target.value)} className={editInputClass} />
+                                    ) : (
+                                        <DisplayValue>{liquidation.date_fund_released ? new Date(liquidation.date_fund_released + 'T00:00:00').toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : 'N/A'}</DisplayValue>
+                                    )}
+                                </FieldBlock>
+                                <FieldBlock label="Due Date">
+                                    {isEditing ? (
+                                        <Input type="date" value={editForm.due_date} onChange={(e) => updateField('due_date', e.target.value)} className={editInputClass} />
+                                    ) : (
+                                        <DisplayValue>{liquidation.due_date ? new Date(liquidation.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : 'N/A'}</DisplayValue>
+                                    )}
+                                </FieldBlock>
                             </div>
 
                             {/* Financial Summary */}
-                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1.5">Financial Summary</p>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-3 gap-y-3 mb-4 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700">
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">No. of Grantees</Label>
-                                    <Input
-                                        type={isEditing ? 'number' : 'text'}
-                                        value={isEditing ? editForm.number_of_grantees : (liquidation.number_of_grantees || liquidation.beneficiaries.length)}
-                                        onChange={(e) => updateField('number_of_grantees', e.target.value)}
-                                        disabled={!isEditing}
-                                        className={`h-8 text-xs disabled:opacity-100 disabled:cursor-default ${editingClass}`}
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Total Disbursements</Label>
-                                    {isEditing ? (
-                                        <AmountInput
-                                            value={editForm.amount_received ? Number(editForm.amount_received) : null}
-                                            onValueChange={(val) => updateField('amount_received', val !== null ? String(val) : '')}
-                                            className="h-8 text-xs font-semibold border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900"
-                                        />
-                                    ) : (
-                                        <Input
-                                            type="text"
-                                            value={`₱${Number(liquidation.amount_received).toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
-                                            disabled
-                                            className="h-8 text-xs font-semibold disabled:opacity-100 disabled:cursor-default"
-                                        />
-                                    )}
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Amount Liquidated</Label>
-                                    <Input
-                                        value={`₱${runningDataTotalLiquidated.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
-                                        disabled
-                                        className="h-8 text-xs font-semibold text-blue-600 dark:text-blue-400 disabled:opacity-100 disabled:cursor-default"
-                                    />
-                                    <span className="text-[9px] text-muted-foreground italic">Auto-computed from Running Data</span>
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Unliquidated</Label>
-                                    <Input
-                                        value={`₱${Math.max(0, totalDisbursements - runningDataTotalLiquidated).toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
-                                        disabled
-                                        className="h-8 text-xs font-semibold text-orange-600 disabled:opacity-100 disabled:cursor-default"
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Document Status</Label>
-                                    {isEditing ? (
-                                        <Select value={editForm.document_status} onValueChange={(value) => updateField('document_status', value)}>
-                                            <SelectTrigger className={`h-8 text-xs ${editingClass}`}>
-                                                <SelectValue placeholder="Select status" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="No Submission" className="text-xs">No Submission</SelectItem>
-                                                <SelectItem value="Partial Submission" className="text-xs">Partial Submission</SelectItem>
-                                                <SelectItem value="Complete Submission" className="text-xs">Complete Submission</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    ) : (
-                                        <div className="h-8 flex items-center">
-                                            <Badge className={`${getDocumentStatusColor(liquidation.document_status || '')} shadow-none border font-normal text-[10px] px-1.5 py-0`}>
+                            <div className="border-t pt-5 mb-6">
+                                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">Financial Summary</p>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
+                                    <FieldBlock label="No. of Grantees">
+                                        {isEditing ? (
+                                            <Input type="number" value={editForm.number_of_grantees} onChange={(e) => updateField('number_of_grantees', e.target.value)} className={editInputClass} />
+                                        ) : (
+                                            <DisplayValue className="tabular-nums">{liquidation.number_of_grantees || liquidation.beneficiaries.length}</DisplayValue>
+                                        )}
+                                    </FieldBlock>
+                                    <FieldBlock label="Total Disbursements">
+                                        {isEditing ? (
+                                            <AmountInput
+                                                value={editForm.amount_received ? Number(editForm.amount_received) : null}
+                                                onValueChange={(val) => updateField('amount_received', val !== null ? String(val) : '')}
+                                                className={`h-9 text-sm ${editInputClass}`}
+                                            />
+                                        ) : (
+                                            <CurrencyValue amount={Number(liquidation.amount_received)} />
+                                        )}
+                                    </FieldBlock>
+                                    <FieldBlock label="Amount Liquidated" hint="Auto-computed from Running Data">
+                                        <CurrencyValue amount={runningDataTotalLiquidated} className="text-foreground" />
+                                    </FieldBlock>
+                                    <FieldBlock label="Unliquidated">
+                                        <CurrencyValue amount={unliquidated} className={unliquidated > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-foreground'} />
+                                    </FieldBlock>
+                                    <FieldBlock label="Document Status">
+                                        {isEditing ? (
+                                            <Select value={editForm.document_status} onValueChange={(value) => updateField('document_status', value)}>
+                                                <SelectTrigger className={`h-9 text-sm ${editInputClass}`}>
+                                                    <SelectValue placeholder="Select status" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="No Submission">No Submission</SelectItem>
+                                                    <SelectItem value="Partial Submission">Partial Submission</SelectItem>
+                                                    <SelectItem value="Complete Submission">Complete Submission</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        ) : (
+                                            <Badge className={`${getDocumentStatusColor(liquidation.document_status || '')} shadow-none border font-normal text-xs px-2 py-0.5`}>
                                                 {liquidation.document_status || 'N/A'}
                                             </Badge>
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Liquidation Status</Label>
-                                    {isEditing ? (
-                                        <Select value={editForm.liquidation_status} onValueChange={(value) => updateField('liquidation_status', value)}>
-                                            <SelectTrigger className={`h-8 text-xs ${editingClass}`}>
-                                                <SelectValue placeholder="Select status" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="Unliquidated" className="text-xs">Unliquidated</SelectItem>
-                                                <SelectItem value="Partially Liquidated" className="text-xs">Partially Liquidated</SelectItem>
-                                                <SelectItem value="Fully Liquidated" className="text-xs">Fully Liquidated</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    ) : (
-                                        <div className="h-8 flex items-center">
-                                            <Badge className={`${getLiquidationStatusColor(liquidation.liquidation_status || '')} shadow-none border font-normal text-[10px] px-1.5 py-0`}>
+                                        )}
+                                    </FieldBlock>
+                                    <FieldBlock label="Liquidation Status">
+                                        {isEditing ? (
+                                            <Select value={editForm.liquidation_status} onValueChange={(value) => updateField('liquidation_status', value)}>
+                                                <SelectTrigger className={`h-9 text-sm ${editInputClass}`}>
+                                                    <SelectValue placeholder="Select status" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="Unliquidated">Unliquidated</SelectItem>
+                                                    <SelectItem value="Partially Liquidated">Partially Liquidated</SelectItem>
+                                                    <SelectItem value="Fully Liquidated">Fully Liquidated</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        ) : (
+                                            <Badge className={`${getLiquidationStatusColor(liquidation.liquidation_status || '')} shadow-none border font-normal text-xs px-2 py-0.5`}>
                                                 {liquidation.liquidation_status || 'N/A'}
                                             </Badge>
-                                        </div>
-                                    )}
+                                        )}
+                                    </FieldBlock>
                                 </div>
                             </div>
 
                             {/* Status & Notes */}
-                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1.5">Status & Notes</p>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-3 gap-y-3">
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">% Liquidation</Label>
-                                    <Input value={`${(totalDisbursements > 0 ? ((runningDataTotalLiquidated / totalDisbursements) * 100) : 0).toFixed(2)}%`} disabled className="h-8 text-xs font-semibold text-green-600 disabled:opacity-100 disabled:cursor-default" />
+                            <div className="border-t pt-5">
+                                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">Status & Notes</p>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
+                                    <FieldBlock label="% Liquidation">
+                                        <DisplayValue className={`tabular-nums ${percentage >= 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'}`}>
+                                            {percentage.toFixed(2)}%
+                                        </DisplayValue>
+                                    </FieldBlock>
+                                    <FieldBlock label="Lapsing (Days)">
+                                        <DisplayValue className={`tabular-nums ${(liquidation.lapsing_period || 0) > 0 ? 'text-red-600 dark:text-red-400' : 'text-foreground'}`}>
+                                            {liquidation.lapsing_period || 0}
+                                        </DisplayValue>
+                                    </FieldBlock>
+                                    {liquidation.reviewed_by_name && (
+                                        <>
+                                            <FieldBlock label="Reviewed By">
+                                                <DisplayValue>{liquidation.reviewed_by_name}</DisplayValue>
+                                            </FieldBlock>
+                                            <FieldBlock label="Date Reviewed">
+                                                <DisplayValue>{liquidation.reviewed_at ? new Date(liquidation.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</DisplayValue>
+                                            </FieldBlock>
+                                        </>
+                                    )}
+                                    {(latestRcNote || liquidation.review_remarks || isEditing) && (
+                                        <FieldBlock label="Regional Coordinator's Note">
+                                            {isEditing ? (
+                                                <Select value={editForm.review_remarks} onValueChange={(value) => updateField('review_remarks', value)}>
+                                                    <SelectTrigger className={`h-9 text-sm ${editInputClass}`}>
+                                                        <SelectValue placeholder="Select note (optional)" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {RC_NOTES_OPTIONS.map((option) => (
+                                                            <SelectItem key={option.value} value={option.value}>
+                                                                {option.label}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            ) : (
+                                                <DisplayValue>{latestRcNote || liquidation.review_remarks || ''}</DisplayValue>
+                                            )}
+                                        </FieldBlock>
+                                    )}
                                 </div>
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Lapsing (Days)</Label>
-                                    <Input value={liquidation.lapsing_period || 0} disabled className={`h-8 text-xs font-semibold disabled:opacity-100 disabled:cursor-default ${(liquidation.lapsing_period || 0) > 0 ? 'text-red-600' : 'text-green-600'}`} />
-                                </div>
-                                {liquidation.reviewed_by_name && (
-                                    <>
-                                        <div className="space-y-1">
-                                            <Label className="text-[10px] text-muted-foreground">Reviewed By</Label>
-                                            <Input value={liquidation.reviewed_by_name} disabled className="h-8 text-xs disabled:opacity-100 disabled:cursor-default" />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <Label className="text-[10px] text-muted-foreground">Date Reviewed</Label>
-                                            <Input value={liquidation.reviewed_at ? new Date(liquidation.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'} disabled className="h-8 text-xs disabled:opacity-100 disabled:cursor-default" />
-                                        </div>
-                                    </>
-                                )}
-                                {(latestRcNote || liquidation.review_remarks || isEditing) && (
-                                    <div className="space-y-1">
-                                        <Label className="text-[10px] text-muted-foreground">Regional Coordinator's Note</Label>
-                                        {isEditing ? (
-                                            <Select value={editForm.review_remarks} onValueChange={(value) => updateField('review_remarks', value)}>
-                                                <SelectTrigger className={`h-8 text-xs ${editingClass}`}>
-                                                    <SelectValue placeholder="Select note (optional)" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {RC_NOTES_OPTIONS.map((option) => (
-                                                        <SelectItem key={option.value} value={option.value} className="text-xs">
-                                                            {option.label}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        ) : (
-                                            <Input value={latestRcNote || liquidation.review_remarks || ''} disabled className="h-8 text-xs disabled:opacity-100 disabled:cursor-default" />
-                                        )}
-                                    </div>
-                                )}
                             </div>
                         </div>
                     </ContextMenuTrigger>
@@ -361,5 +338,16 @@ export default function LiquidationDetailsCard({
                 </ContextMenu>
             </CardContent>
         </Card>
+    );
+}
+
+/** Reusable field layout: label + value */
+function FieldBlock({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+    return (
+        <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">{label}</Label>
+            {children}
+            {hint && <span className="text-[10px] text-muted-foreground italic">{hint}</span>}
+        </div>
     );
 }

@@ -11,10 +11,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import {
-    Card,
-    CardContent,
-} from '@/components/ui/card';
+import { CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
     Select,
@@ -23,7 +20,25 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Search, FileText, Eye, Download, Upload, Plus, TableProperties } from 'lucide-react';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Search, FileText, Eye, Download, Upload, Plus, TableProperties, ChevronDown, Ban, RotateCcw } from 'lucide-react';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
 import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
 import { toast } from '@/lib/toast';
@@ -55,8 +70,10 @@ interface Liquidation {
     document_status_code: string;
     rc_notes: string | null;
     liquidation_status: string;
+    liquidation_status_code: string;
     percentage_liquidation: number;
     lapsing_period: number;
+    is_voided: boolean;
 }
 
 interface HEIOption {
@@ -89,6 +106,7 @@ interface Props {
     permissions: {
         review: boolean;
         create: boolean;
+        void: boolean;
     };
     userRole: string;
 }
@@ -198,26 +216,45 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
         }
     };
 
+    const handleVoid = (liquidation: Liquidation) => {
+        router.post(route('liquidation.void', liquidation.id), {}, {
+            preserveScroll: true,
+            onSuccess: () => toast.success(`Liquidation ${liquidation.dv_control_no} has been voided.`),
+            onError: () => toast.error('Failed to void liquidation.'),
+        });
+    };
+
+    const handleRestore = (liquidation: Liquidation) => {
+        router.post(route('liquidation.restore', liquidation.id), {}, {
+            preserveScroll: true,
+            onSuccess: () => toast.success(`Liquidation ${liquidation.dv_control_no} has been restored.`),
+            onError: () => toast.error('Failed to restore liquidation.'),
+        });
+    };
+
     const getDocumentStatusColor = (status: string) => {
         if (status?.includes('Complete')) {
-            return 'bg-green-100 text-green-700 border-green-200';
+            return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60';
         }
         if (status?.includes('Partial')) {
-            return 'bg-amber-100 text-amber-700 border-amber-200';
+            return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800/60';
         }
         // No Submission - highlighted in red
-        return 'bg-red-100 text-red-700 border-red-200';
+        return 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800/60';
     };
 
     const getLiquidationStatusColor = (status: string) => {
+        if (status?.includes('Voided')) {
+            return 'bg-gray-50 text-gray-500 border-gray-200 dark:bg-gray-950/40 dark:text-gray-400 dark:border-gray-800/60';
+        }
         if (status?.includes('Fully Liquidated')) {
-            return 'bg-green-100 text-green-700 border-green-200';
+            return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60';
         }
         if (status?.includes('Partially Liquidated')) {
-            return 'bg-blue-100 text-blue-700 border-blue-200';
+            return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800/60';
         }
         // Unliquidated - highlighted in red
-        return 'bg-red-100 text-red-700 border-red-200';
+        return 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800/60';
     };
 
     return (
@@ -248,7 +285,7 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                 <div>
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                         <div>
-                            <h1 className="text-lg font-semibold tracking-tight">Liquidation Management</h1>
+                            <h1 className="text-xl font-semibold tracking-tight">Liquidation Management</h1>
                             <p className="text-sm text-muted-foreground">
                                 {userRole === 'Regional Coordinator' && 'Review and endorse liquidations to Accounting'}
                                 {userRole === 'Accountant' && 'Review and endorse liquidations to COA'}
@@ -257,26 +294,33 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                         </div>
                         {canCreate && (
                             <div className="flex gap-2">
-                                <Button onClick={() => setIsCreateModalOpen(true)}>
+                                <Button onClick={() => setIsCreateModalOpen(true)} className="bg-foreground text-background shadow-sm hover:bg-foreground/90">
                                     <Plus className="h-4 w-4 mr-2" />
                                     Create Liquidation
                                 </Button>
-                                <Button variant="outline" onClick={() => setIsBulkEntryOpen(true)}>
-                                    <TableProperties className="h-4 w-4 mr-2" />
-                                    Bulk Entry
-                                </Button>
-                                <Button variant="outline" onClick={handleDownloadTemplate}>
-                                    <Download className="h-4 w-4 mr-2" />
-                                    Download Template
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    onClick={() => fileInputRef.current?.click()}
-                                    disabled={isUploading}
-                                >
-                                    <Upload className="h-4 w-4 mr-2" />
-                                    {isUploading ? 'Uploading...' : 'Bulk Upload'}
-                                </Button>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="outline" disabled={isUploading}>
+                                            <TableProperties className="h-4 w-4 mr-2" />
+                                            Bulk Actions
+                                            <ChevronDown className="h-3.5 w-3.5 ml-1.5 opacity-60" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-48">
+                                        <DropdownMenuItem onClick={() => setIsBulkEntryOpen(true)}>
+                                            <TableProperties className="h-4 w-4 mr-2" />
+                                            Bulk Entry
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={handleDownloadTemplate}>
+                                            <Download className="h-4 w-4 mr-2" />
+                                            Download Template
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
+                                            <Upload className="h-4 w-4 mr-2" />
+                                            {isUploading ? 'Uploading...' : 'Bulk Upload'}
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
                                 <input
                                     ref={fileInputRef}
                                     type="file"
@@ -323,19 +367,19 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                                             <SelectItem value="all">All Documents</SelectItem>
                                             <SelectItem value="NONE">
                                                 <span className="flex items-center gap-2">
-                                                    <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                                                    <span className="w-2 h-2 rounded-full bg-red-500 dark:bg-red-400"></span>
                                                     No Submission
                                                 </span>
                                             </SelectItem>
                                             <SelectItem value="PARTIAL">
                                                 <span className="flex items-center gap-2">
-                                                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                                                    <span className="w-2 h-2 rounded-full bg-amber-500 dark:bg-amber-400"></span>
                                                     Partial Submission
                                                 </span>
                                             </SelectItem>
                                             <SelectItem value="COMPLETE">
                                                 <span className="flex items-center gap-2">
-                                                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                                                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                                                     Complete Submission
                                                 </span>
                                             </SelectItem>
@@ -349,68 +393,74 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                                             <SelectItem value="all">All Liquidation</SelectItem>
                                             <SelectItem value="unliquidated">
                                                 <span className="flex items-center gap-2">
-                                                    <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                                                    <span className="w-2 h-2 rounded-full bg-red-500 dark:bg-red-400"></span>
                                                     Unliquidated
                                                 </span>
                                             </SelectItem>
                                             <SelectItem value="partially_liquidated">
                                                 <span className="flex items-center gap-2">
-                                                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                                                    <span className="w-2 h-2 rounded-full bg-amber-500 dark:bg-amber-400"></span>
                                                     Partially Liquidated
                                                 </span>
                                             </SelectItem>
                                             <SelectItem value="fully_liquidated">
                                                 <span className="flex items-center gap-2">
-                                                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                                                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                                                     Fully Liquidated
+                                                </span>
+                                            </SelectItem>
+                                            <SelectItem value="voided">
+                                                <span className="flex items-center gap-2">
+                                                    <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500"></span>
+                                                    Voided
                                                 </span>
                                             </SelectItem>
                                         </SelectContent>
                                     </Select>
-                                    <Button type="submit">Search</Button>
+                                    <Button type="submit" className="bg-foreground text-background hover:bg-foreground/90">Search</Button>
                                 </div>
                                 {/* Color Legend */}
                                 <div className="flex items-center gap-4 my-3 text-xs text-muted-foreground">
                                     <span className="flex items-center gap-1">
-                                        <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                                        <span className="w-2 h-2 rounded-full bg-red-500 dark:bg-red-400"></span>
                                         Needs Attention
                                     </span>
                                     <span className="flex items-center gap-1">
-                                        <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                                        <span className="w-2 h-2 rounded-full bg-amber-500 dark:bg-amber-400"></span>
                                         In Progress
                                     </span>
                                     <span className="flex items-center gap-1">
-                                        <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                                        <span className="w-2 h-2 rounded-full bg-amber-500 dark:bg-amber-400"></span>
                                         Partial
                                     </span>
                                     <span className="flex items-center gap-1">
-                                        <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                                         Complete
                                     </span>
                                 </div>
                             </form>
 
-                            <div className="rounded-t-md border border-b-0 overflow-x-auto">
+                            <div className="overflow-hidden rounded-t-lg border border-b-0 overflow-x-auto">
                                 <Table>
                                     <TableHeader>
-                                        <TableRow>
-                                            <TableHead className="w-[50px] pl-4">SEQ</TableHead>
-                                            <TableHead>Program</TableHead>
-                                            <TableHead className="max-w-[300px]">HEI</TableHead>
-                                            <TableHead>Period</TableHead>
-                                            <TableHead>Dates</TableHead>
-                                            <TableHead>Batch</TableHead>
-                                            <TableHead>DV Control No.</TableHead>
-                                            <TableHead className="text-right">Grantees</TableHead>
-                                            <TableHead className="text-right">Disbursements</TableHead>
-                                            <TableHead className="text-right">Liquidated</TableHead>
-                                            <TableHead className="text-right">Unliquidated</TableHead>
-                                            <TableHead>Documents Status</TableHead>
-                                            <TableHead>RC Notes</TableHead>
-                                            <TableHead>Liquidation Status</TableHead>
-                                            <TableHead className="text-right">%</TableHead>
-                                            <TableHead className="text-right">Lapsing</TableHead>
-                                            <TableHead className="text-right pr-4">Actions</TableHead>
+                                        <TableRow className="border-b hover:bg-transparent">
+                                            <TableHead className="h-9 w-[50px] pl-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">SEQ</TableHead>
+                                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Program</TableHead>
+                                            <TableHead className="h-9 max-w-[300px] text-xs font-medium tracking-wider text-muted-foreground uppercase">HEI</TableHead>
+                                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Period</TableHead>
+                                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Dates</TableHead>
+                                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Batch</TableHead>
+                                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Control No.</TableHead>
+                                            <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Grantees</TableHead>
+                                            <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Disbursements</TableHead>
+                                            <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Liquidated</TableHead>
+                                            <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated</TableHead>
+                                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Documents Status</TableHead>
+                                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">RC Notes</TableHead>
+                                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Liquidation Status</TableHead>
+                                            <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">%</TableHead>
+                                            <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Lapsing</TableHead>
+                                            <TableHead className="h-9 text-right pr-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">Actions</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -423,7 +473,7 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                                             </TableRow>
                                         ) : (
                                             liquidations.data.map((liquidation, index) => (
-                                                <TableRow key={liquidation.id} className="hover:bg-transparent">
+                                                <TableRow key={liquidation.id} className={`transition-colors hover:bg-muted/50 ${liquidation.is_voided ? 'opacity-50' : ''}`}>
                                                     <TableCell className="font-medium text-center pl-4 py-3">
                                                         {index + 1}
                                                     </TableCell>
@@ -459,7 +509,7 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                                                     <TableCell className="py-3">
                                                         {liquidation.batch_no || <span className="text-muted-foreground">-</span>}
                                                     </TableCell>
-                                                    <TableCell className="font-medium text-sm py-3">
+                                                    <TableCell className={`font-medium text-sm py-3 ${liquidation.is_voided ? 'line-through' : ''}`}>
                                                         {liquidation.dv_control_no}
                                                     </TableCell>
                                                     <TableCell className="text-right py-3">
@@ -498,23 +548,96 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                                                     </TableCell>
                                                     <TableCell className="text-right py-3">
                                                         {(liquidation.lapsing_period ?? 0) > 0 ? (
-                                                            <span className="text-red-600 font-medium">{liquidation.lapsing_period}</span>
+                                                            <span className="text-red-600 dark:text-red-400 font-medium">{liquidation.lapsing_period}</span>
                                                         ) : (
-                                                            <span className="text-green-600 font-medium">0</span>
+                                                            <span className="text-muted-foreground font-medium">0</span>
                                                         )}
                                                     </TableCell>
                                                     <TableCell className="text-right pr-4 py-3">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            asChild
-                                                            className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                                                        >
-                                                            <Link href={route('liquidation.show', liquidation.id)}>
-                                                                <Eye className="h-4 w-4" />
-                                                                View
-                                                            </Link>
-                                                        </Button>
+                                                        <div className="flex items-center justify-end gap-1">
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        asChild
+                                                                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                                                    >
+                                                                        <Link href={route('liquidation.show', liquidation.id)}>
+                                                                            <Eye className="h-4 w-4" />
+                                                                        </Link>
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>View details</TooltipContent>
+                                                            </Tooltip>
+                                                            {permissions.void && !liquidation.is_voided && (
+                                                                <AlertDialog>
+                                                                    <Tooltip>
+                                                                        <TooltipTrigger asChild>
+                                                                            <AlertDialogTrigger asChild>
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="icon"
+                                                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                                                                >
+                                                                                    <Ban className="h-4 w-4" />
+                                                                                </Button>
+                                                                            </AlertDialogTrigger>
+                                                                        </TooltipTrigger>
+                                                                        <TooltipContent>Void liquidation</TooltipContent>
+                                                                    </Tooltip>
+                                                                    <AlertDialogContent>
+                                                                        <AlertDialogHeader>
+                                                                            <AlertDialogTitle>Void Liquidation</AlertDialogTitle>
+                                                                            <AlertDialogDescription>
+                                                                                Are you sure you want to void <strong>{liquidation.dv_control_no}</strong>? This record will be excluded from all consolidation reports and marked as voided.
+                                                                            </AlertDialogDescription>
+                                                                        </AlertDialogHeader>
+                                                                        <AlertDialogFooter>
+                                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                                            <AlertDialogAction
+                                                                                onClick={() => handleVoid(liquidation)}
+                                                                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                                                            >
+                                                                                Void
+                                                                            </AlertDialogAction>
+                                                                        </AlertDialogFooter>
+                                                                    </AlertDialogContent>
+                                                                </AlertDialog>
+                                                            )}
+                                                            {permissions.void && liquidation.is_voided && (
+                                                                <AlertDialog>
+                                                                    <Tooltip>
+                                                                        <TooltipTrigger asChild>
+                                                                            <AlertDialogTrigger asChild>
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="icon"
+                                                                                    className="h-8 w-8 text-muted-foreground hover:text-emerald-600"
+                                                                                >
+                                                                                    <RotateCcw className="h-4 w-4" />
+                                                                                </Button>
+                                                                            </AlertDialogTrigger>
+                                                                        </TooltipTrigger>
+                                                                        <TooltipContent>Restore liquidation</TooltipContent>
+                                                                    </Tooltip>
+                                                                    <AlertDialogContent>
+                                                                        <AlertDialogHeader>
+                                                                            <AlertDialogTitle>Restore Liquidation</AlertDialogTitle>
+                                                                            <AlertDialogDescription>
+                                                                                Are you sure you want to restore <strong>{liquidation.dv_control_no}</strong>? This record will be included back in consolidation reports.
+                                                                            </AlertDialogDescription>
+                                                                        </AlertDialogHeader>
+                                                                        <AlertDialogFooter>
+                                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                                            <AlertDialogAction onClick={() => handleRestore(liquidation)}>
+                                                                                Restore
+                                                                            </AlertDialogAction>
+                                                                        </AlertDialogFooter>
+                                                                    </AlertDialogContent>
+                                                                </AlertDialog>
+                                                            )}
+                                                        </div>
                                                     </TableCell>
                                                 </TableRow>
                                             ))
@@ -524,9 +647,9 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                             </div>
 
                             {/* Table Footer with Record Counter and Pagination */}
-                            <div className="flex items-center justify-between px-4 py-3 bg-[#1A3263]/10 dark:bg-[#1A3263] border rounded-b-md">
+                            <div className="flex items-center justify-between px-4 py-3 bg-muted/50 border rounded-b-lg">
                                 {/* Record Counter - Left Side */}
-                                <div className="text-sm font-medium text-[#1A3263] dark:text-[#FAB95B]">
+                                <div className="text-sm font-medium text-foreground">
                                     {liquidations.data.length > 0 ? (
                                         <>
                                             Showing{' '}

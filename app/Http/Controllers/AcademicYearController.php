@@ -27,10 +27,11 @@ class AcademicYearController extends Controller
             ->get();
 
         return Inertia::render('academic-years/index', [
-            'academicYears' => $academicYears,
-            'canCreate' => auth()->user()->hasPermission('create_academic_years'),
-            'canEdit'   => auth()->user()->hasPermission('edit_academic_years'),
-            'canDelete' => auth()->user()->hasPermission('delete_academic_years'),
+            'academicYears'          => $academicYears,
+            'canCreate'              => auth()->user()->hasPermission('create_academic_years'),
+            'canEdit'                => auth()->user()->hasPermission('edit_academic_years'),
+            'canDelete'              => auth()->user()->hasPermission('delete_academic_years'),
+            'canManageRequirements'  => auth()->user()->hasPermission('edit_academic_years'),
         ]);
     }
 

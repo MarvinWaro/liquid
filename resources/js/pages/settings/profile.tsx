@@ -193,7 +193,7 @@ export default function Profile({
                                         JPG, PNG, WebP, or GIF. Max 3MB.
                                     </p>
                                     {previewUrl && (
-                                        <p className="text-xs text-blue-600 dark:text-blue-400">
+                                        <p className="text-xs text-muted-foreground">
                                             New photo selected. Click Save to apply.
                                         </p>
                                     )}

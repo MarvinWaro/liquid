@@ -14,8 +14,8 @@ import {
 import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
-import { Head, router } from '@inertiajs/react';
-import { GraduationCap, Pencil, Plus, Search } from 'lucide-react';
+import { Head, Link, router } from '@inertiajs/react';
+import { GraduationCap, Pencil, Plus, Search, Settings2 } from 'lucide-react';
 import { useState } from 'react';
 
 interface AcademicYear {
@@ -34,6 +34,7 @@ interface Props {
     canCreate: boolean;
     canEdit: boolean;
     canDelete: boolean;
+    canManageRequirements: boolean;
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -41,7 +42,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Academic Years', href: '/academic-years' },
 ];
 
-export default function Index({ academicYears, canCreate, canEdit, canDelete }: Props) {
+export default function Index({ academicYears, canCreate, canEdit, canDelete, canManageRequirements }: Props) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedAcademicYear, setSelectedAcademicYear] = useState<AcademicYear | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -114,7 +115,7 @@ export default function Index({ academicYears, canCreate, canEdit, canDelete }: 
                                 {canCreate && (
                                     <Button
                                         onClick={handleCreate}
-                                        className="bg-primary shadow-sm hover:bg-primary/90"
+                                        className="bg-foreground text-background shadow-sm hover:bg-foreground/90"
                                     >
                                         <Plus className="mr-2 h-4 w-4" />
                                         Add Academic Year
@@ -145,7 +146,7 @@ export default function Index({ academicYears, canCreate, canEdit, canDelete }: 
                                         <TableHead className="h-9 w-28 text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                             Status
                                         </TableHead>
-                                        <TableHead className="h-9 w-28 pr-6 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                                        <TableHead className="h-9 w-36 pr-6 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                             Actions
                                         </TableHead>
                                     </TableRow>
@@ -170,7 +171,7 @@ export default function Index({ academicYears, canCreate, canEdit, canDelete }: 
                                                 className="transition-colors hover:bg-muted/50"
                                             >
                                                 <TableCell className="py-2 pl-6">
-                                                    <span className="font-mono text-sm font-semibold text-primary">
+                                                    <span className="font-mono text-sm font-semibold text-foreground">
                                                         {ay.code}
                                                     </span>
                                                 </TableCell>
@@ -192,7 +193,7 @@ export default function Index({ academicYears, canCreate, canEdit, canDelete }: 
                                                 <TableCell className="py-2 text-center">
                                                     <Badge
                                                         variant="outline"
-                                                        className="border-blue-200 bg-blue-50 text-blue-800"
+                                                        className="border-border bg-muted text-foreground"
                                                     >
                                                         {ay.liquidations_count}
                                                     </Badge>
@@ -201,15 +202,15 @@ export default function Index({ academicYears, canCreate, canEdit, canDelete }: 
                                                     <Badge
                                                         className={`${
                                                             ay.is_active
-                                                                ? 'border-green-200 bg-green-100 text-green-700 hover:bg-green-200'
-                                                                : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60'
+                                                                : 'bg-muted text-muted-foreground border-border'
                                                         } shadow-none`}
                                                     >
                                                         <span
                                                             className={`mr-2 h-1.5 w-1.5 rounded-full ${
                                                                 ay.is_active
-                                                                    ? 'bg-green-600'
-                                                                    : 'bg-gray-500'
+                                                                    ? 'bg-emerald-500'
+                                                                    : 'bg-muted-foreground/50'
                                                             }`}
                                                         />
                                                         {ay.is_active ? 'Active' : 'Inactive'}
@@ -217,11 +218,24 @@ export default function Index({ academicYears, canCreate, canEdit, canDelete }: 
                                                 </TableCell>
                                                 <TableCell className="py-2 pr-6 text-right">
                                                     <div className="flex items-center justify-end gap-1">
+                                                        {canManageRequirements && (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                                                title="Configure requirements"
+                                                                asChild
+                                                            >
+                                                                <Link href={route('academic-years.requirements.index', ay.id)}>
+                                                                    <Settings2 className="h-4 w-4" />
+                                                                </Link>
+                                                            </Button>
+                                                        )}
                                                         {canEdit && (
                                                             <Button
                                                                 variant="ghost"
                                                                 size="icon"
-                                                                className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
                                                                 onClick={() => handleEdit(ay)}
                                                             >
                                                                 <Pencil className="h-4 w-4" />
