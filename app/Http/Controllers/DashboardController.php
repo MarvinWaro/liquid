@@ -464,6 +464,42 @@ class DashboardController extends Controller
     }
 
     /**
+     * Summary per Academic Year page.
+     */
+    public function summaryPerAY()
+    {
+        $user = auth()->user();
+        $isAdmin = $user->role && in_array($user->role->name, ['Admin', 'Super Admin']);
+        $userRole = $user->role?->name;
+
+        $regionId = ($userRole === 'Regional Coordinator') ? $user->region_id : null;
+        $heiId = ($userRole === 'HEI' && $user->hei_id) ? $user->hei_id : null;
+
+        $data = $this->getSummaryPerAY($heiId, $regionId);
+
+        return Inertia::render('summary/academic-year', [
+            'summaryPerAY' => $data,
+        ]);
+    }
+
+    /**
+     * Summary per HEI page.
+     */
+    public function summaryPerHEI()
+    {
+        $user = auth()->user();
+        $userRole = $user->role?->name;
+
+        $regionId = ($userRole === 'Regional Coordinator') ? $user->region_id : null;
+
+        $data = ($userRole === 'HEI') ? [] : $this->getSummaryPerHEI($regionId);
+
+        return Inertia::render('summary/hei', [
+            'summaryPerHEI' => $data,
+        ]);
+    }
+
+    /**
      * Format a liquidation for the recent liquidations table.
      */
     private function formatRecentLiquidation(Liquidation $liq): array

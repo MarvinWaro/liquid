@@ -12,10 +12,10 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem, type SharedData, type NavigationAbilities } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { FileText, LayoutGrid } from 'lucide-react';
+import { FileText, LayoutGrid, BarChart3 } from 'lucide-react';
 
 // Define all navigation items with their required ability key
-const allNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
+const allNavItems: (NavItem & { ability?: keyof NavigationAbilities; children?: (NavItem & { ability?: keyof NavigationAbilities })[] })[] = [
     {
         title: 'Dashboard',
         href: dashboard(),
@@ -28,6 +28,23 @@ const allNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
         icon: FileText,
         ability: 'canViewLiquidation',
     },
+    {
+        title: 'Summary',
+        href: '#',
+        icon: BarChart3,
+        children: [
+            {
+                title: 'Per Academic Year',
+                href: '/summary/academic-year',
+                ability: 'canViewSummaryAY',
+            },
+            {
+                title: 'Per HEI',
+                href: '/summary/hei',
+                ability: 'canViewSummaryHEI',
+            },
+        ],
+    },
 ];
 
 export function AppSidebar() {
@@ -39,10 +56,20 @@ export function AppSidebar() {
         canViewUsers: false,
     };
 
-    const mainNavItems = allNavItems.filter(item => {
-        if (!item.ability) return true;
-        return can[item.ability] === true;
-    });
+    const mainNavItems = allNavItems
+        .map(item => {
+            if (item.children) {
+                const filteredChildren = item.children.filter(child => {
+                    if (!child.ability) return true;
+                    return can[child.ability] === true;
+                });
+                if (filteredChildren.length === 0) return null;
+                return { ...item, children: filteredChildren };
+            }
+            if (!item.ability) return item;
+            return can[item.ability] === true ? item : null;
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null);
 
     return (
         <Sidebar collapsible="icon" variant="inset">

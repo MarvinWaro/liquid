@@ -29,16 +29,11 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Search, FileText, Eye, Download, Upload, Plus, TableProperties, ChevronDown, Ban, RotateCcw } from 'lucide-react';
 import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from '@/components/ui/popover';
+import { Label } from '@/components/ui/label';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
 import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
 import { toast } from '@/lib/toast';
@@ -123,6 +118,10 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isBulkEntryOpen, setIsBulkEntryOpen] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
+    const [voidConfirmInput, setVoidConfirmInput] = useState('');
+    const [voidPopoverOpen, setVoidPopoverOpen] = useState<number | null>(null);
+    const [restoreConfirmInput, setRestoreConfirmInput] = useState('');
+    const [restorePopoverOpen, setRestorePopoverOpen] = useState<number | null>(null);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
     const isRC = userRole === 'Regional Coordinator';
@@ -219,7 +218,6 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
     const handleVoid = (liquidation: Liquidation) => {
         router.post(route('liquidation.void', liquidation.id), {}, {
             preserveScroll: true,
-            onSuccess: () => toast.success(`Liquidation ${liquidation.dv_control_no} has been voided.`),
             onError: () => toast.error('Failed to void liquidation.'),
         });
     };
@@ -227,7 +225,6 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
     const handleRestore = (liquidation: Liquidation) => {
         router.post(route('liquidation.restore', liquidation.id), {}, {
             preserveScroll: true,
-            onSuccess: () => toast.success(`Liquidation ${liquidation.dv_control_no} has been restored.`),
             onError: () => toast.error('Failed to restore liquidation.'),
         });
     };
@@ -529,11 +526,18 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                                                             {liquidation.document_status}
                                                         </Badge>
                                                     </TableCell>
-                                                    <TableCell className="max-w-[100px] py-3">
+                                                    <TableCell className="max-w-[200px] py-3">
                                                         {liquidation.rc_notes ? (
-                                                            <span className="text-xs truncate block" title={liquidation.rc_notes}>
-                                                                {liquidation.rc_notes}
-                                                            </span>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <span className="text-xs truncate block cursor-default" title={liquidation.rc_notes}>
+                                                                        {liquidation.rc_notes}
+                                                                    </span>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent side="top" className="max-w-xs whitespace-pre-wrap">
+                                                                    {liquidation.rc_notes}
+                                                                </TooltipContent>
+                                                            </Tooltip>
                                                         ) : (
                                                             <span className="text-muted-foreground">-</span>
                                                         )}
@@ -571,10 +575,16 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                                                                 <TooltipContent>View details</TooltipContent>
                                                             </Tooltip>
                                                             {permissions.void && !liquidation.is_voided && (
-                                                                <AlertDialog>
+                                                                <Popover
+                                                                    open={voidPopoverOpen === liquidation.id}
+                                                                    onOpenChange={(open) => {
+                                                                        setVoidPopoverOpen(open ? liquidation.id : null);
+                                                                        if (!open) setVoidConfirmInput('');
+                                                                    }}
+                                                                >
                                                                     <Tooltip>
                                                                         <TooltipTrigger asChild>
-                                                                            <AlertDialogTrigger asChild>
+                                                                            <PopoverTrigger asChild>
                                                                                 <Button
                                                                                     variant="ghost"
                                                                                     size="icon"
@@ -582,34 +592,58 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                                                                                 >
                                                                                     <Ban className="h-4 w-4" />
                                                                                 </Button>
-                                                                            </AlertDialogTrigger>
+                                                                            </PopoverTrigger>
                                                                         </TooltipTrigger>
                                                                         <TooltipContent>Void liquidation</TooltipContent>
                                                                     </Tooltip>
-                                                                    <AlertDialogContent>
-                                                                        <AlertDialogHeader>
-                                                                            <AlertDialogTitle>Void Liquidation</AlertDialogTitle>
-                                                                            <AlertDialogDescription>
-                                                                                Are you sure you want to void <strong>{liquidation.dv_control_no}</strong>? This record will be excluded from all consolidation reports and marked as voided.
-                                                                            </AlertDialogDescription>
-                                                                        </AlertDialogHeader>
-                                                                        <AlertDialogFooter>
-                                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                                            <AlertDialogAction
-                                                                                onClick={() => handleVoid(liquidation)}
-                                                                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                                                    <PopoverContent align="end" className="w-80">
+                                                                        <div className="space-y-3">
+                                                                            <div className="space-y-1">
+                                                                                <h4 className="font-medium text-sm">Void Liquidation</h4>
+                                                                                <p className="text-sm text-muted-foreground">
+                                                                                    This record will be excluded from all consolidation reports and marked as voided.
+                                                                                </p>
+                                                                            </div>
+                                                                            <div className="space-y-2">
+                                                                                <Label htmlFor={`void-confirm-${liquidation.id}`} className="text-sm">
+                                                                                    Type <strong>{liquidation.dv_control_no}</strong> to confirm
+                                                                                </Label>
+                                                                                <Input
+                                                                                    id={`void-confirm-${liquidation.id}`}
+                                                                                    value={voidConfirmInput}
+                                                                                    onChange={(e) => setVoidConfirmInput(e.target.value)}
+                                                                                    placeholder={liquidation.dv_control_no}
+                                                                                    className="h-8 text-sm"
+                                                                                />
+                                                                            </div>
+                                                                            <Button
+                                                                                variant="destructive"
+                                                                                size="sm"
+                                                                                className="w-full"
+                                                                                disabled={voidConfirmInput !== liquidation.dv_control_no}
+                                                                                onClick={() => {
+                                                                                    handleVoid(liquidation);
+                                                                                    setVoidPopoverOpen(null);
+                                                                                    setVoidConfirmInput('');
+                                                                                }}
                                                                             >
-                                                                                Void
-                                                                            </AlertDialogAction>
-                                                                        </AlertDialogFooter>
-                                                                    </AlertDialogContent>
-                                                                </AlertDialog>
+                                                                                Void this liquidation
+                                                                            </Button>
+                                                                        </div>
+                                                                    </PopoverContent>
+                                                                </Popover>
                                                             )}
                                                             {permissions.void && liquidation.is_voided && (
-                                                                <AlertDialog>
+                                                                <Popover
+                                                                    open={restorePopoverOpen === liquidation.id}
+                                                                    onOpenChange={(open) => {
+                                                                        setRestorePopoverOpen(open ? liquidation.id : null);
+                                                                        if (!open) setRestoreConfirmInput('');
+                                                                    }}
+                                                                >
                                                                     <Tooltip>
                                                                         <TooltipTrigger asChild>
-                                                                            <AlertDialogTrigger asChild>
+                                                                            <PopoverTrigger asChild>
                                                                                 <Button
                                                                                     variant="ghost"
                                                                                     size="icon"
@@ -617,25 +651,45 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                                                                                 >
                                                                                     <RotateCcw className="h-4 w-4" />
                                                                                 </Button>
-                                                                            </AlertDialogTrigger>
+                                                                            </PopoverTrigger>
                                                                         </TooltipTrigger>
                                                                         <TooltipContent>Restore liquidation</TooltipContent>
                                                                     </Tooltip>
-                                                                    <AlertDialogContent>
-                                                                        <AlertDialogHeader>
-                                                                            <AlertDialogTitle>Restore Liquidation</AlertDialogTitle>
-                                                                            <AlertDialogDescription>
-                                                                                Are you sure you want to restore <strong>{liquidation.dv_control_no}</strong>? This record will be included back in consolidation reports.
-                                                                            </AlertDialogDescription>
-                                                                        </AlertDialogHeader>
-                                                                        <AlertDialogFooter>
-                                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                                            <AlertDialogAction onClick={() => handleRestore(liquidation)}>
-                                                                                Restore
-                                                                            </AlertDialogAction>
-                                                                        </AlertDialogFooter>
-                                                                    </AlertDialogContent>
-                                                                </AlertDialog>
+                                                                    <PopoverContent align="end" className="w-80">
+                                                                        <div className="space-y-3">
+                                                                            <div className="space-y-1">
+                                                                                <h4 className="font-medium text-sm">Restore Liquidation</h4>
+                                                                                <p className="text-sm text-muted-foreground">
+                                                                                    This record will be included back in consolidation reports.
+                                                                                </p>
+                                                                            </div>
+                                                                            <div className="space-y-2">
+                                                                                <Label htmlFor={`restore-confirm-${liquidation.id}`} className="text-sm">
+                                                                                    Type <strong>{liquidation.dv_control_no}</strong> to confirm
+                                                                                </Label>
+                                                                                <Input
+                                                                                    id={`restore-confirm-${liquidation.id}`}
+                                                                                    value={restoreConfirmInput}
+                                                                                    onChange={(e) => setRestoreConfirmInput(e.target.value)}
+                                                                                    placeholder={liquidation.dv_control_no}
+                                                                                    className="h-8 text-sm"
+                                                                                />
+                                                                            </div>
+                                                                            <Button
+                                                                                size="sm"
+                                                                                className="w-full"
+                                                                                disabled={restoreConfirmInput !== liquidation.dv_control_no}
+                                                                                onClick={() => {
+                                                                                    handleRestore(liquidation);
+                                                                                    setRestorePopoverOpen(null);
+                                                                                    setRestoreConfirmInput('');
+                                                                                }}
+                                                                            >
+                                                                                Restore this liquidation
+                                                                            </Button>
+                                                                        </div>
+                                                                    </PopoverContent>
+                                                                </Popover>
                                                             )}
                                                         </div>
                                                     </TableCell>

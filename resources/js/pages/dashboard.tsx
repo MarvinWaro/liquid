@@ -119,7 +119,7 @@ interface CardConfig {
     colSpan: number;
 }
 
-export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, statusDistribution, totalStats: rawTotalStats, userStats: rawUserStats, recentLiquidations, userRole }: DashboardProps) {
+export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, totalStats: rawTotalStats, userStats: rawUserStats, recentLiquidations, userRole }: DashboardProps) {
     // Provide default values to prevent undefined errors
     const totalStats: TotalStats = {
         total_liquidations: rawTotalStats?.total_liquidations ?? 0,
@@ -143,8 +143,6 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
 
     // State for filters
     const [chartAYFilter, setChartAYFilter] = useState<string>('all');
-    const [tableAYFilter, setTableAYFilter] = useState<string>('all');
-    const [heiSearchQuery, setHeiSearchQuery] = useState<string>('');
     const [recentLiquidationsSearch, setRecentLiquidationsSearch] = useState<string>('');
 
     // ---------- Utility functions ----------
@@ -234,15 +232,6 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
             'For Compliance': item.for_compliance,
         }));
 
-    const filteredSummaryPerAY = tableAYFilter === 'all'
-        ? summaryPerAY
-        : summaryPerAY.filter(item => item.academic_year === tableAYFilter);
-
-    const filteredSummaryPerHEI = summaryPerHEI.filter(item => {
-        if (!heiSearchQuery.trim()) return true;
-        return item.hei?.name.toLowerCase().includes(heiSearchQuery.toLowerCase());
-    });
-
     const filteredRecentLiquidations = (recentLiquidations || []).filter(item => {
         if (!recentLiquidationsSearch.trim()) return true;
         const searchLower = recentLiquidationsSearch.toLowerCase();
@@ -269,10 +258,6 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
             cards.push({ id: 'liquidation-progress', title: 'Liquidation Progress per Academic Year', colSpan: 8 });
         }
 
-        if (isAdmin || userRole === 'Regional Coordinator' || userRole === 'Accountant') {
-            cards.push({ id: 'summary-ay', title: 'Summary per Academic Year', colSpan: 12 });
-            cards.push({ id: 'summary-hei', title: 'Summary per HEI', colSpan: 12 });
-        }
 
         if (!isAdmin && recentLiquidations && recentLiquidations.length > 0) {
             cards.push({ id: 'recent-liquidations', title: 'Recent Liquidations', colSpan: 12 });
@@ -643,88 +628,6 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
         </ResponsiveContainer>
     );
 
-    const renderSummaryPerAY = () => (
-        <Table>
-            <TableHeader>
-                <TableRow className="border-b hover:bg-transparent">
-                    <TableHead className="h-9 pl-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">Academic Year</TableHead>
-                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Disbursements</TableHead>
-                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Liquidated Amount</TableHead>
-                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated Amount</TableHead>
-                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Endorsement</TableHead>
-                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Compliance</TableHead>
-                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Age of Liquidation</TableHead>
-                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Age for Compliance</TableHead>
-                    <TableHead className="h-9 pr-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Age of Submission</TableHead>
-                </TableRow>
-            </TableHeader>
-            <TableBody>
-                {filteredSummaryPerAY.length === 0 ? (
-                    <TableRow>
-                        <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
-                            No data available.
-                        </TableCell>
-                    </TableRow>
-                ) : (
-                    filteredSummaryPerAY.map((row) => (
-                        <TableRow key={row.academic_year}>
-                            <TableCell className="pl-6 font-medium">{row.academic_year}</TableCell>
-                            <TableCell className="font-mono">{formatCurrency(row.total_disbursements)}</TableCell>
-                            <TableCell className="font-mono">{formatCurrency(row.liquidated_amount)}</TableCell>
-                            <TableCell className="font-mono">{formatCurrency(row.unliquidated_amount)}</TableCell>
-                            <TableCell className="font-mono">{formatCurrency(row.for_endorsement)}</TableCell>
-                            <TableCell className="font-mono">{formatCurrency(row.for_compliance)}</TableCell>
-                            <TableCell>{formatPercentage(row.percentage_liquidation)}</TableCell>
-                            <TableCell>{formatPercentage(row.percentage_compliance)}</TableCell>
-                            <TableCell className="pr-6">{formatPercentage(row.percentage_submission)}</TableCell>
-                        </TableRow>
-                    ))
-                )}
-            </TableBody>
-        </Table>
-    );
-
-    const renderSummaryPerHEI = () => (
-        <Table>
-            <TableHeader>
-                <TableRow className="border-b hover:bg-transparent">
-                    <TableHead className="h-9 pl-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">No.</TableHead>
-                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Name of HEI</TableHead>
-                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Disbursements</TableHead>
-                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Amount Liquidated</TableHead>
-                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Endorsement</TableHead>
-                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated Amount</TableHead>
-                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Compliance</TableHead>
-                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Age of Liquidation</TableHead>
-                    <TableHead className="h-9 pr-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Age of Submission</TableHead>
-                </TableRow>
-            </TableHeader>
-            <TableBody>
-                {filteredSummaryPerHEI.length === 0 ? (
-                    <TableRow>
-                        <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
-                            {heiSearchQuery ? 'No matching HEIs found.' : 'No data available.'}
-                        </TableCell>
-                    </TableRow>
-                ) : (
-                    filteredSummaryPerHEI.map((row, index) => (
-                        <TableRow key={row.hei_id}>
-                            <TableCell className="pl-6 font-medium">{index + 1}</TableCell>
-                            <TableCell className="font-medium">{row.hei?.name || 'N/A'}</TableCell>
-                            <TableCell className="font-mono">{formatCurrency(row.total_disbursements)}</TableCell>
-                            <TableCell className="font-mono">{formatCurrency(row.total_amount_liquidated)}</TableCell>
-                            <TableCell className="font-mono">{formatCurrency(row.for_endorsement)}</TableCell>
-                            <TableCell className="font-mono">{formatCurrency(row.unliquidated_amount)}</TableCell>
-                            <TableCell className="font-mono">{formatCurrency(row.for_compliance)}</TableCell>
-                            <TableCell>{formatPercentage(row.percentage_liquidation)}</TableCell>
-                            <TableCell className="pr-6">{formatPercentage(row.percentage_submission)}</TableCell>
-                        </TableRow>
-                    ))
-                )}
-            </TableBody>
-        </Table>
-    );
-
     const renderRecentLiquidations = () => (
         <Table>
             <TableHeader>
@@ -781,8 +684,6 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
         'stats': renderStats,
         'status-distribution': renderStatusDistribution,
         'liquidation-progress': renderLiquidationProgress,
-        'summary-ay': renderSummaryPerAY,
-        'summary-hei': renderSummaryPerHEI,
         'recent-liquidations': renderRecentLiquidations,
     };
 
@@ -810,36 +711,6 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                     );
                 }
                 return null;
-            case 'summary-ay':
-                return (
-                    <div className="flex items-center gap-2">
-                        <Filter className="h-4 w-4 text-muted-foreground" />
-                        <Select value={tableAYFilter} onValueChange={setTableAYFilter}>
-                            <SelectTrigger className="w-[180px] h-9 text-xs">
-                                <SelectValue placeholder="Filter by year" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {academicYears.map(year => (
-                                    <SelectItem key={year} value={year} className="text-xs">
-                                        {year === 'all' ? 'All Years' : year}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                );
-            case 'summary-hei':
-                return (
-                    <div className="flex items-center gap-2">
-                        <Search className="h-4 w-4 text-muted-foreground" />
-                        <Input
-                            placeholder="Search HEI..."
-                            value={heiSearchQuery}
-                            onChange={(e) => setHeiSearchQuery(e.target.value)}
-                            className="w-[250px] h-9 text-xs"
-                        />
-                    </div>
-                );
             case 'recent-liquidations':
                 return (
                     <div className="flex items-center gap-2">
@@ -902,7 +773,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                         onRemove={() => toggleVisibility(id)}
                                         headerActions={getHeaderActions(id)}
                                         variant={id === 'stats' ? 'transparent' : 'card'}
-                                        noPadding={['summary-ay', 'summary-hei', 'recent-liquidations'].includes(id)}
+                                        noPadding={['recent-liquidations'].includes(id)}
                                     >
                                         {cardRenderers[id]?.()}
                                     </DashboardCard>

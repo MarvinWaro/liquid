@@ -62,6 +62,8 @@ class HandleInertiaRequests extends Middleware
                 'canViewAcademicYears' => false,
                 'canViewDocumentRequirements' => false,
                 'canViewActivityLogs' => false,
+                'canViewSummaryAY' => false,
+                'canViewSummaryHEI' => false,
             ],
 
             'flash' => [

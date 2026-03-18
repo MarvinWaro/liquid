@@ -632,7 +632,6 @@ class LiquidationController extends Controller
 
         $liquidation->update([
             'liquidation_status_id' => LiquidationStatus::voided()?->id,
-            'remarks' => trim(($liquidation->remarks ? $liquidation->remarks . ' | ' : '') . 'Voided by ' . $request->user()->name . ' on ' . now()->format('M d, Y')),
         ]);
 
         ActivityLog::log('voided_liquidation', 'Voided liquidation ' . $liquidation->control_no, $liquidation, 'Liquidation');
@@ -1227,13 +1226,26 @@ class LiquidationController extends Controller
             'total_unliquidated_amount' => number_format($totalUnliquidated, 2),
             'document_status' => $documentStatusDisplay,
             'document_status_code' => $documentStatusCode ?? 'NONE',
-            'rc_notes' => $liquidation->remarks,
+            'rc_notes' => $this->cleanRcNotes($liquidation->remarks),
             'liquidation_status' => $liquidationStatus,
             'liquidation_status_code' => $liquidation->liquidationStatus?->code ?? 'UNLIQUIDATED',
             'is_voided' => $liquidation->isVoided(),
             'percentage_liquidation' => $percentageLiquidation,
             'lapsing_period' => $financial?->lapsing_period ?? 0,
         ];
+    }
+
+    private function cleanRcNotes(?string $remarks): ?string
+    {
+        if (!$remarks) {
+            return null;
+        }
+
+        // Remove "Voided by ..." segments appended by previous void actions
+        $cleaned = preg_replace('/\s*\|\s*Voided by\s+.*?(?=\s*\||$)/', '', $remarks);
+        $cleaned = trim($cleaned, " \t\n\r\0\x0B|");
+
+        return $cleaned ?: null;
     }
 
     private function formatLiquidationForEdit(Liquidation $liquidation): array

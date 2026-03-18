@@ -23,6 +23,8 @@ Route::get('/', function () {
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('summary/academic-year', [DashboardController::class, 'summaryPerAY'])->name('summary.academic-year');
+    Route::get('summary/hei', [DashboardController::class, 'summaryPerHEI'])->name('summary.hei');
 
     // Role Management Routes
     Route::get('roles', [RoleController::class, 'index'])->name('roles.index');
