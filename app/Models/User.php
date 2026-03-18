@@ -170,6 +170,8 @@ class User extends Authenticatable
             'canViewAcademicYears' => $this->hasPermission('view_academic_years'),
             'canViewDocumentRequirements' => $this->hasPermission('view_document_requirements'),
             'canViewActivityLogs' => $this->hasPermission('view_activity_logs'),
+            'canViewSummaryAY' => $this->hasPermission('view_liquidation'),
+            'canViewSummaryHEI' => $this->hasPermission('view_liquidation') && !($this->role && $this->role->name === 'HEI'),
         ];
     }
 

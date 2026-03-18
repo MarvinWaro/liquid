@@ -238,7 +238,7 @@ export default function Show({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={`Liquidation - ${liquidation.control_no}`} />
 
-            <div className="py-3">
+            <div className="py-4">
                 {/* Header */}
                 <LiquidationHeader
                     liquidation={liquidation}
@@ -248,7 +248,7 @@ export default function Show({
                 />
 
                 {/* Details + Workflow Stepper */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 mb-3 items-stretch">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6 items-stretch">
                     <div className="lg:col-span-8 flex flex-col">
                         <LiquidationDetailsCard
                             liquidation={liquidation}

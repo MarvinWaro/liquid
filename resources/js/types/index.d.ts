@@ -20,6 +20,7 @@ export interface NavItem {
     href: NonNullable<InertiaLinkProps['href']>;
     icon?: LucideIcon | null;
     isActive?: boolean;
+    children?: NavItem[];
 }
 
 export interface NavigationAbilities {
@@ -34,6 +35,8 @@ export interface NavigationAbilities {
     canViewAcademicYears: boolean;
     canViewDocumentRequirements: boolean;
     canViewActivityLogs: boolean;
+    canViewSummaryAY: boolean;
+    canViewSummaryHEI: boolean;
 }
 
 export interface AppNotification {

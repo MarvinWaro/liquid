@@ -31,7 +31,9 @@ import {
 } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
 import {
+    BarChart3,
     Check,
+    ChevronDown,
     FileText,
     LayoutGrid,
     Menu,
@@ -43,7 +45,7 @@ import {
 import { useMemo } from 'react';
 
 // Define all navigation items with their required ability key
-const allNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
+const allNavItems: (NavItem & { ability?: keyof NavigationAbilities; children?: (NavItem & { ability?: keyof NavigationAbilities })[] })[] = [
     {
         title: 'Dashboard',
         href: dashboard(),
@@ -55,6 +57,23 @@ const allNavItems: (NavItem & { ability?: keyof NavigationAbilities })[] = [
         href: '/liquidation',
         icon: FileText,
         ability: 'canViewLiquidation',
+    },
+    {
+        title: 'Summary',
+        href: '#',
+        icon: BarChart3,
+        children: [
+            {
+                title: 'Per Academic Year',
+                href: '/summary/academic-year',
+                ability: 'canViewSummaryAY',
+            },
+            {
+                title: 'Per HEI',
+                href: '/summary/hei',
+                ability: 'canViewSummaryHEI',
+            },
+        ],
     },
 ];
 
@@ -80,10 +99,20 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
     };
 
     const mainNavItems = useMemo(() => {
-        return allNavItems.filter((item) => {
-            if (!item.ability) return true;
-            return can[item.ability] === true;
-        });
+        return allNavItems
+            .map(item => {
+                if (item.children) {
+                    const filteredChildren = item.children.filter(child => {
+                        if (!child.ability) return true;
+                        return can[child.ability] === true;
+                    });
+                    if (filteredChildren.length === 0) return null;
+                    return { ...item, children: filteredChildren };
+                }
+                if (!item.ability) return item;
+                return can[item.ability] === true ? item : null;
+            })
+            .filter((item): item is NonNullable<typeof item> => item !== null);
     }, [can]);
 
     return (
@@ -112,21 +141,44 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                     </Link>
                                 </SheetHeader>
                                 <div className="flex h-full flex-1 flex-col space-y-1 p-4">
-                                    {mainNavItems.map((item) => (
-                                        <Link
-                                            key={item.title}
-                                            href={item.href}
-                                            className={cn(
-                                                'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                                                urlIsActive(item.href)
-                                                    ? 'bg-primary/10 text-primary'
-                                                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                                            )}
-                                        >
-                                            {item.icon && <Icon iconNode={item.icon} className="h-4 w-4" />}
-                                            <span>{item.title}</span>
-                                        </Link>
-                                    ))}
+                                    {mainNavItems.map((item) =>
+                                        item.children && item.children.length > 0 ? (
+                                            <div key={item.title} className="space-y-1">
+                                                <div className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground">
+                                                    {item.icon && <Icon iconNode={item.icon} className="h-4 w-4" />}
+                                                    <span>{item.title}</span>
+                                                </div>
+                                                {item.children.map((child) => (
+                                                    <Link
+                                                        key={child.title}
+                                                        href={child.href}
+                                                        className={cn(
+                                                            'flex items-center gap-2 rounded-md px-3 py-2 pl-9 text-sm font-medium transition-colors',
+                                                            urlIsActive(child.href)
+                                                                ? 'bg-foreground text-background'
+                                                                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                                                        )}
+                                                    >
+                                                        <span>{child.title}</span>
+                                                    </Link>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <Link
+                                                key={item.title}
+                                                href={item.href}
+                                                className={cn(
+                                                    'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                                                    urlIsActive(item.href)
+                                                        ? 'bg-foreground text-background'
+                                                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                                                )}
+                                            >
+                                                {item.icon && <Icon iconNode={item.icon} className="h-4 w-4" />}
+                                                <span>{item.title}</span>
+                                            </Link>
+                                        )
+                                    )}
                                 </div>
                             </SheetContent>
                         </Sheet>
@@ -215,24 +267,55 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
 
             {/* Desktop Navigation - transparent bar */}
             <nav className="hidden h-10 items-center gap-1 lg:flex px-8 md:px-16 bg-gray-100 dark:bg-card border-b border-border">
-                {mainNavItems.map((item) => (
-                    <Link
-                        key={item.title}
-                        href={item.href}
-                        className={cn(
-                            'relative inline-flex h-10 items-center gap-2 px-4 text-sm font-medium transition-colors',
-                            urlIsActive(item.href)
-                                ? 'text-primary'
-                                : 'text-muted-foreground hover:text-foreground',
-                        )}
-                    >
-                        {item.icon && <Icon iconNode={item.icon} className="h-4 w-4" />}
-                        {item.title}
-                        {urlIsActive(item.href) && (
-                            <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />
-                        )}
-                    </Link>
-                ))}
+                {mainNavItems.map((item) =>
+                    item.children && item.children.length > 0 ? (
+                        <DropdownMenu key={item.title}>
+                            <DropdownMenuTrigger asChild>
+                                <button
+                                    className={cn(
+                                        'relative inline-flex h-10 items-center gap-1.5 px-4 text-sm font-medium transition-colors outline-none',
+                                        item.children.some(child => urlIsActive(child.href))
+                                            ? 'text-foreground'
+                                            : 'text-muted-foreground hover:text-foreground',
+                                    )}
+                                >
+                                    {item.icon && <Icon iconNode={item.icon} className="h-4 w-4" />}
+                                    {item.title}
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                    {item.children.some(child => urlIsActive(child.href)) && (
+                                        <span className="absolute inset-x-0 bottom-0 h-0.5 bg-foreground" />
+                                    )}
+                                </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start">
+                                {item.children.map((child) => (
+                                    <DropdownMenuItem key={child.title} asChild className="cursor-pointer">
+                                        <Link href={child.href} prefetch>
+                                            {child.title}
+                                        </Link>
+                                    </DropdownMenuItem>
+                                ))}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    ) : (
+                        <Link
+                            key={item.title}
+                            href={item.href}
+                            className={cn(
+                                'relative inline-flex h-10 items-center gap-2 px-4 text-sm font-medium transition-colors',
+                                urlIsActive(item.href)
+                                    ? 'text-foreground'
+                                    : 'text-muted-foreground hover:text-foreground',
+                            )}
+                        >
+                            {item.icon && <Icon iconNode={item.icon} className="h-4 w-4" />}
+                            {item.title}
+                            {urlIsActive(item.href) && (
+                                <span className="absolute inset-x-0 bottom-0 h-0.5 bg-foreground" />
+                            )}
+                        </Link>
+                    )
+                )}
             </nav>
         </div>
 

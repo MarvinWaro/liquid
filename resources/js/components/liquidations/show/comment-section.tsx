@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import type { LiquidationComment, LiquidationCommentUser } from '@/types/liquidation';
 import { getAvatarColor } from '@/types/liquidation';
 import axios from 'axios';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import {
     MessageSquare,
     Reply,

@@ -6,7 +6,9 @@ import { Input } from '@/components/ui/input';
 import {
     Select,
     SelectContent,
+    SelectGroup,
     SelectItem,
+    SelectLabel,
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
@@ -29,6 +31,9 @@ interface Program {
     id: string;
     code: string;
     name: string;
+    parent_id: string | null;
+    parent?: { id: string; code: string; name: string } | null;
+    children_count?: number;
 }
 
 interface DocumentRequirement {
@@ -61,6 +66,49 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Settings', href: '/settings/profile' },
     { title: 'Document Requirements', href: '/document-requirements' },
 ];
+
+function FilterProgramItems({ programs }: { programs: Program[] }) {
+    const parents = programs.filter((p) => (p.children_count ?? 0) > 0);
+    const childrenByParent = new Map<string, Program[]>();
+    const standalone: Program[] = [];
+
+    for (const p of programs) {
+        if ((p.children_count ?? 0) > 0) continue;
+        if (p.parent_id) {
+            const siblings = childrenByParent.get(p.parent_id) ?? [];
+            siblings.push(p);
+            childrenByParent.set(p.parent_id, siblings);
+        } else {
+            standalone.push(p);
+        }
+    }
+
+    return (
+        <>
+            {standalone.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                    {p.code} — {p.name}
+                </SelectItem>
+            ))}
+            {parents.map((parent) => {
+                const children = childrenByParent.get(parent.id) ?? [];
+                if (children.length === 0) return null;
+                return (
+                    <SelectGroup key={parent.id}>
+                        <SelectLabel className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            {parent.code} — {parent.name}
+                        </SelectLabel>
+                        {children.map((child) => (
+                            <SelectItem key={child.id} value={child.id}>
+                                {child.code} — {child.name}
+                            </SelectItem>
+                        ))}
+                    </SelectGroup>
+                );
+            })}
+        </>
+    );
+}
 
 export default function Index({
     requirements,
@@ -136,7 +184,7 @@ export default function Index({
                             {canCreate && (
                                 <Button
                                     onClick={handleCreate}
-                                    className="bg-primary shadow-sm hover:bg-primary/90 shrink-0 self-start sm:self-auto"
+                                    className="bg-foreground text-background shadow-sm hover:bg-foreground/90 shrink-0 self-start sm:self-auto"
                                 >
                                     <Plus className="mr-2 h-4 w-4" />
                                     Add Requirement
@@ -158,11 +206,7 @@ export default function Index({
                                     <SelectItem value="all">
                                         All Programs
                                     </SelectItem>
-                                    {programs.map((p) => (
-                                        <SelectItem key={p.id} value={p.id}>
-                                            {p.code} — {p.name}
-                                        </SelectItem>
-                                    ))}
+                                    <FilterProgramItems programs={programs} />
                                 </SelectContent>
                             </Select>
 
@@ -242,7 +286,7 @@ export default function Index({
                                             <TableCell className="py-2">
                                                 <Badge
                                                     variant="outline"
-                                                    className="border-purple-200 bg-purple-50 font-mono text-xs text-purple-800"
+                                                    className="border-border bg-muted font-mono text-xs text-foreground"
                                                 >
                                                     {req.program?.code ?? '—'}
                                                 </Badge>
@@ -263,7 +307,7 @@ export default function Index({
                                                         {req.description || '—'}
                                                     </span>
                                                     {req.reference_image_url && (
-                                                        <ImageIcon className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
+                                                        <ImageIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
                                                     )}
                                                 </div>
                                             </TableCell>
@@ -272,8 +316,8 @@ export default function Index({
                                                     variant="outline"
                                                     className={
                                                         req.is_required
-                                                            ? 'border-amber-200 bg-amber-50 text-amber-800'
-                                                            : 'border-gray-200 bg-gray-50 text-gray-600'
+                                                            ? 'border-border bg-muted text-foreground'
+                                                            : 'border-border bg-muted text-muted-foreground'
                                                     }
                                                 >
                                                     {req.is_required
@@ -285,15 +329,15 @@ export default function Index({
                                                 <Badge
                                                     className={`${
                                                         req.is_active
-                                                            ? 'border-green-200 bg-green-100 text-green-700 hover:bg-green-200'
-                                                            : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60'
+                                                            : 'bg-muted text-muted-foreground border-border'
                                                     } shadow-none`}
                                                 >
                                                     <span
                                                         className={`mr-2 h-1.5 w-1.5 rounded-full ${
                                                             req.is_active
-                                                                ? 'bg-green-600'
-                                                                : 'bg-gray-500'
+                                                                ? 'bg-emerald-500'
+                                                                : 'bg-muted-foreground/50'
                                                         }`}
                                                     />
                                                     {req.is_active
@@ -307,7 +351,7 @@ export default function Index({
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"
-                                                            className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
                                                             onClick={() =>
                                                                 handleEdit(req)
                                                             }

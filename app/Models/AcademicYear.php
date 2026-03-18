@@ -79,6 +79,22 @@ class AcademicYear extends Model
     }
 
     /**
+     * Get per-AY document requirement overrides.
+     */
+    public function requirementConfigs(): HasMany
+    {
+        return $this->hasMany(AcademicYearDocumentRequirement::class);
+    }
+
+    /**
+     * Whether this academic year has custom document requirement configuration.
+     */
+    public function hasRequirementConfig(): bool
+    {
+        return $this->requirementConfigs()->exists();
+    }
+
+    /**
      * Scope to get only active academic years.
      */
     public function scopeActive(Builder $query): Builder

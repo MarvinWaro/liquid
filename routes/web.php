@@ -15,6 +15,7 @@ use App\Http\Controllers\LiquidationCommentController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SemesterController;
 use App\Http\Controllers\AcademicYearController;
+use App\Http\Controllers\AcademicYearRequirementController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
@@ -22,6 +23,8 @@ Route::get('/', function () {
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('summary/academic-year', [DashboardController::class, 'summaryPerAY'])->name('summary.academic-year');
+    Route::get('summary/hei', [DashboardController::class, 'summaryPerHEI'])->name('summary.hei');
 
     // Role Management Routes
     Route::get('roles', [RoleController::class, 'index'])->name('roles.index');
@@ -64,6 +67,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('academic-years/{academicYear}', [AcademicYearController::class, 'update'])->name('academic-years.update');
     Route::delete('academic-years/{academicYear}', [AcademicYearController::class, 'destroy'])->name('academic-years.destroy');
 
+    // Academic Year — Per-AY Document Requirements
+    Route::get('academic-years/{academicYear}/requirements', [AcademicYearRequirementController::class, 'index'])->name('academic-years.requirements.index');
+    Route::post('academic-years/{academicYear}/requirements/sync', [AcademicYearRequirementController::class, 'sync'])->name('academic-years.requirements.sync');
+    Route::post('academic-years/{academicYear}/requirements/copy', [AcademicYearRequirementController::class, 'copyFromYear'])->name('academic-years.requirements.copy');
+    Route::delete('academic-years/{academicYear}/requirements', [AcademicYearRequirementController::class, 'reset'])->name('academic-years.requirements.reset');
+
     // Document Requirement Management Routes
     Route::get('document-requirements', [DocumentRequirementController::class, 'index'])->name('document-requirements.index');
     Route::post('document-requirements', [DocumentRequirementController::class, 'store'])->name('document-requirements.store');
@@ -95,6 +104,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('liquidation/{liquidation}/edit', [LiquidationController::class, 'edit'])->name('liquidation.edit');
     Route::put('liquidation/{liquidation}', [LiquidationController::class, 'update'])->name('liquidation.update');
     Route::delete('liquidation/{liquidation}', [LiquidationController::class, 'destroy'])->name('liquidation.destroy');
+    Route::post('liquidation/{liquidation}/void', [LiquidationController::class, 'void'])->name('liquidation.void');
+    Route::post('liquidation/{liquidation}/restore', [LiquidationController::class, 'restore'])->name('liquidation.restore');
 
     // Liquidation Workflow Routes
     Route::post('liquidation/{liquidation}/submit', [LiquidationController::class, 'submit'])->name('liquidation.submit');
@@ -116,6 +127,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // RC Bulk Liquidation Routes
     Route::get('liquidation/rc-template/download', [LiquidationController::class, 'downloadRCTemplate'])->name('liquidation.download-rc-template');
     Route::post('liquidation/bulk-import', [LiquidationController::class, 'bulkImportLiquidations'])->name('liquidation.bulk-import');
+    Route::post('liquidation/bulk-store', [LiquidationController::class, 'bulkStore'])->name('liquidation.bulk-store');
 
     // Liquidation Tracking Entry Routes
     Route::post('liquidation/{liquidation}/tracking-entries', [LiquidationController::class, 'saveTrackingEntries'])->name('liquidation.save-tracking-entries');

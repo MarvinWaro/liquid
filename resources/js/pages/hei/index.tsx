@@ -124,17 +124,8 @@ export default function Index({
         currentPage * perPage,
     );
 
-    const getTypeBadgeColor = (type: string) => {
-        switch (type) {
-            case 'Private':
-                return 'border-blue-200 bg-blue-50 text-blue-900';
-            case 'SUC':
-                return 'border-green-200 bg-green-50 text-green-900';
-            case 'LUC':
-                return 'border-purple-200 bg-purple-50 text-purple-900';
-            default:
-                return 'border-gray-200 bg-gray-50 text-gray-900';
-        }
+    const getTypeBadgeColor = (_type: string) => {
+        return 'border-border bg-muted text-foreground';
     };
 
     const getFullTypeName = (type: string) => {
@@ -205,7 +196,7 @@ export default function Index({
                                 {canCreate && (
                                     <Button
                                         onClick={handleCreate}
-                                        className="bg-primary shadow-sm hover:bg-primary/90"
+                                        className="bg-foreground text-background shadow-sm hover:bg-foreground/90"
                                     >
                                         <Plus className="mr-2 h-4 w-4" />
                                         Add HEI
@@ -357,16 +348,16 @@ export default function Index({
                                                 <Badge
                                                     className={`${
                                                         hei.status === 'active'
-                                                            ? 'border-green-200 bg-green-100 text-green-700 hover:bg-green-200'
-                                                            : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60'
+                                                            : 'bg-muted text-muted-foreground border-border'
                                                     } shadow-none`}
                                                 >
                                                     <span
                                                         className={`mr-2 h-1.5 w-1.5 rounded-full ${
                                                             hei.status ===
                                                             'active'
-                                                                ? 'bg-green-600'
-                                                                : 'bg-gray-500'
+                                                                ? 'bg-emerald-500'
+                                                                : 'bg-muted-foreground/50'
                                                         }`}
                                                     ></span>
                                                     {hei.status === 'active'
@@ -380,7 +371,7 @@ export default function Index({
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"
-                                                            className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
                                                             onClick={() =>
                                                                 handleEdit(hei)
                                                             }

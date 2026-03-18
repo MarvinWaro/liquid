@@ -37,7 +37,8 @@
       "Bash(test:*)",
       "Bash(node -e:*)",
       "Bash(xargs grep -l \"Event\\\\|Observer\\\\|Listener\")",
-      "Bash(xargs grep -l \"AppNotification\\\\|type.*Notification\")"
+      "Bash(xargs grep -l \"AppNotification\\\\|type.*Notification\")",
+      "Bash(npx esbuild:*)"
     ]
   }
 }

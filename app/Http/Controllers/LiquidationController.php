@@ -71,13 +71,14 @@ class LiquidationController extends Controller
             'userHei' => $this->formatUserHei($user->hei),
             'regionalCoordinators' => $this->cacheService->getRegionalCoordinators(),
             'accountants' => $this->cacheService->getAccountants(),
-            'programs' => $this->cacheService->getPrograms(),
+            'programs' => $this->cacheService->getSelectablePrograms(),
             'academicYears' => \App\Models\AcademicYear::getDropdownOptions(),
             'heis' => $heis,
             'filters' => $filters,
             'permissions' => [
                 'review' => $user->hasPermission('review_liquidation'),
                 'create' => $user->hasPermission('create_liquidation'),
+                'void' => $user->hasPermission('delete_liquidation'),
             ],
             'userRole' => $user->role->name,
         ]);
@@ -234,6 +235,75 @@ class LiquidationController extends Controller
     }
 
     /**
+     * Bulk store multiple liquidations from in-app form entry.
+     * Reuses the same createLiquidation service as single-entry.
+     */
+    public function bulkStore(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if (!in_array($user->role->name, ['Regional Coordinator', 'Admin']) && !$user->isSuperAdmin()) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+
+        $request->validate([
+            'entries'                          => 'required|array|min:1|max:100',
+            'entries.*.program_id'             => 'required|exists:programs,id',
+            'entries.*.uii'                    => 'required|string',
+            'entries.*.date_fund_released'     => 'required|date',
+            'entries.*.due_date'               => 'nullable|date',
+            'entries.*.academic_year_id'       => 'required|exists:academic_years,id',
+            'entries.*.semester'               => 'required|string|max:50',
+            'entries.*.batch_no'               => 'nullable|string|max:50',
+            'entries.*.number_of_grantees'     => 'nullable|integer|min:0',
+            'entries.*.total_disbursements'    => 'required|numeric|min:0',
+            'entries.*.total_amount_liquidated' => 'nullable|numeric|min:0',
+            'entries.*.document_status'        => 'nullable|string|in:NONE,PARTIAL,COMPLETE',
+            'entries.*.rc_notes'               => 'nullable|string|max:1000',
+        ]);
+
+        $imported = 0;
+        $errors = [];
+
+        foreach ($request->input('entries') as $index => $entry) {
+            try {
+                $this->liquidationService->createLiquidation($entry, $user);
+                $imported++;
+            } catch (\Exception $e) {
+                $errors[] = ['row' => $index + 1, 'error' => $e->getMessage()];
+            }
+        }
+
+        if ($imported > 0) {
+            ActivityLog::log('bulk_entry', 'Bulk entered '.$imported.' liquidation(s)', null, 'Liquidation');
+        }
+
+        if (count($errors) > 0 && $imported === 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'All entries failed. Please check the errors.',
+                'imported' => 0,
+                'errors' => $errors,
+            ], 422);
+        }
+
+        if (count($errors) > 0) {
+            return response()->json([
+                'success' => true,
+                'message' => "Created {$imported} liquidation(s) with " . count($errors) . ' error(s).',
+                'imported' => $imported,
+                'errors' => $errors,
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => "Successfully created {$imported} liquidation(s).",
+            'imported' => $imported,
+        ]);
+    }
+
+    /**
      * Bulk import liquidations from Excel file (for RC).
      */
     public function bulkImportLiquidations(BulkImportRequest $request): JsonResponse
@@ -309,7 +379,7 @@ class LiquidationController extends Controller
 
         $heiRegionId = $liquidation->hei?->region_id;
         $isHEIUser = $user->hei !== null;
-        $requirements = $this->cacheService->getDocumentRequirements($liquidation->program_id);
+        $requirements = $this->cacheService->getDocumentRequirementsForAY($liquidation->program_id, $liquidation->academic_year_id);
 
         // Comment counts per document requirement (for badge display)
         $commentCounts = \App\Models\LiquidationComment::where('liquidation_id', $liquidation->id)
@@ -544,6 +614,51 @@ class LiquidationController extends Controller
 
         return redirect()->route('liquidation.index')
             ->with('success', 'Liquidation deleted successfully.');
+    }
+
+    /**
+     * Void a liquidation (Admin/Super Admin only).
+     * Changes status to VOIDED — record stays in DB but is excluded from totals.
+     */
+    public function void(Request $request, Liquidation $liquidation): RedirectResponse
+    {
+        if (!$request->user()->hasPermission('delete_liquidation')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        if ($liquidation->isVoided()) {
+            return redirect()->back()->with('error', 'This liquidation is already voided.');
+        }
+
+        $liquidation->update([
+            'liquidation_status_id' => LiquidationStatus::voided()?->id,
+        ]);
+
+        ActivityLog::log('voided_liquidation', 'Voided liquidation ' . $liquidation->control_no, $liquidation, 'Liquidation');
+
+        return redirect()->back()->with('success', 'Liquidation has been voided.');
+    }
+
+    /**
+     * Restore a voided liquidation back to Unliquidated status.
+     */
+    public function restore(Request $request, Liquidation $liquidation): RedirectResponse
+    {
+        if (!$request->user()->hasPermission('delete_liquidation')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        if (!$liquidation->isVoided()) {
+            return redirect()->back()->with('error', 'This liquidation is not voided.');
+        }
+
+        $liquidation->update([
+            'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
+        ]);
+
+        ActivityLog::log('restored_liquidation', 'Restored voided liquidation ' . $liquidation->control_no, $liquidation, 'Liquidation');
+
+        return redirect()->back()->with('success', 'Liquidation has been restored.');
     }
 
     /**
@@ -984,9 +1099,10 @@ class LiquidationController extends Controller
     /**
      * Return the next auto-generated DV control number for preview.
      */
-    public function nextControlNo(): JsonResponse
+    public function nextControlNo(Request $request): JsonResponse
     {
-        $controlNo = $this->liquidationService->generateControlNo();
+        $programId = $request->query('program_id');
+        $controlNo = $this->liquidationService->generateControlNo($programId);
 
         return response()->json(['control_no' => $controlNo]);
     }
@@ -1110,11 +1226,26 @@ class LiquidationController extends Controller
             'total_unliquidated_amount' => number_format($totalUnliquidated, 2),
             'document_status' => $documentStatusDisplay,
             'document_status_code' => $documentStatusCode ?? 'NONE',
-            'rc_notes' => $liquidation->remarks,
+            'rc_notes' => $this->cleanRcNotes($liquidation->remarks),
             'liquidation_status' => $liquidationStatus,
+            'liquidation_status_code' => $liquidation->liquidationStatus?->code ?? 'UNLIQUIDATED',
+            'is_voided' => $liquidation->isVoided(),
             'percentage_liquidation' => $percentageLiquidation,
             'lapsing_period' => $financial?->lapsing_period ?? 0,
         ];
+    }
+
+    private function cleanRcNotes(?string $remarks): ?string
+    {
+        if (!$remarks) {
+            return null;
+        }
+
+        // Remove "Voided by ..." segments appended by previous void actions
+        $cleaned = preg_replace('/\s*\|\s*Voided by\s+.*?(?=\s*\||$)/', '', $remarks);
+        $cleaned = trim($cleaned, " \t\n\r\0\x0B|");
+
+        return $cleaned ?: null;
     }
 
     private function formatLiquidationForEdit(Liquidation $liquidation): array
@@ -1340,14 +1471,14 @@ class LiquidationController extends Controller
             }
         }
 
-        $controlNo = !empty($dvControlNo) ? $dvControlNo : $this->liquidationService->generateControlNumber();
+        $programCode = trim($row[1] ?? '');
+        $program = $this->findProgram($programCode);
+
+        $controlNo = !empty($dvControlNo) ? $dvControlNo : $this->liquidationService->generateControlNumber($program?->id);
 
         if (Liquidation::where('control_no', $controlNo)->exists()) {
             return ['success' => false, 'error' => "DV Control No '{$controlNo}' already exists."];
         }
-
-        $programCode = trim($row[1] ?? '');
-        $program = $this->findProgram($programCode);
         $semesterId = $this->liquidationService->findSemesterId($row[7] ?? '');
 
         // Lookup academic year by code string (e.g. "2024-2025"), auto-create if not found

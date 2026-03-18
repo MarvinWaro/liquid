@@ -24,16 +24,25 @@ interface Program {
     name: string;
     description: string | null;
     status: string;
+    parent_id: string | null;
+}
+
+interface ParentOption {
+    id: string;
+    code: string;
+    name: string;
 }
 
 interface ProgramModalProps {
     isOpen: boolean;
     onClose: () => void;
     program: Program | null;
+    parentOptions: ParentOption[];
 }
 
-export function ProgramModal({ isOpen, onClose, program }: ProgramModalProps) {
+export function ProgramModal({ isOpen, onClose, program, parentOptions }: ProgramModalProps) {
     const { data, setData, post, put, processing, errors, reset } = useForm({
+        parent_id: '' as string,
         code: '',
         name: '',
         description: '',
@@ -43,6 +52,7 @@ export function ProgramModal({ isOpen, onClose, program }: ProgramModalProps) {
     useEffect(() => {
         if (program) {
             setData({
+                parent_id: program.parent_id || '',
                 code: program.code || '',
                 name: program.name || '',
                 description: program.description || '',
@@ -53,8 +63,17 @@ export function ProgramModal({ isOpen, onClose, program }: ProgramModalProps) {
         }
     }, [program, isOpen]);
 
+    // Filter out the current program from parent options (can't be its own parent)
+    const availableParents = parentOptions.filter((p) => p.id !== program?.id);
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Send null instead of empty string for parent_id
+        const payload = {
+            ...data,
+            parent_id: data.parent_id || null,
+        };
 
         if (program) {
             put(route('programs.update', program.id), {
@@ -76,6 +95,35 @@ export function ProgramModal({ isOpen, onClose, program }: ProgramModalProps) {
                     <DialogTitle>{program ? 'Edit Program' : 'Add New Program'}</DialogTitle>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
+                    {/* Parent Program (optional) */}
+                    {availableParents.length > 0 && (
+                        <div>
+                            <Label htmlFor="parent_id">Parent Program</Label>
+                            <Select
+                                value={data.parent_id || '_none'}
+                                onValueChange={(value) => setData('parent_id', value === '_none' ? '' : value)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="None (top-level program)" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="_none">None (top-level program)</SelectItem>
+                                    {availableParents.map((p) => (
+                                        <SelectItem key={p.id} value={p.id}>
+                                            {p.code} — {p.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground mt-1">
+                                Select a parent to make this a sub-program (e.g., COSCHO under STUFAPs).
+                            </p>
+                            {errors.parent_id && (
+                                <p className="text-sm text-red-500 mt-1">{errors.parent_id}</p>
+                            )}
+                        </div>
+                    )}
+
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <Label htmlFor="code">Code *</Label>

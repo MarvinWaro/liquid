@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Liquidation;
+use App\Models\LiquidationStatus;
 use App\Models\HEI;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -112,12 +113,35 @@ class DashboardController extends Controller
     /**
      * Get summary per academic year with joins to liquidation_financials.
      */
+    /**
+     * Get the voided status ID (cached) for excluding from raw queries.
+     */
+    private function getVoidedStatusId(): ?string
+    {
+        return LiquidationStatus::voided()?->id;
+    }
+
+    /**
+     * Apply standard exclusions (soft-deleted + voided) to a raw DB query.
+     */
+    private function applyBaseExclusions($query): void
+    {
+        $query->whereNull('liquidations.deleted_at');
+        $voidedId = $this->getVoidedStatusId();
+        if ($voidedId) {
+            $query->where(function ($q) use ($voidedId) {
+                $q->where('liquidations.liquidation_status_id', '!=', $voidedId)
+                  ->orWhereNull('liquidations.liquidation_status_id');
+            });
+        }
+    }
+
     private function getSummaryPerAY(?string $heiId = null, ?string $regionId = null)
     {
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->leftJoin('liquidation_compliance', 'liquidations.id', '=', 'liquidation_compliance.liquidation_id')
-            ->whereNull('liquidations.deleted_at');
+            ->leftJoin('liquidation_compliance', 'liquidations.id', '=', 'liquidation_compliance.liquidation_id');
+        $this->applyBaseExclusions($query);
 
         if ($heiId) {
             $query->where('liquidations.hei_id', $heiId);
@@ -151,8 +175,8 @@ class DashboardController extends Controller
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->leftJoin('liquidation_compliance', 'liquidations.id', '=', 'liquidation_compliance.liquidation_id')
-            ->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
-            ->whereNull('liquidations.deleted_at');
+            ->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id');
+        $this->applyBaseExclusions($query);
 
         if ($regionId) {
             $query->where('heis.region_id', $regionId);
@@ -190,8 +214,8 @@ class DashboardController extends Controller
     private function getTotalStats(?string $regionId = null): array
     {
         $query = DB::table('liquidations')
-            ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->whereNull('liquidations.deleted_at');
+            ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id');
+        $this->applyBaseExclusions($query);
 
         if ($regionId) {
             $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
@@ -205,7 +229,8 @@ class DashboardController extends Controller
             ->first();
 
         // Pending review = submitted but not yet endorsed to COA
-        $pendingQuery = Liquidation::whereNotNull('date_submitted')
+        $pendingQuery = Liquidation::excludeVoided()
+            ->whereNotNull('date_submitted')
             ->whereNull('coa_endorsed_at');
 
         if ($regionId) {
@@ -229,6 +254,7 @@ class DashboardController extends Controller
     private function getLiquidationStatusDistribution(?string $heiId = null, ?string $regionId = null)
     {
         $query = Liquidation::join('liquidation_statuses', 'liquidations.liquidation_status_id', '=', 'liquidation_statuses.id')
+            ->excludeVoided()
             ->select('liquidation_statuses.name as status')
             ->selectRaw('COUNT(*) as count');
 
@@ -248,10 +274,10 @@ class DashboardController extends Controller
      */
     private function getRCUserStats($user): array
     {
-        $stats = DB::table('liquidations')
-            ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->whereNull('liquidations.deleted_at')
-            ->where(function ($q) use ($user) {
+        $query = DB::table('liquidations')
+            ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id');
+        $this->applyBaseExclusions($query);
+        $stats = $query->where(function ($q) use ($user) {
                 $q->where('liquidations.created_by', $user->id)
                   ->orWhere('liquidations.reviewed_by', $user->id);
             })
@@ -262,7 +288,8 @@ class DashboardController extends Controller
             ->first();
 
         // Pending action = submitted but not reviewed by RC (in RC's region)
-        $pendingActionQuery = Liquidation::whereNotNull('date_submitted')
+        $pendingActionQuery = Liquidation::excludeVoided()
+            ->whereNotNull('date_submitted')
             ->whereNull('reviewed_at');
         if ($user->region_id) {
             $pendingActionQuery->whereHas('hei', fn($q) => $q->where('region_id', $user->region_id));
@@ -270,7 +297,7 @@ class DashboardController extends Controller
         $pendingAction = $pendingActionQuery->count();
 
         // Completed = endorsed to accounting (reviewed by RC, in RC's region)
-        $completedQuery = Liquidation::whereNotNull('reviewed_at');
+        $completedQuery = Liquidation::excludeVoided()->whereNotNull('reviewed_at');
         if ($user->region_id) {
             $completedQuery->whereHas('hei', fn($q) => $q->where('region_id', $user->region_id));
         }
@@ -291,23 +318,23 @@ class DashboardController extends Controller
      */
     private function getAccountantUserStats(): array
     {
-        $stats = DB::table('liquidations')
+        $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->whereNotNull('liquidations.reviewed_at') // Endorsed by RC
-            ->whereNull('liquidations.deleted_at')
-            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_amount')
+            ->whereNotNull('liquidations.reviewed_at');
+        $this->applyBaseExclusions($query);
+        $stats = $query->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_amount')
             ->first();
 
         // My liquidations = those endorsed by RC
-        $myLiquidations = Liquidation::whereNotNull('reviewed_at')->count();
+        $myLiquidations = Liquidation::excludeVoided()->whereNotNull('reviewed_at')->count();
 
         // Pending action = endorsed by RC but not yet by accountant
-        $pendingAction = Liquidation::whereNotNull('reviewed_at')
+        $pendingAction = Liquidation::excludeVoided()->whereNotNull('reviewed_at')
             ->whereNull('accountant_reviewed_at')
             ->count();
 
         // Completed = endorsed to COA
-        $completed = Liquidation::whereNotNull('coa_endorsed_at')->count();
+        $completed = Liquidation::excludeVoided()->whereNotNull('coa_endorsed_at')->count();
 
         return [
             'my_liquidations' => $myLiquidations,
@@ -322,11 +349,11 @@ class DashboardController extends Controller
      */
     private function getHEIUserStats(string $heiId): array
     {
-        $stats = DB::table('liquidations')
+        $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->where('liquidations.hei_id', $heiId)
-            ->whereNull('liquidations.deleted_at')
-            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_amount')
+            ->where('liquidations.hei_id', $heiId);
+        $this->applyBaseExclusions($query);
+        $stats = $query->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_amount')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_liquidated')
             ->first();
 
@@ -334,7 +361,7 @@ class DashboardController extends Controller
         $totalLiquidated = $stats->total_liquidated ?? 0;
 
         // Pending action = not yet submitted or returned
-        $pendingAction = Liquidation::where('hei_id', $heiId)
+        $pendingAction = Liquidation::excludeVoided()->where('hei_id', $heiId)
             ->where(function ($q) {
                 $q->whereNull('date_submitted') // Not yet submitted
                   ->orWhereHas('reviews', function ($q2) {
@@ -344,12 +371,12 @@ class DashboardController extends Controller
             ->count();
 
         // Completed = endorsed to COA
-        $completed = Liquidation::where('hei_id', $heiId)
+        $completed = Liquidation::excludeVoided()->where('hei_id', $heiId)
             ->whereNotNull('coa_endorsed_at')
             ->count();
 
         return [
-            'my_liquidations' => Liquidation::where('hei_id', $heiId)->count(),
+            'my_liquidations' => Liquidation::excludeVoided()->where('hei_id', $heiId)->count(),
             'pending_action' => $pendingAction,
             'completed' => $completed,
             'total_amount' => $totalAmount,
@@ -363,18 +390,18 @@ class DashboardController extends Controller
      */
     private function getHEITotalStats(string $heiId): array
     {
-        $stats = DB::table('liquidations')
+        $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->where('liquidations.hei_id', $heiId)
-            ->whereNull('liquidations.deleted_at')
-            ->selectRaw('COUNT(*) as total_liquidations')
+            ->where('liquidations.hei_id', $heiId);
+        $this->applyBaseExclusions($query);
+        $stats = $query->selectRaw('COUNT(*) as total_liquidations')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursed')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_liquidated')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_unliquidated')
             ->first();
 
         // Pending review = submitted but not endorsed to COA
-        $pendingReview = Liquidation::where('hei_id', $heiId)
+        $pendingReview = Liquidation::excludeVoided()->where('hei_id', $heiId)
             ->whereNotNull('date_submitted')
             ->whereNull('coa_endorsed_at')
             ->count();
@@ -434,6 +461,42 @@ class DashboardController extends Controller
         }
 
         return [];
+    }
+
+    /**
+     * Summary per Academic Year page.
+     */
+    public function summaryPerAY()
+    {
+        $user = auth()->user();
+        $isAdmin = $user->role && in_array($user->role->name, ['Admin', 'Super Admin']);
+        $userRole = $user->role?->name;
+
+        $regionId = ($userRole === 'Regional Coordinator') ? $user->region_id : null;
+        $heiId = ($userRole === 'HEI' && $user->hei_id) ? $user->hei_id : null;
+
+        $data = $this->getSummaryPerAY($heiId, $regionId);
+
+        return Inertia::render('summary/academic-year', [
+            'summaryPerAY' => $data,
+        ]);
+    }
+
+    /**
+     * Summary per HEI page.
+     */
+    public function summaryPerHEI()
+    {
+        $user = auth()->user();
+        $userRole = $user->role?->name;
+
+        $regionId = ($userRole === 'Regional Coordinator') ? $user->region_id : null;
+
+        $data = ($userRole === 'HEI') ? [] : $this->getSummaryPerHEI($regionId);
+
+        return Inertia::render('summary/hei', [
+            'summaryPerHEI' => $data,
+        ]);
     }
 
     /**

@@ -115,7 +115,7 @@ export default function Index({
                                 {canCreate && (
                                     <Button
                                         onClick={handleCreate}
-                                        className="bg-primary shadow-sm hover:bg-primary/90"
+                                        className="bg-foreground text-background shadow-sm hover:bg-foreground/90"
                                     >
                                         <Plus className="mr-2 h-4 w-4" />
                                         Add Region
@@ -196,16 +196,16 @@ export default function Index({
                                                     className={`${
                                                         region.status ===
                                                         'active'
-                                                            ? 'border-green-200 bg-green-100 text-green-700 hover:bg-green-200'
-                                                            : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60'
+                                                            : 'bg-muted text-muted-foreground border-border'
                                                     } shadow-none`}
                                                 >
                                                     <span
                                                         className={`mr-2 h-1.5 w-1.5 rounded-full ${
                                                             region.status ===
                                                             'active'
-                                                                ? 'bg-green-600'
-                                                                : 'bg-gray-500'
+                                                                ? 'bg-emerald-500'
+                                                                : 'bg-muted-foreground/50'
                                                         }`}
                                                     ></span>
                                                     {region.status === 'active'
@@ -219,7 +219,7 @@ export default function Index({
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"
-                                                            className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
                                                             onClick={() =>
                                                                 handleEdit(
                                                                     region,

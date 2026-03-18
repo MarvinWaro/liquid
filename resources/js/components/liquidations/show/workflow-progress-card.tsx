@@ -73,11 +73,11 @@ export default function WorkflowProgressCard({ liquidation, isHEIUser, avatarMap
 
     return (
         <Card className="flex-1">
-            <CardHeader className="pb-2 pt-3">
-                <CardTitle className="text-sm font-semibold">Workflow Progress</CardTitle>
-                <CardDescription className="text-xs">Track liquidation status</CardDescription>
+            <CardHeader className="pb-3">
+                <CardTitle className="text-base">Workflow Progress</CardTitle>
+                <CardDescription>Track liquidation status</CardDescription>
             </CardHeader>
-            <CardContent className="pb-4">
+            <CardContent className="pb-5">
                 <VerticalStepper
                     steps={workflowState.steps}
                     currentStep={workflowState.currentStep}
