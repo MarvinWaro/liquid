@@ -66,13 +66,13 @@ export function HEISelector({
         <div className={cn('space-y-2', className)}>
             {/* Selected HEI Display - Compact badge style with remove button */}
             {selectedHei && (
-                <div className="flex items-center gap-2 px-2.5 py-1.5 bg-primary/10 border border-primary/20 rounded-md text-primary">
-                    <Building2 className="h-3.5 w-3.5 shrink-0" />
-                    <span className="text-xs truncate flex-1">{selectedHei.name}</span>
+                <div className="flex items-center gap-2 px-2.5 py-1.5 bg-muted border border-border rounded-md text-foreground">
+                    <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="text-xs flex-1 break-words leading-snug">{selectedHei.name}</span>
                     <button
                         type="button"
                         onClick={() => onChange('')}
-                        className="shrink-0 hover:bg-primary/20 rounded p-0.5 transition-colors"
+                        className="shrink-0 hover:bg-accent rounded p-0.5 transition-colors text-muted-foreground hover:text-foreground"
                         title="Remove selection"
                     >
                         <X className="h-3.5 w-3.5" />
@@ -124,12 +124,12 @@ export function HEISelector({
                                     className={cn(
                                         'w-full flex items-start gap-2 px-2.5 py-2 rounded text-left transition-colors',
                                         'hover:bg-muted/80',
-                                        value === hei.id && 'bg-primary/10 text-primary'
+                                        value === hei.id && 'bg-muted text-foreground font-medium'
                                     )}
                                 >
                                     <span className="text-sm leading-snug flex-1">{hei.name}</span>
                                     {value === hei.id && (
-                                        <Check className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+                                        <Check className="h-3.5 w-3.5 text-foreground shrink-0 mt-0.5" />
                                     )}
                                 </button>
                             ))}

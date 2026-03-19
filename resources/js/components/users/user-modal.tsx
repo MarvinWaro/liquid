@@ -138,7 +138,7 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis }: UserM
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader className="pb-2">
                     <DialogTitle>{isEdit ? 'Edit User' : 'Create New User'}</DialogTitle>
                     <DialogDescription>
