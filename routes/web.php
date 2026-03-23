@@ -66,12 +66,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('academic-years', [AcademicYearController::class, 'store'])->name('academic-years.store');
     Route::put('academic-years/{academicYear}', [AcademicYearController::class, 'update'])->name('academic-years.update');
     Route::delete('academic-years/{academicYear}', [AcademicYearController::class, 'destroy'])->name('academic-years.destroy');
+    Route::post('academic-years/reorder', [AcademicYearController::class, 'reorder'])->name('academic-years.reorder');
 
     // Academic Year — Per-AY Document Requirements
     Route::get('academic-years/{academicYear}/requirements', [AcademicYearRequirementController::class, 'index'])->name('academic-years.requirements.index');
     Route::post('academic-years/{academicYear}/requirements/sync', [AcademicYearRequirementController::class, 'sync'])->name('academic-years.requirements.sync');
     Route::post('academic-years/{academicYear}/requirements/copy', [AcademicYearRequirementController::class, 'copyFromYear'])->name('academic-years.requirements.copy');
     Route::delete('academic-years/{academicYear}/requirements', [AcademicYearRequirementController::class, 'reset'])->name('academic-years.requirements.reset');
+    Route::post('academic-years/{academicYear}/requirements/reset-program', [AcademicYearRequirementController::class, 'resetProgram'])->name('academic-years.requirements.reset-program');
 
     // Document Requirement Management Routes
     Route::get('document-requirements', [DocumentRequirementController::class, 'index'])->name('document-requirements.index');
@@ -126,6 +128,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // RC Bulk Liquidation Routes
     Route::get('liquidation/rc-template/download', [LiquidationController::class, 'downloadRCTemplate'])->name('liquidation.download-rc-template');
+    Route::post('liquidation/validate-import', [LiquidationController::class, 'validateImport'])->name('liquidation.validate-import');
     Route::post('liquidation/bulk-import', [LiquidationController::class, 'bulkImportLiquidations'])->name('liquidation.bulk-import');
     Route::post('liquidation/bulk-store', [LiquidationController::class, 'bulkStore'])->name('liquidation.bulk-store');
 

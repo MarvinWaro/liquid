@@ -11,6 +11,7 @@ use App\Models\Liquidation;
 use App\Models\LiquidationReview;
 use App\Models\LiquidationStatus;
 use App\Models\Program;
+use App\Models\RcNoteStatus;
 use App\Models\ReviewType;
 use App\Models\Semester;
 use App\Models\User;
@@ -58,10 +59,23 @@ class LiquidationService
         if ($roleName === 'HEI' && $user->hei_id) {
             $query->where('hei_id', $user->hei_id);
         } elseif ($roleName === 'Regional Coordinator' && $user->region_id) {
-            // RCs see only liquidations from HEIs in their assigned region
+            // RCs see only liquidations from HEIs in their region, excluding STUFAPS sub-programs
             $query->whereHas('hei', function (Builder $q) use ($user) {
                 $q->where('region_id', $user->region_id);
             });
+            // Exclude STUFAPS sub-program liquidations (programs with a parent_id)
+            $query->whereDoesntHave('program', function (Builder $q) {
+                $q->whereNotNull('parent_id');
+            });
+        } elseif ($roleName === 'STUFAPS Focal') {
+            // STUFAPS Focal sees all regions, all sibling sub-programs under the same parent
+            $scopedProgramIds = $user->getParentScopedProgramIds();
+            if ($scopedProgramIds) {
+                $query->whereIn('program_id', $scopedProgramIds);
+            } else {
+                // No programs assigned — show nothing
+                $query->whereRaw('1 = 0');
+            }
         } elseif (!$user->isSuperAdmin() && !in_array($roleName, ['Accountant', 'Admin', 'HEI'])) {
             // Fallback for other non-admin roles: show only their own created liquidations
             $query->where('created_by', $user->id);
@@ -75,7 +89,29 @@ class LiquidationService
     private function applyFilters(Builder $query, array $filters): void
     {
         if (!empty($filters['program']) && $filters['program'] !== 'all') {
-            $query->where('program_id', $filters['program']);
+            if ($filters['program'] === 'unifast') {
+                // UniFAST = top-level TES and TDP programs
+                $unifastIds = Program::whereNull('parent_id')
+                    ->whereIn(DB::raw('UPPER(code)'), ['TES', 'TDP'])
+                    ->pluck('id');
+                $query->whereIn('program_id', $unifastIds);
+            } elseif ($filters['program'] === 'stufaps') {
+                // STuFAPs = everything except top-level TES and TDP
+                $unifastIds = Program::whereNull('parent_id')
+                    ->whereIn(DB::raw('UPPER(code)'), ['TES', 'TDP'])
+                    ->pluck('id');
+                $query->whereNotIn('program_id', $unifastIds);
+            } else {
+                // Single program or parent group
+                $program = Program::find($filters['program']);
+                if ($program && $program->parent_id === null) {
+                    // Parent program: include itself + all children
+                    $childIds = Program::where('parent_id', $program->id)->pluck('id');
+                    $query->whereIn('program_id', $childIds->push($program->id));
+                } else {
+                    $query->where('program_id', $filters['program']);
+                }
+            }
         }
 
         if (!empty($filters['search'])) {
@@ -148,7 +184,7 @@ class LiquidationService
                 'semester_id'           => $semesterId,
                 'batch_no'              => $data['batch_no'] ?? null,
                 'document_status_id'    => $documentStatusId,
-                'remarks'               => $data['rc_notes'] ?? null,
+                'rc_note_status_id'     => $this->resolveRcNoteStatusId($data['rc_notes'] ?? null),
                 'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
                 'created_by'            => $creator->id,
             ]);
@@ -501,9 +537,9 @@ class LiquidationService
         }
 
         $code = match (strtolower($value)) {
-            '1', '1st', '1st semester' => Semester::CODE_FIRST,
-            '2', '2nd', '2nd semester' => Semester::CODE_SECOND,
-            '3', 'summer', 'sum' => Semester::CODE_SUMMER,
+            '1', '1st', '1st semester', 'first', 'first semester' => Semester::CODE_FIRST,
+            '2', '2nd', '2nd semester', 'second', 'second semester' => Semester::CODE_SECOND,
+            '3', 'summer', 'sum', 'summer semester' => Semester::CODE_SUMMER,
             default => null,
         };
 
@@ -511,11 +547,12 @@ class LiquidationService
             return $this->getCachedSemesters()->firstWhere('code', $code)?->id;
         }
 
+        // Try matching against semester names in the database
         $semester = $this->getCachedSemesters()->first(function ($sem) use ($value) {
             return strtolower($sem->name) === strtolower($value);
         });
 
-        return $semester?->id ?? $this->getCachedSemesters()->firstWhere('code', Semester::CODE_FIRST)?->id;
+        return $semester?->id;
     }
 
     /**
@@ -536,6 +573,30 @@ class LiquidationService
         return Cache::remember('document_statuses_all', self::CACHE_TTL, function () {
             return DocumentStatus::active()->ordered()->get();
         });
+    }
+
+    /**
+     * Get cached RC note statuses.
+     */
+    public function getCachedRcNoteStatuses()
+    {
+        return Cache::remember('rc_note_statuses_all', self::CACHE_TTL, function () {
+            return RcNoteStatus::active()->ordered()->get();
+        });
+    }
+
+    /**
+     * Resolve RC note status ID from a name string (e.g. "For Review").
+     */
+    public function resolveRcNoteStatusId(?string $value): ?string
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        return RcNoteStatus::findByCode(
+            strtoupper(str_replace(' ', '_', trim($value)))
+        )?->id;
     }
 
     /**

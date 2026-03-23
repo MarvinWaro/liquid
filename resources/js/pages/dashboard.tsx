@@ -2,7 +2,7 @@ import AppLayout from '@/layouts/app-layout';
 import { dashboard } from '@/routes';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
     Table,
     TableBody,
@@ -18,6 +18,7 @@ import {
     CardTitle,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
     Select,
@@ -26,9 +27,15 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import {
+    Tooltip as UITooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Label, Sector } from 'recharts';
 import type { PieSectorDataItem } from 'recharts/types/polar/Pie';
-import { DollarSign, FileText, CheckCircle, Clock, AlertCircle, Filter, Search } from 'lucide-react';
+import { DollarSign, FileText, CheckCircle, Clock, AlertCircle, Filter, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import { SortableDashboard, DashboardCard, DashboardToolbar } from '@/components/sortable-dashboard';
 
@@ -102,6 +109,24 @@ interface RecentLiquidation {
     created_at: string;
 }
 
+interface CalendarDueDate {
+    id: string;
+    control_no: string;
+    due_date: string;
+    amount_received: number;
+    hei_name: string | null;
+    program_code: string | null;
+    academic_year: string | null;
+    status: string;
+    fund_source: 'unifast' | 'stufaps';
+}
+
+interface FundSourceStats {
+    totalStats: TotalStats;
+    summaryPerAY: AYSummary[];
+    statusDistribution: StatusDistribution[];
+}
+
 interface DashboardProps {
     isAdmin?: boolean;
     summaryPerAY: AYSummary[];
@@ -111,6 +136,11 @@ interface DashboardProps {
     userStats?: UserStats;
     recentLiquidations?: RecentLiquidation[];
     userRole?: string;
+    calendarDueDates?: CalendarDueDate[];
+    fundSourceData?: {
+        unifast: FundSourceStats;
+        stufaps: FundSourceStats;
+    };
 }
 
 interface CardConfig {
@@ -119,7 +149,7 @@ interface CardConfig {
     colSpan: number;
 }
 
-export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, totalStats: rawTotalStats, userStats: rawUserStats, recentLiquidations, userRole }: DashboardProps) {
+export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, totalStats: rawTotalStats, userStats: rawUserStats, recentLiquidations, userRole, calendarDueDates = [], fundSourceData }: DashboardProps) {
     // Provide default values to prevent undefined errors
     const totalStats: TotalStats = {
         total_liquidations: rawTotalStats?.total_liquidations ?? 0,
@@ -142,8 +172,55 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
     const [activePieIndex, setActivePieIndex] = useState(0);
 
     // State for filters
+    const [fundSourceFilter, setFundSourceFilter] = useState<'all' | 'unifast' | 'stufaps'>('all');
+    const handleFundSourceChange = useCallback((value: 'all' | 'unifast' | 'stufaps') => {
+        setFundSourceFilter(value);
+        setActivePieIndex(0);
+        setChartAYFilter('all');
+    }, []);
     const [chartAYFilter, setChartAYFilter] = useState<string>('all');
     const [recentLiquidationsSearch, setRecentLiquidationsSearch] = useState<string>('');
+
+    // ---------- Fund source filtered data ----------
+
+    const activeTotalStats = useMemo<TotalStats>(() => {
+        if (fundSourceFilter !== 'all' && fundSourceData?.[fundSourceFilter]?.totalStats) {
+            const fs = fundSourceData[fundSourceFilter].totalStats;
+            return {
+                total_liquidations: fs.total_liquidations ?? 0,
+                total_disbursed: fs.total_disbursed ?? 0,
+                total_liquidated: fs.total_liquidated ?? 0,
+                total_unliquidated: fs.total_unliquidated ?? 0,
+                pending_review: fs.pending_review ?? 0,
+            };
+        }
+        return totalStats;
+    }, [fundSourceFilter, fundSourceData, totalStats]);
+
+    const activeSummaryPerAY = useMemo(() => {
+        if (fundSourceFilter !== 'all' && fundSourceData?.[fundSourceFilter]?.summaryPerAY) {
+            return fundSourceData[fundSourceFilter].summaryPerAY;
+        }
+        return summaryPerAY;
+    }, [fundSourceFilter, fundSourceData, summaryPerAY]);
+
+    const activeStatusDistribution = useMemo(() => {
+        if (fundSourceFilter !== 'all' && fundSourceData?.[fundSourceFilter]?.statusDistribution) {
+            return fundSourceData[fundSourceFilter].statusDistribution;
+        }
+        return statusDistribution;
+    }, [fundSourceFilter, fundSourceData, statusDistribution]);
+
+    const activeCalendarDueDates = useMemo(() => {
+        if (fundSourceFilter === 'all') return calendarDueDates;
+        return calendarDueDates.filter(d => d.fund_source === fundSourceFilter);
+    }, [fundSourceFilter, calendarDueDates]);
+
+    // Calendar state
+    const [calendarDate, setCalendarDate] = useState(() => {
+        const now = new Date();
+        return { year: now.getFullYear(), month: now.getMonth() };
+    });
 
     // ---------- Utility functions ----------
 
@@ -208,9 +285,9 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
 
     // ---------- Computed data ----------
 
-    const academicYears = ['all', ...Array.from(new Set(summaryPerAY.map(item => item.academic_year)))];
+    const academicYears = ['all', ...Array.from(new Set(activeSummaryPerAY.map(item => item.academic_year)))];
 
-    const chartData = statusDistribution?.map((item, index) => ({
+    const chartData = activeStatusDistribution?.map((item, index) => ({
         name: item.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
         value: item.count,
         status: item.status,
@@ -218,8 +295,8 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
     })) || [];
 
     const filteredChartData = chartAYFilter === 'all'
-        ? summaryPerAY
-        : summaryPerAY.filter(item => item.academic_year === chartAYFilter);
+        ? activeSummaryPerAY
+        : activeSummaryPerAY.filter(item => item.academic_year === chartAYFilter);
 
     const barChartData = filteredChartData
         .slice()
@@ -244,30 +321,73 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
         );
     });
 
-    // ---------- Card configuration per role ----------
+    // ---------- Stat card definitions per role ----------
+
+    const statCardDefs = useMemo(() => {
+        const defs: { id: string; title: string; value: React.ReactNode; subtitle: string; icon: React.ReactNode; valueClass?: string }[] = [];
+
+        if (isAdmin || userRole === 'Regional Coordinator') {
+            defs.push(
+                { id: 'stat-total-liquidations', title: 'Total Liquidations', value: activeTotalStats.total_liquidations, subtitle: 'All liquidation reports', icon: <FileText className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-total-disbursed', title: 'Total Disbursed', value: formatCurrency(activeTotalStats.total_disbursed), subtitle: 'Amount received from CHED', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-total-liquidated', title: 'Total Liquidated', value: formatCurrency(activeTotalStats.total_liquidated), subtitle: 'Amount disbursed to students', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-emerald-600 dark:text-emerald-400' },
+                { id: 'stat-total-unliquidated', title: 'Total Unliquidated', value: formatCurrency(activeTotalStats.total_unliquidated), subtitle: 'Remaining from CHED funds', icon: <AlertCircle className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-red-600 dark:text-red-400' },
+                { id: 'stat-pending-review', title: 'Pending Review', value: activeTotalStats.pending_review, subtitle: 'Awaiting review', icon: <Clock className="h-4 w-4 text-muted-foreground" /> },
+            );
+        } else if (userRole === 'Accountant') {
+            defs.push(
+                { id: 'stat-my-liquidations', title: 'My Liquidations', value: userStats.my_liquidations, subtitle: 'Total reports in my queue', icon: <FileText className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-pending-action', title: 'Pending Action', value: userStats.pending_action, subtitle: 'Requires your attention', icon: <Clock className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-completed', title: 'Completed', value: userStats.completed, subtitle: 'Successfully processed', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(userStats.total_amount), subtitle: 'Received from CHED', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
+            );
+        } else {
+            defs.push(
+                { id: 'stat-my-liquidations', title: 'My Liquidations', value: userStats.my_liquidations, subtitle: 'Total reports in my queue', icon: <FileText className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-pending-action', title: 'Pending Action', value: userStats.pending_action, subtitle: 'Requires your attention', icon: <Clock className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-completed', title: 'Completed', value: userStats.completed, subtitle: 'Successfully processed', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(userStats.total_amount), subtitle: 'Received from CHED', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
+            );
+            if (userStats.total_liquidated !== undefined) {
+                defs.push(
+                    { id: 'stat-total-liquidated', title: 'Total Liquidated', value: formatCurrency(userStats.total_liquidated), subtitle: 'Disbursed to students', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-emerald-600 dark:text-emerald-400' },
+                    { id: 'stat-total-unliquidated', title: 'Total Unliquidated', value: formatCurrency(userStats.total_unliquidated || 0), subtitle: 'Remaining from CHED', icon: <AlertCircle className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-red-600 dark:text-red-400' },
+                );
+            }
+        }
+
+        return defs;
+    }, [isAdmin, userRole, activeTotalStats, userStats]);
+
+    // ---------- Card configuration (individual cards) ----------
 
     const cardConfigs = useMemo<CardConfig[]>(() => {
         const cards: CardConfig[] = [];
 
-        cards.push({ id: 'stats', title: 'Statistics Overview', colSpan: 12 });
-
-        if (chartData.length > 0) {
-            cards.push({ id: 'status-distribution', title: 'Status Distribution', colSpan: 4 });
+        // Individual stat cards — uniform colSpan so reordering via drag works cleanly
+        const statColSpan = statCardDefs.length <= 4 ? Math.floor(12 / statCardDefs.length) : 4;
+        for (const sc of statCardDefs) {
+            cards.push({ id: sc.id, title: sc.title, colSpan: statColSpan });
         }
+
+        // Charts
         if (barChartData.length > 0) {
             cards.push({ id: 'liquidation-progress', title: 'Liquidation Progress per Academic Year', colSpan: 8 });
         }
+        if (chartData.length > 0) {
+            cards.push({ id: 'status-distribution', title: 'Status Distribution', colSpan: 4 });
+        }
 
-
+        // Recent liquidations
         if (!isAdmin && recentLiquidations && recentLiquidations.length > 0) {
             cards.push({ id: 'recent-liquidations', title: 'Recent Liquidations', colSpan: 12 });
         }
 
         return cards;
-    }, [isAdmin, userRole, chartData.length, barChartData.length, recentLiquidations]);
+    }, [isAdmin, userRole, statCardDefs, chartData.length, barChartData.length, recentLiquidations]);
 
-    const storageKey = `dashboard-layout-${isAdmin ? 'admin' : userRole || 'default'}`;
-    const { layout, updateOrder, toggleVisibility, toggleExpanded, showCard, resetLayout, hiddenCardIds } = useDashboardLayout(
+    const storageKey = `dashboard-layout-v2-${isAdmin ? 'admin' : userRole || 'default'}`;
+    const { layout, updateOrder, toggleVisibility, cycleExpand, showCard, resetLayout, hiddenCardIds } = useDashboardLayout(
         cardConfigs.map(c => c.id),
         storageKey,
     );
@@ -328,182 +448,6 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
 
     // ---------- Card render functions ----------
 
-    const renderStats = () => {
-        if (isAdmin || userRole === 'Regional Coordinator') {
-            return (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Total Liquidations</CardTitle>
-                            <FileText className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{totalStats.total_liquidations}</div>
-                            <p className="text-xs text-muted-foreground">All liquidation reports</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Total Disbursed</CardTitle>
-                            <DollarSign className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{formatCurrency(totalStats.total_disbursed)}</div>
-                            <p className="text-xs text-muted-foreground">Amount received from CHED</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Total Liquidated</CardTitle>
-                            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(totalStats.total_liquidated)}</div>
-                            <p className="text-xs text-muted-foreground">Amount disbursed to students</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Total Unliquidated</CardTitle>
-                            <AlertCircle className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold text-red-600 dark:text-red-400">{formatCurrency(totalStats.total_unliquidated)}</div>
-                            <p className="text-xs text-muted-foreground">Remaining from CHED funds</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Pending Review</CardTitle>
-                            <Clock className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{totalStats.pending_review}</div>
-                            <p className="text-xs text-muted-foreground">Awaiting review</p>
-                        </CardContent>
-                    </Card>
-                </div>
-            );
-        }
-
-        if (userRole === 'Accountant') {
-            return (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">My Liquidations</CardTitle>
-                            <FileText className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{userStats.my_liquidations}</div>
-                            <p className="text-xs text-muted-foreground">Total reports in my queue</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Pending Action</CardTitle>
-                            <Clock className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{userStats.pending_action}</div>
-                            <p className="text-xs text-muted-foreground">Requires your attention</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Completed</CardTitle>
-                            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{userStats.completed}</div>
-                            <p className="text-xs text-muted-foreground">Successfully processed</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Total Amount</CardTitle>
-                            <DollarSign className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{formatCurrency(userStats.total_amount)}</div>
-                            <p className="text-xs text-muted-foreground">Received from CHED</p>
-                        </CardContent>
-                    </Card>
-                </div>
-            );
-        }
-
-        // HEI and other roles
-        return (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">My Liquidations</CardTitle>
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{userStats.my_liquidations}</div>
-                        <p className="text-xs text-muted-foreground">Total reports in my queue</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Pending Action</CardTitle>
-                        <Clock className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{userStats.pending_action}</div>
-                        <p className="text-xs text-muted-foreground">Requires your attention</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Completed</CardTitle>
-                        <CheckCircle className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{userStats.completed}</div>
-                        <p className="text-xs text-muted-foreground">Successfully processed</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Amount</CardTitle>
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{formatCurrency(userStats.total_amount)}</div>
-                        <p className="text-xs text-muted-foreground">Received from CHED</p>
-                    </CardContent>
-                </Card>
-                {userStats.total_liquidated !== undefined && (
-                    <>
-                        <Card>
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">Total Liquidated</CardTitle>
-                                <CheckCircle className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(userStats.total_liquidated)}</div>
-                                <p className="text-xs text-muted-foreground">Disbursed to students</p>
-                            </CardContent>
-                        </Card>
-                        <Card>
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">Total Unliquidated</CardTitle>
-                                <AlertCircle className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold text-red-600 dark:text-red-400">{formatCurrency(userStats.total_unliquidated || 0)}</div>
-                                <p className="text-xs text-muted-foreground">Remaining from CHED</p>
-                            </CardContent>
-                        </Card>
-                    </>
-                )}
-            </div>
-        );
-    };
-
     const renderStatusDistribution = () => (
         <div className="flex flex-col gap-3">
             <div className="px-1">
@@ -539,7 +483,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
                         outerRadius={90}
                         strokeWidth={2}
                         dataKey="value"
-                        activeIndex={activePieIndex}
+                        {...({ activeIndex: activePieIndex } as any)}
                         activeShape={({ outerRadius = 0, ...props }: PieSectorDataItem) => (
                             <g>
                                 <Sector {...props} outerRadius={outerRadius + 10} />
@@ -678,19 +622,204 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
         </Table>
     );
 
+    // ---------- Calendar helpers ----------
+
+    const dueDatesByDay = useMemo(() => {
+        const map: Record<string, CalendarDueDate[]> = {};
+        for (const item of activeCalendarDueDates) {
+            if (!map[item.due_date]) map[item.due_date] = [];
+            map[item.due_date].push(item);
+        }
+        return map;
+    }, [activeCalendarDueDates]);
+
+    const calendarGrid = useMemo(() => {
+        const { year, month } = calendarDate;
+        const firstDay = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const days: (number | null)[] = [];
+        for (let i = 0; i < firstDay; i++) days.push(null);
+        for (let d = 1; d <= daysInMonth; d++) days.push(d);
+        return days;
+    }, [calendarDate]);
+
+    const navigateMonth = useCallback((dir: -1 | 1) => {
+        setCalendarDate(prev => {
+            let m = prev.month + dir;
+            let y = prev.year;
+            if (m < 0) { m = 11; y--; }
+            if (m > 11) { m = 0; y++; }
+            return { year: y, month: m };
+        });
+    }, []);
+
+    const todayStr = useMemo(() => {
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    }, []);
+
+    // Sorted due dates list: overdue first (nearest overdue at top), then upcoming (nearest first)
+    const sortedDueDates = useMemo(() => {
+        return [...activeCalendarDueDates]
+            .filter(d => {
+                const status = d.status.toLowerCase();
+                return status !== 'endorsed to coa';
+            })
+            .sort((a, b) => {
+                const aOverdue = a.due_date < todayStr;
+                const bOverdue = b.due_date < todayStr;
+                if (aOverdue && !bOverdue) return -1;
+                if (!aOverdue && bOverdue) return 1;
+                return a.due_date.localeCompare(b.due_date);
+            });
+    }, [activeCalendarDueDates, todayStr]);
+
+    const renderCalendar = () => {
+        const { year, month } = calendarDate;
+        const monthName = new Date(year, month).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+        return (
+            <div className="flex flex-col h-full">
+                {/* Month navigation */}
+                <div className="flex items-center justify-between mb-4">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigateMonth(-1)}>
+                        <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-sm font-semibold tracking-tight">{monthName}</span>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigateMonth(1)}>
+                        <ChevronRight className="h-4 w-4" />
+                    </Button>
+                </div>
+
+                {/* Day headers */}
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                        <div key={d} className="text-center text-[11px] font-medium text-muted-foreground py-1">{d}</div>
+                    ))}
+                </div>
+
+                {/* Day cells — larger, with red bg for due dates */}
+                <div className="grid grid-cols-7 gap-1">
+                    {calendarGrid.map((day, idx) => {
+                        if (day === null) return <div key={`e-${idx}`} className="h-10" />;
+                        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                        const dues = dueDatesByDay[dateStr];
+                        const count = dues?.length || 0;
+                        const isToday = dateStr === todayStr;
+                        const hasDue = count > 0;
+                        const isOverdue = hasDue && dateStr <= todayStr && dues!.some(d => d.status.toLowerCase() !== 'endorsed to coa');
+
+                        return (
+                            <TooltipProvider key={dateStr} delayDuration={200}>
+                                <UITooltip>
+                                    <TooltipTrigger asChild>
+                                        <div
+                                            className={`h-10 w-full flex items-center justify-center rounded-lg text-sm font-medium transition-all cursor-default
+                                                ${isToday && !hasDue ? 'ring-2 ring-primary font-bold' : ''}
+                                                ${hasDue
+                                                    ? isOverdue
+                                                        ? 'bg-red-500 text-white font-bold shadow-sm'
+                                                        : 'bg-red-100 text-red-700 font-bold dark:bg-red-900/50 dark:text-red-300'
+                                                    : 'text-foreground hover:bg-muted/50'
+                                                }
+                                                ${isToday && hasDue ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : ''}
+                                            `}
+                                        >
+                                            {day}
+                                        </div>
+                                    </TooltipTrigger>
+                                    {count > 0 && (
+                                        <TooltipContent side="bottom" className="text-xs max-w-[200px]">
+                                            <p className="font-semibold">{count} due date{count > 1 ? 's' : ''}</p>
+                                            {dues!.slice(0, 3).map(d => (
+                                                <p key={d.id} className="text-muted-foreground">{d.program_code} — {d.control_no}</p>
+                                            ))}
+                                            {count > 3 && <p className="text-muted-foreground">+{count - 3} more</p>}
+                                        </TooltipContent>
+                                    )}
+                                </UITooltip>
+                            </TooltipProvider>
+                        );
+                    })}
+                </div>
+
+                {/* Legend */}
+                <div className="flex items-center gap-4 mt-4 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-red-500" /> Overdue</span>
+                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-red-100 dark:bg-red-900/50" /> Upcoming</span>
+                </div>
+
+                {/* Due dates list below calendar */}
+                {sortedDueDates.length > 0 && (
+                    <div className="mt-4 border-t pt-4">
+                        <p className="text-xs font-semibold mb-3 text-muted-foreground uppercase tracking-wider">Upcoming Due Dates</p>
+                        <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                            {sortedDueDates.map(item => {
+                                const isOverdue = item.due_date <= todayStr;
+                                const dueDate = new Date(item.due_date + 'T00:00:00');
+                                const diffDays = Math.ceil((dueDate.getTime() - new Date(todayStr + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24));
+                                const urgencyLabel = isOverdue
+                                    ? `${Math.abs(diffDays)} day${Math.abs(diffDays) !== 1 ? 's' : ''} overdue`
+                                    : diffDays === 0 ? 'Due today'
+                                    : `${diffDays} day${diffDays !== 1 ? 's' : ''} left`;
+
+                                return (
+                                    <div key={item.id} className={`rounded-lg border p-2.5 text-xs transition-colors ${isOverdue ? 'border-red-200 bg-red-50/50 dark:border-red-800/40 dark:bg-red-950/20' : ''}`}>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="font-mono font-bold text-foreground">{item.control_no}</span>
+                                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${isOverdue ? 'bg-red-500 text-white' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'}`}>
+                                                {urgencyLabel}
+                                            </span>
+                                        </div>
+                                        <p className="text-muted-foreground truncate">{item.program_code} — {item.hei_name || 'N/A'}</p>
+                                        <p className="text-muted-foreground/70 text-[10px]">
+                                            Due: {dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                            {item.academic_year && ` • ${item.academic_year}`}
+                                        </p>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     // ---------- Card renderer & header actions maps ----------
 
+    // Build card renderers including individual stat cards
     const cardRenderers: Record<string, () => React.ReactNode> = {
-        'stats': renderStats,
         'status-distribution': renderStatusDistribution,
         'liquidation-progress': renderLiquidationProgress,
         'recent-liquidations': renderRecentLiquidations,
     };
 
+    // Add stat card renderers dynamically
+    for (const sc of statCardDefs) {
+        cardRenderers[sc.id] = () => (
+            <>
+                <div className={`text-2xl font-bold ${sc.valueClass || ''}`}>{sc.value}</div>
+                <p className="text-xs text-muted-foreground">{sc.subtitle}</p>
+            </>
+        );
+    }
+
+    // Stat card icon lookup for header actions
+    const statCardIconMap = useMemo(() => {
+        const map: Record<string, React.ReactNode> = {};
+        for (const sc of statCardDefs) {
+            map[sc.id] = sc.icon;
+        }
+        return map;
+    }, [statCardDefs]);
+
     const getHeaderActions = (id: string): React.ReactNode => {
+        // Stat card icons
+        if (statCardIconMap[id]) return statCardIconMap[id];
+
         switch (id) {
             case 'liquidation-progress':
-                // Only admin/RC/accountant get the chart AY filter
                 if (isAdmin || userRole === 'Regional Coordinator' || userRole === 'Accountant') {
                     return (
                         <div className="flex items-center gap-2">
@@ -744,42 +873,72 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
                                 Overview of liquidation data and analytics.
                             </p>
                         </div>
-                        <DashboardToolbar
-                            hiddenCards={hiddenCardIds.map(id => ({
-                                id,
-                                title: cardConfigs.find(c => c.id === id)?.title || id,
-                            }))}
-                            onShowCard={showCard}
-                            onResetLayout={resetLayout}
-                        />
+                        <div className="flex items-center gap-2">
+                            {fundSourceData && (
+                                <Select value={fundSourceFilter} onValueChange={(v) => handleFundSourceChange(v as 'all' | 'unifast' | 'stufaps')}>
+                                    <SelectTrigger className="w-[160px] h-8 text-xs">
+                                        <SelectValue placeholder="Fund Source" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all" className="text-xs">All Programs</SelectItem>
+                                        <SelectItem value="unifast" className="text-xs">UniFAST</SelectItem>
+                                        <SelectItem value="stufaps" className="text-xs">STuFAPs</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            )}
+                            <DashboardToolbar
+                                hiddenCards={hiddenCardIds.map(id => ({
+                                    id,
+                                    title: cardConfigs.find(c => c.id === id)?.title || id,
+                                }))}
+                                onShowCard={showCard}
+                                onResetLayout={resetLayout}
+                            />
+                        </div>
                     </div>
 
-                    {/* Sortable Dashboard Grid */}
-                    <SortableDashboard onOrderChange={updateOrder}>
-                        {layout.order
-                            .filter(id => layout.cards[id]?.visible && cardConfigs.some(c => c.id === id))
-                            .map(id => {
-                                const config = cardConfigs.find(c => c.id === id);
-                                if (!config) return null;
-                                const cardState = layout.cards[id];
-                                return (
-                                    <DashboardCard
-                                        key={id}
-                                        id={id}
-                                        title={config.title}
-                                        colSpan={config.colSpan}
-                                        expanded={cardState?.expanded}
-                                        onToggleExpand={config.colSpan < 12 ? () => toggleExpanded(id) : undefined}
-                                        onRemove={() => toggleVisibility(id)}
-                                        headerActions={getHeaderActions(id)}
-                                        variant={id === 'stats' ? 'transparent' : 'card'}
-                                        noPadding={['recent-liquidations'].includes(id)}
-                                    >
-                                        {cardRenderers[id]?.()}
-                                    </DashboardCard>
-                                );
-                            })}
-                    </SortableDashboard>
+                    {/* Main layout: sortable grid + calendar sidebar */}
+                    <div className="grid grid-cols-12 gap-4">
+                        {/* Left: Sortable Dashboard Grid */}
+                        <div className="col-span-12 lg:col-span-8 xl:col-span-9">
+                            <SortableDashboard onOrderChange={updateOrder}>
+                                {layout.order
+                                    .filter(id => layout.cards[id]?.visible && cardConfigs.some(c => c.id === id))
+                                    .map(id => {
+                                        const config = cardConfigs.find(c => c.id === id);
+                                        if (!config) return null;
+                                        const cardState = layout.cards[id];
+                                        return (
+                                            <DashboardCard
+                                                key={id}
+                                                id={id}
+                                                title={config.title}
+                                                colSpan={config.colSpan}
+                                                expandLevel={cardState?.expandLevel ?? 0}
+                                                onCycleExpand={config.colSpan < 12 ? () => cycleExpand(id) : undefined}
+                                                onRemove={() => toggleVisibility(id)}
+                                                headerActions={getHeaderActions(id)}
+                                                noPadding={id === 'recent-liquidations'}
+                                            >
+                                                {cardRenderers[id]?.()}
+                                            </DashboardCard>
+                                        );
+                                    })}
+                            </SortableDashboard>
+                        </div>
+
+                        {/* Right: Calendar Sidebar */}
+                        <div className="col-span-12 lg:col-span-4 xl:col-span-3">
+                            <Card className="sticky top-4 border-border/50 shadow-sm">
+                                <CardHeader className="pb-2">
+                                    <CardTitle className="text-base">Due Date Calendar</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    {renderCalendar()}
+                                </CardContent>
+                            </Card>
+                        </div>
+                    </div>
 
                 </div>
             </div>

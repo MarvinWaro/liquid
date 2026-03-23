@@ -53,6 +53,14 @@ interface Region {
     name: string;
 }
 
+interface Program {
+    id: string;
+    code: string;
+    name: string;
+    parent_id?: string | null;
+    parent?: { id: string; code: string; name: string } | null;
+}
+
 interface User {
     id: number;
     name: string;
@@ -64,6 +72,7 @@ interface User {
     hei_id?: string | null;
     region?: Region | null;
     region_id?: string | null;
+    programs?: Program[];
     created_at: string;
 }
 
@@ -75,6 +84,7 @@ interface Props {
     roles: Role[];
     regions: Region[];
     heis: HEI[];
+    programs: Program[];
     canCreate: boolean;
     canEdit: boolean;
     canDelete: boolean;
@@ -92,6 +102,7 @@ export default function Index({
     roles,
     regions,
     heis,
+    programs,
     canCreate,
     canEdit,
     canDelete,
@@ -181,6 +192,7 @@ export default function Index({
                 roles={roles}
                 regions={regions}
                 heis={heis}
+                programs={programs}
             />
 
             <div className="w-full min-w-0 py-8">

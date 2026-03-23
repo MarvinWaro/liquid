@@ -15,8 +15,9 @@ import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
-import { GraduationCap, Pencil, Plus, Search, Settings2 } from 'lucide-react';
-import { useState } from 'react';
+import { GrabIcon, GraduationCap, Pencil, Plus, Search, Settings2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import Sortable from 'sortablejs';
 
 interface AcademicYear {
     id: string;
@@ -46,28 +47,83 @@ export default function Index({ academicYears, canCreate, canEdit, canDelete, ca
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedAcademicYear, setSelectedAcademicYear] = useState<AcademicYear | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [items, setItems] = useState<AcademicYear[]>(academicYears);
+    const tbodyRef = useRef<HTMLTableSectionElement>(null);
+    const sortableRef = useRef<Sortable | null>(null);
 
-    const filteredAcademicYears = academicYears.filter(
-        (ay) =>
-            ay.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            ay.code.toLowerCase().includes(searchQuery.toLowerCase()),
-    );
+    // Sync items when server data changes
+    useEffect(() => {
+        setItems(academicYears);
+    }, [academicYears]);
+
+    const isFiltering = searchQuery.trim().length > 0;
+
+    const filteredItems = isFiltering
+        ? items.filter(
+            (ay) =>
+                ay.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                ay.code.toLowerCase().includes(searchQuery.toLowerCase()),
+          )
+        : items;
+
+    // Initialize SortableJS
+    useEffect(() => {
+        if (!tbodyRef.current || !canEdit) return;
+
+        sortableRef.current = Sortable.create(tbodyRef.current, {
+            animation: 200,
+            handle: '.drag-handle',
+            ghostClass: 'opacity-30',
+            chosenClass: 'bg-muted/80',
+            disabled: isFiltering,
+            onEnd: (evt) => {
+                if (evt.oldIndex === undefined || evt.newIndex === undefined) return;
+                if (evt.oldIndex === evt.newIndex) return;
+
+                setItems(prev => {
+                    const updated = [...prev];
+                    const [moved] = updated.splice(evt.oldIndex!, 1);
+                    updated.splice(evt.newIndex!, 0, moved);
+                    return updated;
+                });
+            },
+        });
+
+        return () => {
+            sortableRef.current?.destroy();
+        };
+    }, [canEdit, isFiltering]);
+
+    // Persist new order to backend after drag
+    const prevItemsRef = useRef<string>(JSON.stringify(academicYears.map(a => a.id)));
+    useEffect(() => {
+        const currentIds = JSON.stringify(items.map(a => a.id));
+        if (currentIds !== prevItemsRef.current) {
+            prevItemsRef.current = currentIds;
+            router.post(route('academic-years.reorder'), {
+                ids: items.map(a => a.id),
+            }, {
+                preserveScroll: true,
+                preserveState: true,
+            });
+        }
+    }, [items]);
 
     const handleCreate = () => {
         setSelectedAcademicYear(null);
         setIsModalOpen(true);
     };
 
-    const handleEdit = (academicYear: AcademicYear) => {
+    const handleEdit = useCallback((academicYear: AcademicYear) => {
         setSelectedAcademicYear(academicYear);
         setIsModalOpen(true);
-    };
+    }, []);
 
-    const handleDelete = (academicYearId: string) => {
+    const handleDelete = useCallback((academicYearId: string) => {
         router.delete(route('academic-years.destroy', academicYearId), {
             preserveScroll: true,
         });
-    };
+    }, []);
 
     const formatDate = (date: string | null) => {
         if (!date) return '-';
@@ -99,6 +155,11 @@ export default function Index({ academicYears, canCreate, canEdit, canDelete, ca
                                 </h2>
                                 <p className="mt-1 text-sm text-muted-foreground">
                                     Manage academic year periods for liquidations.
+                                    {canEdit && !isFiltering && (
+                                        <span className="ml-1 text-xs text-muted-foreground/70">
+                                            Drag rows to reorder.
+                                        </span>
+                                    )}
                                 </p>
                             </div>
                             <div className="flex items-center gap-3">
@@ -128,6 +189,9 @@ export default function Index({ academicYears, canCreate, canEdit, canDelete, ca
                             <Table>
                                 <TableHeader>
                                     <TableRow className="border-b hover:bg-transparent">
+                                        {canEdit && (
+                                            <TableHead className="h-9 w-10 pl-3 text-xs font-medium tracking-wider text-muted-foreground uppercase" />
+                                        )}
                                         <TableHead className="h-9 w-32 pl-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                             Code
                                         </TableHead>
@@ -151,11 +215,11 @@ export default function Index({ academicYears, canCreate, canEdit, canDelete, ca
                                         </TableHead>
                                     </TableRow>
                                 </TableHeader>
-                                <TableBody>
-                                    {filteredAcademicYears.length === 0 ? (
+                                <TableBody ref={tbodyRef}>
+                                    {filteredItems.length === 0 ? (
                                         <TableRow>
                                             <TableCell
-                                                colSpan={7}
+                                                colSpan={canEdit ? 8 : 7}
                                                 className="py-12 text-center text-muted-foreground"
                                             >
                                                 <div className="flex flex-col items-center gap-2">
@@ -165,11 +229,19 @@ export default function Index({ academicYears, canCreate, canEdit, canDelete, ca
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        filteredAcademicYears.map((ay) => (
+                                        filteredItems.map((ay) => (
                                             <TableRow
                                                 key={ay.id}
+                                                data-id={ay.id}
                                                 className="transition-colors hover:bg-muted/50"
                                             >
+                                                {canEdit && (
+                                                    <TableCell className="py-2 pl-3 w-10">
+                                                        {!isFiltering && (
+                                                            <GrabIcon className="drag-handle h-4 w-4 cursor-grab text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing" />
+                                                        )}
+                                                    </TableCell>
+                                                )}
                                                 <TableCell className="py-2 pl-6">
                                                     <span className="font-mono text-sm font-semibold text-foreground">
                                                         {ay.code}

@@ -50,6 +50,7 @@ class HEI extends Model
         'name',
         'type',
         'region_id',
+        'logo',
         'status',
     ];
 
@@ -66,6 +67,14 @@ class HEI extends Model
     public function region(): BelongsTo
     {
         return $this->belongsTo(Region::class);
+    }
+
+    /**
+     * Get users belonging to this HEI.
+     */
+    public function users(): HasMany
+    {
+        return $this->hasMany(User::class, 'hei_id');
     }
 
     /**

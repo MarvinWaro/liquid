@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\Role;
 use App\Models\Region;
 use App\Models\HEI;
+use App\Models\Program;
 use App\Models\ActivityLog;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
@@ -23,7 +24,7 @@ class UserController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        $users = User::with(['role', 'hei.region', 'region'])
+        $users = User::with(['role', 'hei.region', 'region', 'programs'])
             ->join('roles', 'users.role_id', '=', 'roles.id')
             ->select('users.*')
             ->orderByRaw("CASE WHEN roles.name = 'Super Admin' THEN 0 ELSE 1 END")
@@ -37,11 +38,18 @@ class UserController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'code', 'region_id']);
 
+        // All active programs with parent info for STUFAPS Focal assignment
+        $programs = Program::active()
+            ->with('parent:id,code,name')
+            ->orderBy('name')
+            ->get(['id', 'code', 'name', 'parent_id']);
+
         return Inertia::render('users/index', [
             'users' => $users,
             'roles' => $roles,
             'regions' => $regions,
             'heis' => $heis,
+            'programs' => $programs,
             'canCreate' => auth()->user()->hasPermission('create_users'),
             'canEdit' => auth()->user()->hasPermission('edit_users'),
             'canDelete' => auth()->user()->hasPermission('delete_users'),
@@ -58,6 +66,7 @@ class UserController extends Controller
         $role = Role::find($request->role_id);
         $isRegionalCoordinator = $role && $role->name === 'Regional Coordinator';
         $isHEIRole = $role && $role->name === 'HEI';
+        $isProgramScoped = $role && $role->name === 'STUFAPS Focal';
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -66,6 +75,8 @@ class UserController extends Controller
             'role_id' => 'required|exists:roles,id',
             'region_id' => $isRegionalCoordinator ? 'required|exists:regions,id' : 'nullable|exists:regions,id',
             'hei_id' => $isHEIRole ? 'required|exists:heis,id' : 'nullable|exists:heis,id',
+            'program_ids' => $isProgramScoped ? 'required|array|min:1' : 'nullable|array',
+            'program_ids.*' => 'exists:programs,id',
             'status' => 'required|in:active,inactive',
         ]);
 
@@ -78,6 +89,11 @@ class UserController extends Controller
             'hei_id' => $validated['hei_id'] ?? null,
             'status' => $validated['status'],
         ]);
+
+        // Sync program assignments for STUFAPS Focal
+        if ($isProgramScoped && !empty($validated['program_ids'])) {
+            $user->programs()->sync($validated['program_ids']);
+        }
 
         // Backfill notifications for HEI users so they see liquidations created before their account
         if ($isHEIRole && $user->hei_id) {
@@ -100,6 +116,7 @@ class UserController extends Controller
         $role = Role::find($request->role_id);
         $isRegionalCoordinator = $role && $role->name === 'Regional Coordinator';
         $isHEIRole = $role && $role->name === 'HEI';
+        $isProgramScoped = $role && $role->name === 'STUFAPS Focal';
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -108,6 +125,8 @@ class UserController extends Controller
             'role_id' => 'required|exists:roles,id',
             'region_id' => $isRegionalCoordinator ? 'required|exists:regions,id' : 'nullable|exists:regions,id',
             'hei_id' => $isHEIRole ? 'required|exists:heis,id' : 'nullable|exists:heis,id',
+            'program_ids' => $isProgramScoped ? 'required|array|min:1' : 'nullable|array',
+            'program_ids.*' => 'exists:programs,id',
             'status' => 'required|in:active,inactive',
         ]);
 
@@ -125,6 +144,13 @@ class UserController extends Controller
         }
 
         $user->update($updateData);
+
+        // Sync program assignments (clear if not STUFAPS Focal)
+        if ($isProgramScoped && !empty($validated['program_ids'])) {
+            $user->programs()->sync($validated['program_ids']);
+        } else {
+            $user->programs()->detach();
+        }
 
         return redirect()->back()->with('success', 'User updated successfully.');
     }

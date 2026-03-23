@@ -21,6 +21,7 @@ use App\Models\LiquidationDocument;
 use App\Models\LiquidationReview;
 use App\Models\LiquidationRunningData;
 use App\Models\LiquidationStatus;
+use App\Models\RcNoteStatus;
 use App\Models\LiquidationTrackingEntry;
 use App\Services\CacheService;
 use App\Services\LiquidationService;
@@ -73,6 +74,7 @@ class LiquidationController extends Controller
             'accountants' => $this->cacheService->getAccountants(),
             'programs' => $this->cacheService->getSelectablePrograms(),
             'academicYears' => \App\Models\AcademicYear::getDropdownOptions(),
+            'rcNoteStatuses' => RcNoteStatus::getDropdownOptions(),
             'heis' => $heis,
             'filters' => $filters,
             'permissions' => [
@@ -242,7 +244,7 @@ class LiquidationController extends Controller
     {
         $user = $request->user();
 
-        if (!in_array($user->role->name, ['Regional Coordinator', 'Admin']) && !$user->isSuperAdmin()) {
+        if (!$user->hasPermission('create_liquidation')) {
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
 
@@ -304,6 +306,57 @@ class LiquidationController extends Controller
     }
 
     /**
+     * Validate an Excel file before importing (dry-run).
+     * Returns parsed rows with validation status — no records are created.
+     */
+    public function validateImport(BulkImportRequest $request): JsonResponse
+    {
+        $file = $request->file('file');
+        $user = $request->user();
+        $validatedRows = [];
+
+        try {
+            $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file->getRealPath());
+            $rows = $spreadsheet->getActiveSheet()->toArray();
+
+            foreach ($rows as $index => $row) {
+                if (empty(array_filter($row, fn($cell) => $cell !== null && $cell !== ''))) {
+                    continue;
+                }
+
+                $seq = trim($row[0] ?? '');
+                if (!is_numeric($seq)) {
+                    continue;
+                }
+
+                $excelRow = $index + 1;
+                $parsedRow = $this->parseRowForPreview($row, $user);
+                $parsedRow['row'] = $excelRow;
+                $parsedRow['seq'] = $seq;
+                $validatedRows[] = $parsedRow;
+            }
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to read Excel file: ' . $e->getMessage(),
+            ], 422);
+        }
+
+        $validCount = collect($validatedRows)->where('valid', true)->count();
+        $errorCount = collect($validatedRows)->where('valid', false)->count();
+
+        return response()->json([
+            'success' => true,
+            'rows' => $validatedRows,
+            'summary' => [
+                'total' => count($validatedRows),
+                'valid' => $validCount,
+                'errors' => $errorCount,
+            ],
+        ]);
+    }
+
+    /**
      * Bulk import liquidations from Excel file (for RC).
      */
     public function bulkImportLiquidations(BulkImportRequest $request): JsonResponse
@@ -327,15 +380,29 @@ class LiquidationController extends Controller
                     continue;
                 }
 
+                $excelRow = $index + 1; // 0-based array index → 1-based Excel row
+
                 try {
                     $result = $this->processImportRow($row, $user);
                     if ($result['success']) {
                         $imported++;
                     } else {
-                        $errors[] = "Row " . ($index + 2) . ": " . $result['error'];
+                        $errors[] = [
+                            'row' => $excelRow,
+                            'seq' => $seq,
+                            'uii' => trim($row[2] ?? ''),
+                            'program' => trim($row[1] ?? ''),
+                            'error' => $result['error'],
+                        ];
                     }
                 } catch (\Exception $e) {
-                    $errors[] = "Row " . ($index + 2) . ": " . $e->getMessage();
+                    $errors[] = [
+                        'row' => $excelRow,
+                        'seq' => $seq,
+                        'uii' => trim($row[2] ?? ''),
+                        'program' => trim($row[1] ?? ''),
+                        'error' => $e->getMessage(),
+                    ];
                 }
             }
         } catch (\Exception $e) {
@@ -1083,7 +1150,7 @@ class LiquidationController extends Controller
             abort(403, 'Only Regional Coordinators can download this template.');
         }
 
-        $templatePath = base_path('materials/RC_LIQUIDATION_TEMPLATE_complete.xlsx');
+        $templatePath = base_path('materials/RC-LIQUIDATION_TEMPLATE-ENTRY.xlsx');
 
         if (!file_exists($templatePath)) {
             abort(404, 'Template file not found.');
@@ -1091,7 +1158,7 @@ class LiquidationController extends Controller
 
         return response()->download(
             $templatePath,
-            'RC_LIQUIDATION_TEMPLATE.xlsx',
+            'RC-LIQUIDATION_TEMPLATE-ENTRY.xlsx',
             ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
         );
     }
@@ -1226,7 +1293,7 @@ class LiquidationController extends Controller
             'total_unliquidated_amount' => number_format($totalUnliquidated, 2),
             'document_status' => $documentStatusDisplay,
             'document_status_code' => $documentStatusCode ?? 'NONE',
-            'rc_notes' => $this->cleanRcNotes($liquidation->remarks),
+            'rc_notes' => $liquidation->rcNoteStatus?->name,
             'liquidation_status' => $liquidationStatus,
             'liquidation_status_code' => $liquidation->liquidationStatus?->code ?? 'UNLIQUIDATED',
             'is_voided' => $liquidation->isVoided(),
@@ -1266,6 +1333,7 @@ class LiquidationController extends Controller
             'fund_source' => $financial?->fund_source,
             'liquidated_amount' => $financial?->amount_liquidated,
             'purpose' => $financial?->purpose,
+            'rc_notes' => $liquidation->rcNoteStatus?->code,
             'remarks' => $liquidation->remarks,
             'review_remarks' => $liquidation->getLatestReviewRemarks(),
             'accountant_remarks' => $liquidation->getLatestAccountantRemarks(),
@@ -1328,8 +1396,9 @@ class LiquidationController extends Controller
             'amount_received' => $financial?->amount_received ?? 0,
             'total_disbursed' => $totalDisbursed,
             'remaining_amount' => ($financial?->amount_received ?? 0) - ($financial?->amount_liquidated ?? 0),
+            'rc_notes' => $liquidation->rcNoteStatus?->name,
             'remarks' => $liquidation->remarks,
-            'review_remarks' => $liquidation->remarks ?? $liquidation->getLatestReviewRemarks(),
+            'review_remarks' => $liquidation->getLatestReviewRemarks(),
             'documents_for_compliance' => $liquidation->compliance?->documents_required,
             'compliance_status' => $liquidation->compliance?->getStatusLabel(),
             'review_history' => $reviewHistory,
@@ -1456,83 +1525,282 @@ class LiquidationController extends Controller
      */
     private function processImportRow(array $row, $user): array
     {
-        $uii = trim($row[2] ?? '');
-        $dvControlNo = trim($row[9] ?? '');
+        $errors = [];
 
-        $hei = $this->liquidationService->findHEIByUII($uii);
-        if (!$hei) {
-            return ['success' => false, 'error' => "UII '{$uii}' not found."];
+        // --- Extract raw values ---
+        $programCode     = trim($row[1] ?? '');
+        $uii             = trim($row[2] ?? '');
+        $academicYearCode = trim($row[6] ?? '');
+        $semesterRaw     = trim((string) ($row[7] ?? ''));
+        $batchNo         = trim($row[8] ?? '');
+        $dvControlNo     = trim($row[9] ?? '');
+        $docStatusRaw    = trim((string) ($row[13] ?? ''));
+        $rcNotesRaw      = trim($row[14] ?? '');
+
+        // --- Required field checks ---
+        if (empty($programCode))     $errors[] = 'Program (col B) is required.';
+        if (empty($uii))             $errors[] = 'UII (col C) is required.';
+        if (empty($academicYearCode)) $errors[] = 'Academic Year (col G) is required.';
+        if (empty($semesterRaw))     $errors[] = 'Semester (col H) is required.';
+
+        $dateFundReleased = $this->parseExcelDate($row[4] ?? null);
+        if (!$dateFundReleased) {
+            $errors[] = 'Date of Fund Released (col E) is required and must be a valid date with a 4-digit year.';
         }
 
-        // Regional Coordinators can only import liquidations for HEIs in their assigned region
+        $totalDisbursements = $this->parseAmount($row[11] ?? null);
+        if (empty(trim((string) ($row[11] ?? ''))))  $errors[] = 'Total Disbursements (col L) is required.';
+        elseif ($totalDisbursements < 0)             $errors[] = 'Total Disbursements (col L) cannot be negative.';
+
+        if (!empty($errors)) {
+            return ['success' => false, 'error' => implode(' ', $errors)];
+        }
+
+        // --- Lookup validations ---
+        $hei = $this->liquidationService->findHEIByUII($uii);
+        if (!$hei) {
+            return ['success' => false, 'error' => "UII '{$uii}' (col C) not found in the system."];
+        }
+
         if ($user->role->name === 'Regional Coordinator' && $user->region_id) {
             if ($hei->region_id !== $user->region_id) {
                 return ['success' => false, 'error' => "HEI '{$uii}' does not belong to your assigned region."];
             }
         }
 
-        $programCode = trim($row[1] ?? '');
         $program = $this->findProgram($programCode);
+        if (!$program) {
+            return ['success' => false, 'error' => "Program '{$programCode}' (col B) not found. Use a valid program code."];
+        }
 
-        $controlNo = !empty($dvControlNo) ? $dvControlNo : $this->liquidationService->generateControlNumber($program?->id);
+        // Semester must match database codes (1ST, 2ND, SUM) — also accepts word forms
+        $semesterId = $this->liquidationService->findSemesterId($semesterRaw);
+        if (!$semesterId) {
+            return ['success' => false, 'error' => "Semester '{$semesterRaw}' (col H) is invalid. Use: 1ST, 2ND, SUM, First Semester, Second Semester, or Summer."];
+        }
+
+        // Academic year must match database codes
+        $academicYear = \App\Models\AcademicYear::findByCode($academicYearCode);
+        if (!$academicYear) {
+            return ['success' => false, 'error' => "Academic Year '{$academicYearCode}' (col G) not found in the system."];
+        }
+
+        // --- Control No validation (col J) ---
+        $controlNo = !empty($dvControlNo) ? $dvControlNo : $this->liquidationService->generateControlNumber($program->id);
+
+        if (!empty($dvControlNo)) {
+            // Validate format: PROGRAM-YYYY-XXXX (program code may contain hyphens, e.g. SIDA-SGP-2026-0012)
+            if (!preg_match('/^(.+)-(\d{4})-(\d+)$/', $dvControlNo, $matches)) {
+                return ['success' => false, 'error' => "Control No '{$dvControlNo}' (col J) must follow format: PROGRAM-YYYY-XXXX (e.g. TES-2026-0001)."];
+            }
+
+            // Program prefix in control no must match the program column
+            $controlPrefix = strtoupper($matches[1]);
+            if (strtoupper($program->code) !== $controlPrefix) {
+                return ['success' => false, 'error' => "Control No prefix '{$controlPrefix}' does not match Program '{$program->code}' (col B vs col J)."];
+            }
+        }
 
         if (Liquidation::where('control_no', $controlNo)->exists()) {
-            return ['success' => false, 'error' => "DV Control No '{$controlNo}' already exists."];
+            return ['success' => false, 'error' => "Control No '{$controlNo}' (col J) already exists."];
         }
-        $semesterId = $this->liquidationService->findSemesterId($row[7] ?? '');
 
-        // Lookup academic year by code string (e.g. "2024-2025"), auto-create if not found
-        $academicYearCode = trim($row[6] ?? '');
-        $academicYearId = null;
-        if (!empty($academicYearCode)) {
-            $academicYear = \App\Models\AcademicYear::findByCode($academicYearCode);
-            if (!$academicYear) {
-                $academicYear = \App\Models\AcademicYear::create([
-                    'code' => $academicYearCode,
-                    'name' => $academicYearCode,
-                    'sort_order' => 0,
-                    'is_active' => true,
-                ]);
+        // --- Document status validation (col N) ---
+        $documentStatusId = null;
+        if (!empty($docStatusRaw)) {
+            $documentStatusId = $this->parseDocumentStatus($docStatusRaw);
+            if (!$documentStatusId) {
+                return ['success' => false, 'error' => "Status of Documents '{$docStatusRaw}' (col N) is invalid. Use: COMPLETE, PARTIAL, or NONE."];
             }
-            $academicYearId = $academicYear->id;
+        } else {
+            $documentStatusId = DocumentStatus::findByCode(DocumentStatus::CODE_NONE)?->id;
         }
 
-        // Parse document status (column 13)
-        $documentStatusId = $this->parseDocumentStatus($row[13] ?? null);
+        // --- RC Notes validation (col O) ---
+        $rcNoteStatusId = null;
+        if (!empty($rcNotesRaw)) {
+            $rcNoteStatusId = $this->parseRcNoteStatus($rcNotesRaw);
+            if (!$rcNoteStatusId) {
+                return ['success' => false, 'error' => "RC Notes '{$rcNotesRaw}' (col O) is invalid. Use: For Review, For Compliance, For Endorsement, Fully Endorsed, or Partially Endorsed."];
+            }
+        }
 
-        // Parse RC notes/remarks (column 14)
-        $remarks = trim($row[14] ?? '');
+        // --- Due date: auto-calculate if not provided ---
+        $dueDateRaw = trim((string) ($row[5] ?? ''));
+        $dueDate = $this->parseExcelDate($row[5] ?? null);
+        if (!empty($dueDateRaw) && !$dueDate) {
+            return ['success' => false, 'error' => 'Due Date (col F) has an invalid date or year. Please use a valid date with a 4-digit year.'];
+        }
+        if ($dueDate && $dateFundReleased && \Carbon\Carbon::instance($dueDate)->lt(\Carbon\Carbon::instance($dateFundReleased))) {
+            return ['success' => false, 'error' => 'Due Date (col F) cannot be earlier than Date of Fund Released (col E).'];
+        }
+        if (!$dueDate && $dateFundReleased) {
+            $days = $program->parent_id ? 30 : 90;
+            $dueDate = \Carbon\Carbon::instance($dateFundReleased)->copy()->addDays($days);
+        }
 
-        $liquidation = Liquidation::create([
-            'control_no' => $controlNo,
-            'hei_id' => $hei->id,
-            'program_id' => $program?->id,
-            'academic_year_id' => $academicYearId,
-            'semester_id' => $semesterId,
-            'batch_no' => trim($row[8] ?? ''),
-            'liquidation_status' => Liquidation::LIQUIDATION_STATUS_UNLIQUIDATED,
-            'document_status_id' => $documentStatusId,
-            'remarks' => !empty($remarks) ? $remarks : null,
-            'created_by' => $user->id,
-        ]);
-
-        // Parse financial data including new columns
-        $totalDisbursements = $this->parseAmount($row[11] ?? 0);
+        // --- Amount liquidated (non-negative) ---
         $totalLiquidated = $this->parseAmount($row[12] ?? 0);
+        if ($totalLiquidated < 0) {
+            return ['success' => false, 'error' => 'Total Amount Liquidated (col M) cannot be negative.'];
+        }
+
+        // --- Create records ---
+        $liquidation = Liquidation::create([
+            'control_no'          => $controlNo,
+            'hei_id'              => $hei->id,
+            'program_id'          => $program->id,
+            'academic_year_id'    => $academicYear->id,
+            'semester_id'         => $semesterId,
+            'batch_no'            => !empty($batchNo) ? $batchNo : null,
+            'document_status_id'  => $documentStatusId,
+            'rc_note_status_id'   => $rcNoteStatusId,
+            'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
+            'created_by'          => $user->id,
+        ]);
 
         $liquidation->createOrUpdateFinancial([
-            'date_fund_released' => $this->parseExcelDate($row[4] ?? null),
-            'due_date' => $this->parseExcelDate($row[5] ?? null),
+            'date_fund_released' => $dateFundReleased,
+            'due_date'           => $dueDate,
             'number_of_grantees' => $this->parseInteger($row[10] ?? null),
-            'amount_received' => $totalDisbursements,
-            'amount_disbursed' => $totalDisbursements,
-            'amount_liquidated' => $totalLiquidated,
+            'amount_received'    => $totalDisbursements,
+            'amount_disbursed'   => $totalDisbursements,
+            'amount_liquidated'  => $totalLiquidated,
         ]);
 
-        // Dispatch notification per-liquidation so HEI users are properly resolved
         NotificationService::dispatch('bulk_imported', 'Bulk imported liquidation '.$liquidation->control_no.' for '.$hei->name, $liquidation, 'Liquidation');
 
         return ['success' => true];
+    }
+
+    /**
+     * Parse and validate a single row for preview (dry-run, no DB writes).
+     */
+    private function parseRowForPreview(array $row, $user): array
+    {
+        $errors = [];
+
+        $programCode      = trim($row[1] ?? '');
+        $uii              = trim($row[2] ?? '');
+        $heiNameRaw       = trim($row[3] ?? '');
+        $academicYearCode = trim($row[6] ?? '');
+        $semesterRaw      = trim((string) ($row[7] ?? ''));
+        $batchNo          = trim($row[8] ?? '');
+        $dvControlNo      = trim($row[9] ?? '');
+        $docStatusRaw     = trim((string) ($row[13] ?? ''));
+        $rcNotesRaw       = trim($row[14] ?? '');
+
+        // Required field checks
+        if (empty($programCode))      $errors[] = 'Program (col B) is required.';
+        if (empty($uii))              $errors[] = 'UII (col C) is required.';
+        if (empty($academicYearCode)) $errors[] = 'Academic Year (col G) is required.';
+        if (empty($semesterRaw))      $errors[] = 'Semester (col H) is required.';
+
+        $dateFundReleased = $this->parseExcelDate($row[4] ?? null);
+        if (!$dateFundReleased) {
+            $errors[] = 'Date of Fund Released (col E) is required or has an invalid date/year.';
+        }
+
+        $dueDateRaw = trim((string) ($row[5] ?? ''));
+        $dueDate = $this->parseExcelDate($row[5] ?? null);
+        if (!empty($dueDateRaw) && !$dueDate) {
+            $errors[] = 'Due Date (col F) has an invalid date or year. Please use a valid date with a 4-digit year.';
+        }
+        if ($dueDate && $dateFundReleased && \Carbon\Carbon::instance($dueDate)->lt(\Carbon\Carbon::instance($dateFundReleased))) {
+            $errors[] = 'Due Date (col F) cannot be earlier than Date of Fund Released (col E).';
+        }
+
+        $totalDisbursements = $this->parseAmount($row[11] ?? null);
+        if (empty(trim((string) ($row[11] ?? ''))))  $errors[] = 'Total Disbursements (col L) is required.';
+        elseif ($totalDisbursements < 0)             $errors[] = 'Total Disbursements (col L) cannot be negative.';
+
+        $totalLiquidated = $this->parseAmount($row[12] ?? 0);
+        if ($totalLiquidated < 0) $errors[] = 'Total Amount Liquidated (col M) cannot be negative.';
+
+        // Lookup validations (only if basic fields present)
+        $heiName = $heiNameRaw;
+        $program = null;
+
+        if (!empty($uii)) {
+            $hei = $this->liquidationService->findHEIByUII($uii);
+            if (!$hei) {
+                $errors[] = "UII '{$uii}' (col C) not found.";
+            } else {
+                $heiName = $hei->name;
+                if ($user->role->name === 'Regional Coordinator' && $user->region_id && $hei->region_id !== $user->region_id) {
+                    $errors[] = "HEI '{$uii}' does not belong to your region.";
+                }
+            }
+        }
+
+        if (!empty($programCode)) {
+            $program = $this->findProgram($programCode);
+            if (!$program) $errors[] = "Program '{$programCode}' (col B) not found.";
+        }
+
+        if (!empty($semesterRaw)) {
+            $semesterId = $this->liquidationService->findSemesterId($semesterRaw);
+            if (!$semesterId) $errors[] = "Semester '{$semesterRaw}' (col H) is invalid. Use: 1ST, 2ND, SUM, First Semester, Second Semester, or Summer.";
+        }
+
+        if (!empty($academicYearCode)) {
+            $ay = \App\Models\AcademicYear::findByCode($academicYearCode);
+            if (!$ay) $errors[] = "Academic Year '{$academicYearCode}' (col G) not found.";
+        }
+
+        if (!empty($dvControlNo)) {
+            if (!preg_match('/^(.+)-(\d{4})-(\d+)$/', $dvControlNo, $ctrlMatches)) {
+                $errors[] = "Control No '{$dvControlNo}' (col J) must follow format: PROGRAM-YYYY-XXXX.";
+            } elseif ($program) {
+                $controlPrefix = strtoupper($ctrlMatches[1]);
+                if (strtoupper($program->code) !== $controlPrefix) {
+                    $errors[] = "Control No prefix '{$controlPrefix}' does not match Program '{$program->code}'.";
+                }
+            }
+            if (Liquidation::where('control_no', $dvControlNo)->exists()) {
+                $errors[] = "Control No '{$dvControlNo}' already exists.";
+            }
+        }
+
+        if (!empty($docStatusRaw)) {
+            if (!$this->parseDocumentStatus($docStatusRaw)) {
+                $errors[] = "Status of Documents '{$docStatusRaw}' (col N) is invalid.";
+            }
+        }
+
+        if (!empty($rcNotesRaw)) {
+            if (!$this->parseRcNoteStatus($rcNotesRaw)) {
+                $errors[] = "RC Notes '{$rcNotesRaw}' (col O) is invalid.";
+            }
+        }
+
+        // Auto-calculate due date for preview
+        $dueDateDisplay = null;
+        if ($dueDate) {
+            $dueDateDisplay = \Carbon\Carbon::instance($dueDate)->format('M d, Y');
+        } elseif ($dateFundReleased && $program) {
+            $days = $program->parent_id ? 30 : 90;
+            $dueDateDisplay = \Carbon\Carbon::instance($dateFundReleased)->copy()->addDays($days)->format('M d, Y');
+        }
+
+        return [
+            'valid'              => empty($errors),
+            'errors'             => $errors,
+            'program'            => $programCode,
+            'uii'                => $uii,
+            'hei_name'           => $heiName,
+            'date_fund_released' => $dateFundReleased ? \Carbon\Carbon::instance($dateFundReleased)->format('M d, Y') : null,
+            'due_date'           => $dueDateDisplay,
+            'academic_year'      => $academicYearCode,
+            'semester'           => $semesterRaw,
+            'batch_no'           => $batchNo,
+            'control_no'         => $dvControlNo,
+            'grantees'           => $this->parseInteger($row[10] ?? null),
+            'disbursements'      => $totalDisbursements,
+            'amount_liquidated'  => $totalLiquidated,
+            'doc_status'         => $docStatusRaw,
+            'rc_notes'           => $rcNotesRaw,
+        ];
     }
 
     private function findProgram(string $name): ?\App\Models\Program
@@ -1549,18 +1817,21 @@ class LiquidationController extends Controller
 
     private function formatImportResponse(int $imported, array $errors): JsonResponse
     {
-        if (count($errors) > 0 && $imported === 0) {
+        $errorCount = count($errors);
+
+        if ($errorCount > 0 && $imported === 0) {
             return response()->json([
                 'success' => false,
-                'message' => 'Import failed: ' . implode('; ', array_slice($errors, 0, 5)),
+                'message' => "Import failed — {$errorCount} error(s) found.",
+                'imported' => 0,
                 'errors' => $errors,
             ], 422);
         }
 
-        if (count($errors) > 0) {
+        if ($errorCount > 0) {
             return response()->json([
                 'success' => true,
-                'message' => "Imported {$imported} liquidations with " . count($errors) . " errors.",
+                'message' => "Imported {$imported} liquidation(s) with {$errorCount} error(s).",
                 'imported' => $imported,
                 'errors' => $errors,
             ]);
@@ -1568,29 +1839,41 @@ class LiquidationController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => "Successfully imported {$imported} liquidations.",
+            'message' => "Successfully imported {$imported} liquidation(s).",
             'imported' => $imported,
         ]);
     }
 
     private function parseExcelDate($value): ?\DateTime
     {
-        if (empty($value)) {
-            return now();
+        if ($value === null || trim((string) $value) === '') {
+            return null;
         }
 
         if (is_numeric($value)) {
             try {
-                return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($value);
+                $date = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($value);
+                // Validate year is a reasonable 4-digit year
+                $year = (int) $date->format('Y');
+                if ($year < 1900 || $year > 2100) {
+                    return null;
+                }
+                return $date;
             } catch (\Exception) {
-                return now();
+                return null;
             }
         }
 
         try {
-            return \Carbon\Carbon::parse($value);
+            $date = \Carbon\Carbon::parse($value);
+            // Validate year is a reasonable 4-digit year
+            $year = (int) $date->format('Y');
+            if ($year < 1900 || $year > 2100) {
+                return null;
+            }
+            return $date;
         } catch (\Exception) {
-            return now();
+            return null;
         }
     }
 
@@ -1622,26 +1905,54 @@ class LiquidationController extends Controller
      */
     private function parseDocumentStatus($value): ?string
     {
-        // Default to NONE if empty
         if (empty($value)) {
-            return DocumentStatus::findByCode(DocumentStatus::CODE_NONE)?->id;
+            return null;
         }
 
         $normalized = strtoupper(trim($value));
 
-        // Map common variations to standard codes
         $statusMap = [
-            'COMPLETE' => DocumentStatus::CODE_COMPLETE,
-            'COMPLETED' => DocumentStatus::CODE_COMPLETE,
-            'PARTIAL' => DocumentStatus::CODE_PARTIAL,
+            'COMPLETE'   => DocumentStatus::CODE_COMPLETE,
+            'COMPLETED'  => DocumentStatus::CODE_COMPLETE,
+            'PARTIAL'    => DocumentStatus::CODE_PARTIAL,
             'INCOMPLETE' => DocumentStatus::CODE_PARTIAL,
-            'NONE' => DocumentStatus::CODE_NONE,
-            'N/A' => DocumentStatus::CODE_NONE,
-            'NA' => DocumentStatus::CODE_NONE,
+            'NONE'       => DocumentStatus::CODE_NONE,
+            'N/A'        => DocumentStatus::CODE_NONE,
+            'NA'         => DocumentStatus::CODE_NONE,
         ];
 
-        $code = $statusMap[$normalized] ?? DocumentStatus::CODE_NONE;
+        $code = $statusMap[$normalized] ?? null;
 
-        return DocumentStatus::findByCode($code)?->id;
+        return $code ? DocumentStatus::findByCode($code)?->id : null;
+    }
+
+    /**
+     * Parse RC note status from import value.
+     * Returns the UUID or null if not matched.
+     */
+    private function parseRcNoteStatus($value): ?string
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        $normalized = strtoupper(trim($value));
+
+        $statusMap = [
+            'FOR REVIEW'          => RcNoteStatus::CODE_FOR_REVIEW,
+            'FOR_REVIEW'          => RcNoteStatus::CODE_FOR_REVIEW,
+            'FOR COMPLIANCE'      => RcNoteStatus::CODE_FOR_COMPLIANCE,
+            'FOR_COMPLIANCE'      => RcNoteStatus::CODE_FOR_COMPLIANCE,
+            'FOR ENDORSEMENT'     => RcNoteStatus::CODE_FOR_ENDORSEMENT,
+            'FOR_ENDORSEMENT'     => RcNoteStatus::CODE_FOR_ENDORSEMENT,
+            'FULLY ENDORSED'      => RcNoteStatus::CODE_FULLY_ENDORSED,
+            'FULLY_ENDORSED'      => RcNoteStatus::CODE_FULLY_ENDORSED,
+            'PARTIALLY ENDORSED'  => RcNoteStatus::CODE_PARTIALLY_ENDORSED,
+            'PARTIALLY_ENDORSED'  => RcNoteStatus::CODE_PARTIALLY_ENDORSED,
+        ];
+
+        $code = $statusMap[$normalized] ?? null;
+
+        return $code ? RcNoteStatus::findByCode($code)?->id : null;
     }
 }

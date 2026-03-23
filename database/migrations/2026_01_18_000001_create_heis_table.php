@@ -16,6 +16,7 @@ return new class extends Migration
             $table->enum('type', ['Private', 'SUC', 'LUC'])->comment('Private, SUC (State University Colleges), LUC (Local University Colleges)');
             $table->uuid('region_id')->nullable();
             $table->foreign('region_id')->references('id')->on('regions')->onDelete('set null');
+            $table->string('logo')->nullable()->comment('Path to HEI logo/avatar');
             $table->enum('status', ['active', 'inactive'])->default('active');
             $table->timestamps();
         });

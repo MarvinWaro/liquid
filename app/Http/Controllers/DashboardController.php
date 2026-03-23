@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Liquidation;
 use App\Models\LiquidationStatus;
 use App\Models\HEI;
+use App\Models\Program;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
@@ -42,12 +43,18 @@ class DashboardController extends Controller
         // Total statistics for cards
         $totalStats = $this->getTotalStats();
 
+        $calendarDueDates = $this->getCalendarDueDates();
+        // Admin/Super Admin always see fund source filter
+        $fundSourceData = $this->computeFundSourceData();
+
         return Inertia::render('dashboard', [
             'isAdmin' => true,
             'summaryPerAY' => $summaryPerAY,
             'summaryPerHEI' => $summaryPerHEI,
             'statusDistribution' => $statusDistribution,
             'totalStats' => $totalStats,
+            'calendarDueDates' => $calendarDueDates,
+            'fundSourceData' => $fundSourceData,
         ]);
     }
 
@@ -71,15 +78,17 @@ class DashboardController extends Controller
         $rcSummaryPerHEI = [];
         $rcStatusDistribution = [];
         $rcTotalStats = [];
+        $fundSourceData = null;
+        $canViewFundSource = $user->hasPermission('view_fund_source_filter');
 
         // Role-specific queries
         if ($userRole === 'Regional Coordinator') {
             $regionId = $user->region_id;
             $userStats = $this->getRCUserStats($user);
-            $rcTotalStats = $this->getTotalStats($regionId);
-            $rcStatusDistribution = $this->getLiquidationStatusDistribution(null, $regionId);
-            $rcSummaryPerAY = $this->getSummaryPerAY(null, $regionId);
-            $rcSummaryPerHEI = $this->getSummaryPerHEI($regionId);
+            $rcTotalStats = $this->getTotalStats($regionId, null, true);
+            $rcStatusDistribution = $this->getLiquidationStatusDistribution(null, $regionId, null, true);
+            $rcSummaryPerAY = $this->getSummaryPerAY(null, $regionId, null, true);
+            $rcSummaryPerHEI = $this->getSummaryPerHEI($regionId, null, true);
 
         } elseif ($userRole === 'Accountant') {
             $userStats = $this->getAccountantUserStats();
@@ -87,16 +96,33 @@ class DashboardController extends Controller
             $rcStatusDistribution = $this->getLiquidationStatusDistribution();
             $rcSummaryPerAY = $this->getSummaryPerAY();
             $rcSummaryPerHEI = $this->getSummaryPerHEI();
+            if ($canViewFundSource) {
+                $fundSourceData = $this->computeFundSourceData();
+            }
 
         } elseif ($userRole === 'HEI' && $user->hei_id) {
             $userStats = $this->getHEIUserStats($user->hei_id);
             $rcTotalStats = $this->getHEITotalStats($user->hei_id);
             $rcStatusDistribution = $this->getLiquidationStatusDistribution($user->hei_id);
             $rcSummaryPerAY = $this->getSummaryPerAY($user->hei_id);
+            // HEI always sees fund source filter (school may have multiple scholarship types)
+            $fundSourceData = $this->computeFundSourceData($user->hei_id);
+
+        } elseif ($userRole === 'STUFAPS Focal') {
+            $programIds = $user->getScopedProgramIds();
+            $summaryProgramIds = $user->getParentScopedProgramIds();
+            $userStats = $this->getSTUFAPSFocalUserStats($user, $programIds);
+            $rcTotalStats = $this->getTotalStats(null, $summaryProgramIds);
+            $rcStatusDistribution = $this->getLiquidationStatusDistribution(null, null, $summaryProgramIds);
+            $rcSummaryPerAY = $this->getSummaryPerAY(null, null, $summaryProgramIds);
+            $rcSummaryPerHEI = $this->getSummaryPerHEI(null, $summaryProgramIds);
         }
 
         // Recent liquidations for non-admin users
         $recentLiquidations = $this->getRecentLiquidations($user, $userRole);
+
+        // Calendar due dates scoped by role
+        $calendarDueDates = $this->getCalendarDueDates($user, $userRole);
 
         return Inertia::render('dashboard', [
             'isAdmin' => false,
@@ -107,6 +133,8 @@ class DashboardController extends Controller
             'userStats' => $userStats,
             'recentLiquidations' => $recentLiquidations,
             'userRole' => $userRole,
+            'calendarDueDates' => $calendarDueDates,
+            'fundSourceData' => $fundSourceData,
         ]);
     }
 
@@ -136,7 +164,51 @@ class DashboardController extends Controller
         }
     }
 
-    private function getSummaryPerAY(?string $heiId = null, ?string $regionId = null)
+    /**
+     * Get program IDs grouped by fund source (UniFAST vs STuFAPs).
+     * UniFAST: TES, TDP (top-level programs)
+     * STuFAPs: all other programs
+     */
+    private function getFundSourceProgramIds(): array
+    {
+        $allPrograms = Program::all(['id', 'code', 'parent_id']);
+
+        $unifastIds = $allPrograms->filter(fn($p) =>
+            in_array(strtoupper($p->code), ['TES', 'TDP']) && $p->parent_id === null
+        )->pluck('id')->toArray();
+
+        $stufapsIds = $allPrograms->reject(fn($p) =>
+            in_array($p->id, $unifastIds)
+        )->pluck('id')->toArray();
+
+        return ['unifast' => $unifastIds, 'stufaps' => $stufapsIds];
+    }
+
+    /**
+     * Compute fund-source-specific dashboard data (UniFAST vs STuFAPs).
+     */
+    private function computeFundSourceData(?string $heiId = null, ?string $regionId = null): array
+    {
+        $fs = $this->getFundSourceProgramIds();
+        $empty = [
+            'total_liquidations' => 0, 'total_disbursed' => 0,
+            'total_liquidated' => 0, 'total_unliquidated' => 0, 'pending_review' => 0,
+        ];
+
+        $result = [];
+        foreach (['unifast', 'stufaps'] as $source) {
+            $ids = $fs[$source];
+            $result[$source] = [
+                'totalStats' => !empty($ids) ? $this->getTotalStats($regionId, $ids) : $empty,
+                'summaryPerAY' => !empty($ids) ? $this->getSummaryPerAY($heiId, $regionId, $ids) : [],
+                'statusDistribution' => !empty($ids) ? $this->getLiquidationStatusDistribution($heiId, $regionId, $ids) : [],
+            ];
+        }
+
+        return $result;
+    }
+
+    private function getSummaryPerAY(?string $heiId = null, ?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false)
     {
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
@@ -152,8 +224,20 @@ class DashboardController extends Controller
                 ->where('heis.region_id', $regionId);
         }
 
+        if ($programIds) {
+            $query->whereIn('liquidations.program_id', $programIds);
+        }
+
+        if ($excludeSubPrograms) {
+            $subProgramIds = Program::whereNotNull('parent_id')->pluck('id');
+            if ($subProgramIds->isNotEmpty()) {
+                $query->whereNotIn('liquidations.program_id', $subProgramIds);
+            }
+        }
+
         return $query->leftJoin('academic_years', 'liquidations.academic_year_id', '=', 'academic_years.id')
             ->select('academic_years.name as academic_year')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.number_of_grantees), 0) as total_grantees')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursements')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as liquidated_amount')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as unliquidated_amount')
@@ -170,7 +254,7 @@ class DashboardController extends Controller
     /**
      * Get summary per HEI with joins to liquidation_financials.
      */
-    private function getSummaryPerHEI(?string $regionId = null)
+    private function getSummaryPerHEI(?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false)
     {
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
@@ -182,8 +266,20 @@ class DashboardController extends Controller
             $query->where('heis.region_id', $regionId);
         }
 
+        if ($programIds) {
+            $query->whereIn('liquidations.program_id', $programIds);
+        }
+
+        if ($excludeSubPrograms) {
+            $subProgramIds = Program::whereNotNull('parent_id')->pluck('id');
+            if ($subProgramIds->isNotEmpty()) {
+                $query->whereNotIn('liquidations.program_id', $subProgramIds);
+            }
+        }
+
         return $query
             ->select('liquidations.hei_id', 'heis.name as hei_name')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.number_of_grantees), 0) as total_grantees')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursements')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_amount_liquidated')
             ->selectRaw('COALESCE(SUM(CASE WHEN liquidations.reviewed_at IS NOT NULL AND liquidations.coa_endorsed_at IS NULL THEN (COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)) ELSE 0 END), 0) as for_endorsement')
@@ -197,6 +293,7 @@ class DashboardController extends Controller
                 return [
                     'hei_id' => $item->hei_id,
                     'hei' => ['id' => $item->hei_id, 'name' => $item->hei_name],
+                    'total_grantees' => $item->total_grantees,
                     'total_disbursements' => $item->total_disbursements,
                     'total_amount_liquidated' => $item->total_amount_liquidated,
                     'for_endorsement' => $item->for_endorsement,
@@ -211,7 +308,7 @@ class DashboardController extends Controller
     /**
      * Get total stats with joins to liquidation_financials.
      */
-    private function getTotalStats(?string $regionId = null): array
+    private function getTotalStats(?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false): array
     {
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id');
@@ -220,6 +317,17 @@ class DashboardController extends Controller
         if ($regionId) {
             $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
                 ->where('heis.region_id', $regionId);
+        }
+
+        if ($programIds) {
+            $query->whereIn('liquidations.program_id', $programIds);
+        }
+
+        if ($excludeSubPrograms) {
+            $subProgramIds = Program::whereNotNull('parent_id')->pluck('id');
+            if ($subProgramIds->isNotEmpty()) {
+                $query->whereNotIn('liquidations.program_id', $subProgramIds);
+            }
         }
 
         $stats = $query->selectRaw('COUNT(*) as total_liquidations')
@@ -237,6 +345,17 @@ class DashboardController extends Controller
             $pendingQuery->whereHas('hei', fn($q) => $q->where('region_id', $regionId));
         }
 
+        if ($programIds) {
+            $pendingQuery->whereIn('program_id', $programIds);
+        }
+
+        if ($excludeSubPrograms) {
+            $subProgramIds = Program::whereNotNull('parent_id')->pluck('id');
+            if ($subProgramIds->isNotEmpty()) {
+                $pendingQuery->whereNotIn('program_id', $subProgramIds);
+            }
+        }
+
         $pendingReview = $pendingQuery->count();
 
         return [
@@ -251,7 +370,7 @@ class DashboardController extends Controller
     /**
      * Get liquidation status distribution (using liquidation_statuses lookup table).
      */
-    private function getLiquidationStatusDistribution(?string $heiId = null, ?string $regionId = null)
+    private function getLiquidationStatusDistribution(?string $heiId = null, ?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false)
     {
         $query = Liquidation::join('liquidation_statuses', 'liquidations.liquidation_status_id', '=', 'liquidation_statuses.id')
             ->excludeVoided()
@@ -266,6 +385,17 @@ class DashboardController extends Controller
             $query->whereHas('hei', fn($q) => $q->where('region_id', $regionId));
         }
 
+        if ($programIds) {
+            $query->whereIn('liquidations.program_id', $programIds);
+        }
+
+        if ($excludeSubPrograms) {
+            $subProgramIds = Program::whereNotNull('parent_id')->pluck('id');
+            if ($subProgramIds->isNotEmpty()) {
+                $query->whereNotIn('liquidations.program_id', $subProgramIds);
+            }
+        }
+
         return $query->groupBy('liquidation_statuses.name')->get();
     }
 
@@ -274,9 +404,17 @@ class DashboardController extends Controller
      */
     private function getRCUserStats($user): array
     {
+        // Get sub-program IDs to exclude from RC stats
+        $subProgramIds = Program::whereNotNull('parent_id')->pluck('id')->all();
+
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id');
         $this->applyBaseExclusions($query);
+
+        if (!empty($subProgramIds)) {
+            $query->whereNotIn('liquidations.program_id', $subProgramIds);
+        }
+
         $stats = $query->where(function ($q) use ($user) {
                 $q->where('liquidations.created_by', $user->id)
                   ->orWhere('liquidations.reviewed_by', $user->id);
@@ -287,19 +425,25 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_unliquidated')
             ->first();
 
-        // Pending action = submitted but not reviewed by RC (in RC's region)
+        // Pending action = submitted but not reviewed by RC (in RC's region), excluding sub-programs
         $pendingActionQuery = Liquidation::excludeVoided()
             ->whereNotNull('date_submitted')
             ->whereNull('reviewed_at');
         if ($user->region_id) {
             $pendingActionQuery->whereHas('hei', fn($q) => $q->where('region_id', $user->region_id));
         }
+        if (!empty($subProgramIds)) {
+            $pendingActionQuery->whereNotIn('program_id', $subProgramIds);
+        }
         $pendingAction = $pendingActionQuery->count();
 
-        // Completed = endorsed to accounting (reviewed by RC, in RC's region)
+        // Completed = endorsed to accounting (reviewed by RC, in RC's region), excluding sub-programs
         $completedQuery = Liquidation::excludeVoided()->whereNotNull('reviewed_at');
         if ($user->region_id) {
             $completedQuery->whereHas('hei', fn($q) => $q->where('region_id', $user->region_id));
+        }
+        if (!empty($subProgramIds)) {
+            $completedQuery->whereNotIn('program_id', $subProgramIds);
         }
         $completed = $completedQuery->count();
 
@@ -341,6 +485,48 @@ class DashboardController extends Controller
             'pending_action' => $pendingAction,
             'completed' => $completed,
             'total_amount' => $stats->total_amount ?? 0,
+        ];
+    }
+
+    /**
+     * Get STUFAPS Focal user stats (program-scoped, all regions).
+     */
+    private function getSTUFAPSFocalUserStats($user, ?array $programIds): array
+    {
+        $query = DB::table('liquidations')
+            ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id');
+        $this->applyBaseExclusions($query);
+
+        if ($programIds) {
+            $query->whereIn('liquidations.program_id', $programIds);
+        }
+
+        $stats = $query->selectRaw('COUNT(*) as my_liquidations')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_amount')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_liquidated')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_unliquidated')
+            ->first();
+
+        $pendingAction = Liquidation::excludeVoided()
+            ->whereNotNull('date_submitted')
+            ->whereNull('coa_endorsed_at');
+        if ($programIds) {
+            $pendingAction->whereIn('program_id', $programIds);
+        }
+
+        $completed = Liquidation::excludeVoided()
+            ->whereNotNull('coa_endorsed_at');
+        if ($programIds) {
+            $completed->whereIn('program_id', $programIds);
+        }
+
+        return [
+            'my_liquidations' => $stats->my_liquidations ?? 0,
+            'pending_action' => $pendingAction->count(),
+            'completed' => $completed->count(),
+            'total_amount' => $stats->total_amount ?? 0,
+            'total_liquidated' => $stats->total_liquidated ?? 0,
+            'total_unliquidated' => $stats->total_unliquidated ?? 0,
         ];
     }
 
@@ -436,6 +622,9 @@ class DashboardController extends Controller
                 $query->whereHas('hei', fn($q) => $q->where('region_id', $user->region_id));
             }
 
+            // Exclude STUFAPS sub-program liquidations
+            $query->whereDoesntHave('program', fn($q) => $q->whereNotNull('parent_id'));
+
             return $query->orderBy('created_at', 'desc')
                 ->limit(10)
                 ->get()
@@ -460,43 +649,171 @@ class DashboardController extends Controller
                 ->map(fn ($liq) => $this->formatRecentLiquidation($liq));
         }
 
+        if ($userRole === 'STUFAPS Focal') {
+            $programIds = $user->getParentScopedProgramIds();
+            $query = Liquidation::with(['hei:id,name', 'financial', 'semester', 'academicYear', 'liquidationStatus'])
+                ->excludeVoided();
+            if ($programIds) {
+                $query->whereIn('program_id', $programIds);
+            }
+            return $query->orderBy('created_at', 'desc')
+                ->limit(10)
+                ->get()
+                ->map(fn ($liq) => $this->formatRecentLiquidation($liq));
+        }
+
         return [];
     }
 
     /**
      * Summary per Academic Year page.
      */
-    public function summaryPerAY()
+    public function summaryPerAY(Request $request)
     {
         $user = auth()->user();
-        $isAdmin = $user->role && in_array($user->role->name, ['Admin', 'Super Admin']);
         $userRole = $user->role?->name;
 
         $regionId = ($userRole === 'Regional Coordinator') ? $user->region_id : null;
         $heiId = ($userRole === 'HEI' && $user->hei_id) ? $user->hei_id : null;
+        // Summary pages show all sibling sub-programs (consolidated STUFAPS view)
+        $programIds = ($userRole === 'STUFAPS Focal') ? $user->getParentScopedProgramIds() : null;
 
-        $data = $this->getSummaryPerAY($heiId, $regionId);
+        // Apply program filter from request
+        $filterProgramId = $request->query('program');
+        if ($filterProgramId && $filterProgramId !== 'all') {
+            // If user is STUFAPS Focal, only allow filtering within their parent-scoped programs
+            if ($programIds && !in_array($filterProgramId, $programIds)) {
+                $filterProgramId = null;
+            }
+            if ($filterProgramId) {
+                $programIds = [$filterProgramId];
+            }
+        }
+
+        $data = $this->getSummaryPerAY($heiId, $regionId, $programIds);
+
+        // Get programs for filter dropdown (scoped for STUFAPS Focal)
+        $programs = $this->getProgramsForFilter($user, $userRole);
 
         return Inertia::render('summary/academic-year', [
             'summaryPerAY' => $data,
+            'programs' => $programs,
+            'filters' => ['program' => $request->query('program', 'all')],
         ]);
     }
 
     /**
      * Summary per HEI page.
      */
-    public function summaryPerHEI()
+    public function summaryPerHEI(Request $request)
     {
         $user = auth()->user();
         $userRole = $user->role?->name;
 
         $regionId = ($userRole === 'Regional Coordinator') ? $user->region_id : null;
+        // Summary pages show all sibling sub-programs (consolidated STUFAPS view)
+        $programIds = ($userRole === 'STUFAPS Focal') ? $user->getParentScopedProgramIds() : null;
 
-        $data = ($userRole === 'HEI') ? [] : $this->getSummaryPerHEI($regionId);
+        // Apply program filter from request
+        $filterProgramId = $request->query('program');
+        if ($filterProgramId && $filterProgramId !== 'all') {
+            if ($programIds && !in_array($filterProgramId, $programIds)) {
+                $filterProgramId = null;
+            }
+            if ($filterProgramId) {
+                $programIds = [$filterProgramId];
+            }
+        }
+
+        $data = ($userRole === 'HEI') ? [] : $this->getSummaryPerHEI($regionId, $programIds);
+
+        $programs = $this->getProgramsForFilter($user, $userRole);
 
         return Inertia::render('summary/hei', [
             'summaryPerHEI' => $data,
+            'programs' => $programs,
+            'filters' => ['program' => $request->query('program', 'all')],
         ]);
+    }
+
+    /**
+     * Get programs available for the filter dropdown based on user role.
+     */
+    private function getProgramsForFilter($user, ?string $userRole): array
+    {
+        if ($userRole === 'STUFAPS Focal') {
+            // Show all sibling sub-programs under the same parent for breakdown filtering
+            $scopedIds = $user->getParentScopedProgramIds();
+            if ($scopedIds) {
+                return Program::whereIn('id', $scopedIds)
+                    ->orderBy('name')
+                    ->get(['id', 'code', 'name'])
+                    ->toArray();
+            }
+            return [];
+        }
+
+        if ($userRole === 'Regional Coordinator') {
+            // RC only sees top-level programs (TES, TDP) — not STUFAPS sub-programs
+            return Program::where('status', 'active')
+                ->whereNull('parent_id')
+                ->orderBy('name')
+                ->get(['id', 'code', 'name'])
+                ->toArray();
+        }
+
+        return Program::where('status', 'active')
+            ->orderBy('name')
+            ->get(['id', 'code', 'name'])
+            ->toArray();
+    }
+
+    /**
+     * Get calendar due dates for the dashboard, scoped by role.
+     */
+    private function getCalendarDueDates($user = null, ?string $userRole = null): array
+    {
+        $query = Liquidation::with([
+            'financial:id,liquidation_id,due_date,amount_received',
+            'hei:id,name',
+            'program:id,code,name,parent_id',
+            'academicYear:id,name',
+            'liquidationStatus:id,name',
+        ])
+        ->excludeVoided()
+        ->whereHas('financial', fn($q) => $q->whereNotNull('due_date'));
+
+        if ($user && $userRole === 'Regional Coordinator') {
+            if ($user->region_id) {
+                $query->whereHas('hei', fn($q) => $q->where('region_id', $user->region_id));
+            }
+            $query->whereDoesntHave('program', fn($q) => $q->whereNotNull('parent_id'));
+        } elseif ($user && $userRole === 'HEI' && $user->hei_id) {
+            $query->where('hei_id', $user->hei_id);
+        } elseif ($user && $userRole === 'STUFAPS Focal') {
+            $programIds = $user->getParentScopedProgramIds();
+            if ($programIds) {
+                $query->whereIn('program_id', $programIds);
+            }
+        }
+        // Admin/Super Admin: no filter — sees all
+
+        $unifastCodes = ['TES', 'TDP'];
+
+        return $query->get()->map(function (Liquidation $liq) use ($unifastCodes) {
+            $code = strtoupper($liq->program?->code ?? '');
+            return [
+                'id' => $liq->id,
+                'control_no' => $liq->control_no,
+                'due_date' => $liq->financial?->due_date?->toDateString(),
+                'amount_received' => (float) ($liq->financial?->amount_received ?? 0),
+                'hei_name' => $liq->hei?->name,
+                'program_code' => $liq->program?->code,
+                'academic_year' => $liq->academicYear?->name,
+                'status' => $liq->liquidationStatus?->name ?? 'Unliquidated',
+                'fund_source' => (in_array($code, $unifastCodes) && !$liq->program?->parent_id) ? 'unifast' : 'stufaps',
+            ];
+        })->filter(fn($item) => $item['due_date'] !== null)->values()->toArray();
     }
 
     /**

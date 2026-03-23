@@ -105,6 +105,26 @@ class AcademicYearController extends Controller
         return redirect()->back()->with('success', 'Academic year updated successfully.');
     }
 
+    public function reorder(Request $request): RedirectResponse
+    {
+        if (!auth()->user()->hasPermission('edit_academic_years')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $validated = $request->validate([
+            'ids'   => 'required|array|min:1',
+            'ids.*' => 'required|string|exists:academic_years,id',
+        ]);
+
+        foreach ($validated['ids'] as $index => $id) {
+            AcademicYear::where('id', $id)->update(['sort_order' => $index]);
+        }
+
+        $this->cache->clearLookupCaches();
+
+        return redirect()->back()->with('success', 'Order updated successfully.');
+    }
+
     public function destroy(AcademicYear $academicYear): RedirectResponse
     {
         if (!auth()->user()->hasPermission('delete_academic_years')) {

@@ -16,7 +16,10 @@ import { Badge } from '@/components/ui/badge';
 import {
     Select,
     SelectContent,
+    SelectGroup,
     SelectItem,
+    SelectLabel,
+    SelectSeparator,
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
@@ -27,7 +30,14 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Search, FileText, Eye, Download, Upload, Plus, TableProperties, ChevronDown, Ban, RotateCcw } from 'lucide-react';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Search, FileText, Eye, Download, Upload, Plus, TableProperties, ChevronDown, Ban, RotateCcw, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import {
     Popover,
     PopoverContent,
@@ -36,6 +46,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
 import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
+import { ImportPreviewDialog } from '@/components/liquidations/import-preview-dialog';
 import { toast } from '@/lib/toast';
 import axios from 'axios';
 import { type BreadcrumbItem } from '@/types';
@@ -44,6 +55,7 @@ interface Program {
     id: string;
     name: string;
     code: string;
+    parent_id: string | null;
 }
 
 interface Liquidation {
@@ -83,6 +95,13 @@ interface AcademicYearOption {
     name: string;
 }
 
+interface RcNoteStatusOption {
+    id: string;
+    code: string;
+    name: string;
+    badge_color: string;
+}
+
 interface Props {
     liquidations: {
         data: Liquidation[];
@@ -91,6 +110,7 @@ interface Props {
     };
     programs: Program[];
     academicYears: AcademicYearOption[];
+    rcNoteStatuses: RcNoteStatusOption[];
     heis: HEIOption[];
     filters: {
         search?: string;
@@ -110,19 +130,22 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Liquidation Management', href: route('liquidation.index') },
 ];
 
-export default function Index({ liquidations, programs, academicYears, heis, filters, permissions, userRole }: Props) {
+export default function Index({ liquidations, programs, academicYears, rcNoteStatuses, heis, filters, permissions, userRole }: Props) {
     const [searchQuery, setSearchQuery] = useState(filters.search || '');
     const [programFilter, setProgramFilter] = useState(filters.program || '');
     const [documentStatusFilter, setDocumentStatusFilter] = useState(filters.document_status || '');
     const [liquidationStatusFilter, setLiquidationStatusFilter] = useState(filters.liquidation_status || '');
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isBulkEntryOpen, setIsBulkEntryOpen] = useState(false);
-    const [isUploading, setIsUploading] = useState(false);
+    const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
+    const [importResult, setImportResult] = useState<{
+        imported: number;
+        errors: { row: number; seq: string; uii: string; program: string; error: string }[];
+    } | null>(null);
     const [voidConfirmInput, setVoidConfirmInput] = useState('');
     const [voidPopoverOpen, setVoidPopoverOpen] = useState<number | null>(null);
     const [restoreConfirmInput, setRestoreConfirmInput] = useState('');
     const [restorePopoverOpen, setRestorePopoverOpen] = useState<number | null>(null);
-    const fileInputRef = React.useRef<HTMLInputElement>(null);
 
     const isRC = userRole === 'Regional Coordinator';
     const isHEI = userRole === 'HEI';
@@ -172,46 +195,12 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
         window.location.href = route('liquidation.download-rc-template');
     };
 
-    const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        setIsUploading(true);
-        const formData = new FormData();
-        formData.append('file', file);
-
-        try {
-            const response = await axios.post(route('liquidation.bulk-import'), formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
-
-            if (response.data.success) {
-                toast.success(response.data.message);
-
-                // Show individual errors if any
-                if (response.data.errors && response.data.errors.length > 0) {
-                    response.data.errors.slice(0, 3).forEach((err: string) => {
-                        toast.warning(err);
-                    });
-                }
-
-                router.reload();
-            }
-        } catch (error: any) {
-            const message = error.response?.data?.message || 'Failed to import liquidations';
-            toast.error(message);
-
-            // Show individual errors if available
-            if (error.response?.data?.errors) {
-                error.response.data.errors.slice(0, 3).forEach((err: string) => {
-                    toast.error(err);
-                });
-            }
-        } finally {
-            setIsUploading(false);
-            if (fileInputRef.current) {
-                fileInputRef.current.value = '';
-            }
+    const handleImportComplete = (result: { imported: number; errors: any[] }) => {
+        if (result.errors.length > 0) {
+            setImportResult({ imported: result.imported, errors: result.errors });
+        }
+        if (result.imported > 0) {
+            router.reload();
         }
     };
 
@@ -264,6 +253,7 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                 onClose={() => setIsCreateModalOpen(false)}
                 programs={programs}
                 academicYears={academicYears}
+                rcNoteStatuses={rcNoteStatuses}
                 heis={heis}
                 onSuccess={() => router.reload()}
             />
@@ -274,8 +264,16 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                 onClose={() => setIsBulkEntryOpen(false)}
                 programs={programs}
                 academicYears={academicYears}
+                rcNoteStatuses={rcNoteStatuses}
                 heis={heis}
                 onSuccess={() => router.reload()}
+            />
+
+            {/* Import Preview Dialog */}
+            <ImportPreviewDialog
+                isOpen={isImportPreviewOpen}
+                onClose={() => setIsImportPreviewOpen(false)}
+                onImportComplete={handleImportComplete}
             />
 
             <div className="py-8 w-full min-w-0 overflow-hidden">
@@ -297,7 +295,7 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                                 </Button>
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
-                                        <Button variant="outline" disabled={isUploading}>
+                                        <Button variant="outline">
                                             <TableProperties className="h-4 w-4 mr-2" />
                                             Bulk Actions
                                             <ChevronDown className="h-3.5 w-3.5 ml-1.5 opacity-60" />
@@ -312,23 +310,74 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                                             <Download className="h-4 w-4 mr-2" />
                                             Download Template
                                         </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
+                                        <DropdownMenuItem onClick={() => setIsImportPreviewOpen(true)}>
                                             <Upload className="h-4 w-4 mr-2" />
-                                            {isUploading ? 'Uploading...' : 'Bulk Upload'}
+                                            Bulk Upload
                                         </DropdownMenuItem>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
-                                <input
-                                    ref={fileInputRef}
-                                    type="file"
-                                    accept=".xlsx,.xls"
-                                    className="hidden"
-                                    onChange={handleBulkUpload}
-                                />
                             </div>
                         )}
                     </div>
 
+
+                        {/* Import result dialog */}
+                        <Dialog open={!!importResult} onOpenChange={(open) => { if (!open) setImportResult(null); }}>
+                            <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+                                <DialogHeader>
+                                    <div className="flex items-center gap-2.5">
+                                        {importResult && importResult.imported > 0 ? (
+                                            <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
+                                        ) : (
+                                            <XCircle className="h-5 w-5 text-red-500 shrink-0" />
+                                        )}
+                                        <DialogTitle>
+                                            {importResult && importResult.imported > 0
+                                                ? 'Import Completed with Errors'
+                                                : 'Import Failed'
+                                            }
+                                        </DialogTitle>
+                                    </div>
+                                    <DialogDescription>
+                                        {importResult && importResult.imported > 0
+                                            ? `${importResult.imported} record(s) imported successfully. ${importResult.errors.length} row(s) failed and were skipped.`
+                                            : `All rows failed validation. No records were imported. Please fix the errors below and try again.`
+                                        }
+                                    </DialogDescription>
+                                </DialogHeader>
+
+                                {importResult && importResult.errors.length > 0 && (
+                                    <div className="flex-1 overflow-auto border rounded-md min-h-0">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-muted/50 sticky top-0">
+                                                <tr>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground w-16">Row</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground w-20">Program</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground w-24">UII</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Error Details</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y">
+                                                {importResult.errors.map((err, i) => (
+                                                    <tr key={i} className="hover:bg-muted/30">
+                                                        <td className="px-3 py-2 text-xs font-mono font-medium">{err.row}</td>
+                                                        <td className="px-3 py-2 text-xs font-mono">{err.program || '-'}</td>
+                                                        <td className="px-3 py-2 text-xs font-mono">{err.uii || '-'}</td>
+                                                        <td className="px-3 py-2 text-xs text-red-600 dark:text-red-400">{err.error}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+
+                                <div className="flex justify-end pt-2">
+                                    <Button variant="outline" onClick={() => setImportResult(null)}>
+                                        Close
+                                    </Button>
+                                </div>
+                            </DialogContent>
+                        </Dialog>
 
                         <CardContent className="pt-6 px-0">
                             <form onSubmit={handleSearch} className="mb-4">
@@ -344,16 +393,55 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                                         />
                                     </div>
                                     <Select value={programFilter} onValueChange={handleProgramFilter}>
-                                        <SelectTrigger className="w-[150px]">
+                                        <SelectTrigger className="w-[180px]">
                                             <SelectValue placeholder="Program" />
                                         </SelectTrigger>
                                         <SelectContent>
                                             <SelectItem value="all">All Programs</SelectItem>
-                                            {programs.map((program) => (
-                                                <SelectItem key={program.id} value={program.id}>
-                                                    {program.code || program.name}
-                                                </SelectItem>
-                                            ))}
+                                            <SelectSeparator />
+                                            {(() => {
+                                                const unifastCodes = ['TES', 'TDP'];
+                                                const unifastPrograms = programs.filter(p => !p.parent_id && unifastCodes.includes(p.code?.toUpperCase()));
+                                                const stufapsParents = programs.filter(p => !p.parent_id && !unifastCodes.includes(p.code?.toUpperCase()));
+                                                const childPrograms = programs.filter(p => p.parent_id);
+                                                const childrenByParent = new Map<string, Program[]>();
+                                                childPrograms.forEach(p => {
+                                                    const list = childrenByParent.get(p.parent_id!) || [];
+                                                    list.push(p);
+                                                    childrenByParent.set(p.parent_id!, list);
+                                                });
+
+                                                return (
+                                                    <>
+                                                        <SelectGroup>
+                                                            <SelectLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">UniFAST</SelectLabel>
+                                                            <SelectItem value="unifast">All UniFAST</SelectItem>
+                                                            {unifastPrograms.map(p => (
+                                                                <SelectItem key={p.id} value={p.id} className="pl-6">{p.code}</SelectItem>
+                                                            ))}
+                                                        </SelectGroup>
+                                                        <SelectSeparator />
+                                                        <SelectGroup>
+                                                            <SelectLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">STuFAPs</SelectLabel>
+                                                            <SelectItem value="stufaps">All STuFAPs</SelectItem>
+                                                            {stufapsParents.map(parent => {
+                                                                const children = childrenByParent.get(parent.id) || [];
+                                                                if (children.length > 0) {
+                                                                    return (
+                                                                        <React.Fragment key={parent.id}>
+                                                                            <SelectItem value={parent.id} className="pl-6 font-medium">{parent.code}</SelectItem>
+                                                                            {children.map(child => (
+                                                                                <SelectItem key={child.id} value={child.id} className="pl-10 text-xs">{child.code}</SelectItem>
+                                                                            ))}
+                                                                        </React.Fragment>
+                                                                    );
+                                                                }
+                                                                return <SelectItem key={parent.id} value={parent.id} className="pl-6">{parent.code}</SelectItem>;
+                                                            })}
+                                                        </SelectGroup>
+                                                    </>
+                                                );
+                                            })()}
                                         </SelectContent>
                                     </Select>
                                     <Select value={documentStatusFilter} onValueChange={handleDocumentStatusFilter}>
@@ -485,12 +573,16 @@ export default function Index({ liquidations, programs, academicYears, heis, fil
                                                     </TableCell>
                                                     {/* Combined: HEI Name + UII */}
                                                     <TableCell className="max-w-[250px] py-3">
-                                                        <div
-                                                            className="font-medium text-sm truncate"
-                                                            title={liquidation.hei_name}
-                                                        >
-                                                            {liquidation.hei_name}
-                                                        </div>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <div className="font-medium text-sm truncate cursor-default">
+                                                                    {liquidation.hei_name}
+                                                                </div>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent side="top" className="max-w-xs">
+                                                                {liquidation.hei_name}
+                                                            </TooltipContent>
+                                                        </Tooltip>
                                                         <div className="text-xs text-muted-foreground font-mono">{liquidation.uii}</div>
                                                     </TableCell>
                                                     {/* Combined: Academic Year + Semester */}
