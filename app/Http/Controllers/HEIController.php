@@ -18,7 +18,13 @@ class HEIController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        $heis = HEI::with('region')->orderBy('name')->get();
+        $heis = HEI::with(['region', 'users' => fn($q) => $q->whereNotNull('avatar')->select('id', 'hei_id', 'avatar')->limit(1)])
+            ->orderBy('name')
+            ->get()
+            ->each(function ($hei) {
+                $hei->user_avatar = $hei->users->first()?->avatar_url;
+                unset($hei->users);
+            });
         $regions = Region::where('status', 'active')->orderBy('name')->get(['id', 'code', 'name']);
 
         return Inertia::render('hei/index', [

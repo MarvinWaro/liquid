@@ -7,7 +7,7 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { GripVertical, Maximize2, Minimize2, Plus, RotateCcw, X } from 'lucide-react';
+import { GripVertical, Maximize2, Minimize2, Plus, RotateCcw, Square, X } from 'lucide-react';
 import { type ReactNode, useEffect, useRef } from 'react';
 import Sortable from 'sortablejs';
 
@@ -76,12 +76,50 @@ function getColClass(span: number) {
     }
 }
 
+/** Compute effective span from base colSpan and expand level (0/1/2) */
+function getEffectiveSpan(colSpan: number, expandLevel: number): number {
+    switch (expandLevel) {
+        case 1:
+            return Math.min(colSpan * 2, 12);
+        case 2:
+            return 12;
+        default:
+            return colSpan;
+    }
+}
+
+/** Icon & tooltip for the current expand level */
+function ExpandIcon({ level }: { level: number }) {
+    switch (level) {
+        case 1:
+            return <Maximize2 className="h-3.5 w-3.5" />;
+        case 2:
+            return <Minimize2 className="h-3.5 w-3.5" />;
+        default:
+            return <Maximize2 className="h-3.5 w-3.5" />;
+    }
+}
+
+function expandTitle(level: number): string {
+    switch (level) {
+        case 0:
+            return 'Expand';
+        case 1:
+            return 'Full width';
+        case 2:
+            return 'Minimize';
+        default:
+            return 'Expand';
+    }
+}
+
 interface DashboardCardProps {
     id: string;
     title?: string;
     colSpan?: number;
-    expanded?: boolean;
-    onToggleExpand?: () => void;
+    /** 0 = normal, 1 = double, 2 = full */
+    expandLevel?: number;
+    onCycleExpand?: () => void;
     onRemove?: () => void;
     headerActions?: ReactNode;
     children: ReactNode;
@@ -95,8 +133,8 @@ export function DashboardCard({
     id,
     title,
     colSpan = 12,
-    expanded = false,
-    onToggleExpand,
+    expandLevel = 0,
+    onCycleExpand,
     onRemove,
     headerActions,
     children,
@@ -104,7 +142,7 @@ export function DashboardCard({
     variant = 'card',
     className,
 }: DashboardCardProps) {
-    const effectiveSpan = expanded ? 12 : colSpan;
+    const effectiveSpan = getEffectiveSpan(colSpan, expandLevel);
 
     /* ---- Transparent variant (for stats grids etc.) ---- */
     if (variant === 'transparent') {
@@ -118,9 +156,9 @@ export function DashboardCard({
                     >
                         <GripVertical className="h-3.5 w-3.5" />
                     </button>
-                    {onToggleExpand && (
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onToggleExpand} title={expanded ? 'Minimize' : 'Expand'}>
-                            {expanded ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+                    {onCycleExpand && (
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onCycleExpand} title={expandTitle(expandLevel)}>
+                            <ExpandIcon level={expandLevel} />
                         </Button>
                     )}
                     {onRemove && (
@@ -144,7 +182,7 @@ export function DashboardCard({
     return (
         <div data-card-id={id} className={cn(getColClass(effectiveSpan), className)}>
             <Card className="h-full border-border/50 shadow-sm">
-                {(title || headerActions || onToggleExpand || onRemove) && (
+                {(title || headerActions || onCycleExpand || onRemove) && (
                     <CardHeader className="pb-2">
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
@@ -158,15 +196,15 @@ export function DashboardCard({
                             </div>
                             <div className="flex items-center gap-1">
                                 {headerActions}
-                                {onToggleExpand && (
+                                {onCycleExpand && (
                                     <Button
                                         variant="ghost"
                                         size="icon"
                                         className="h-7 w-7"
-                                        onClick={onToggleExpand}
-                                        title={expanded ? 'Minimize' : 'Expand'}
+                                        onClick={onCycleExpand}
+                                        title={expandTitle(expandLevel)}
                                     >
-                                        {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                                        <ExpandIcon level={expandLevel} />
                                     </Button>
                                 )}
                                 {onRemove && (

@@ -76,6 +76,9 @@ class PermissionSeeder extends Seeder
                 ['name' => 'view_reports', 'description' => 'View reports'],
                 ['name' => 'export_reports', 'description' => 'Export reports to Excel'],
                 ['name' => 'view_dashboard', 'description' => 'View dashboard statistics'],
+                ['name' => 'view_fund_source_filter', 'description' => 'View fund source filter (UniFAST/STuFAPs) on dashboard'],
+                ['name' => 'view_summary_ay', 'description' => 'View summary per academic year'],
+                ['name' => 'view_summary_hei', 'description' => 'View summary per HEI'],
             ],
             'Activity Logs' => [
                 ['name' => 'view_activity_logs', 'description' => 'View system activity logs'],
@@ -113,7 +116,8 @@ class PermissionSeeder extends Seeder
             'view_semesters', 'create_semesters', 'edit_semesters', 'delete_semesters',
             'view_academic_years', 'create_academic_years', 'edit_academic_years', 'delete_academic_years',
             'view_document_requirements', 'create_document_requirements', 'edit_document_requirements', 'delete_document_requirements',
-            'view_reports', 'export_reports', 'view_dashboard',
+            'view_reports', 'export_reports', 'view_dashboard', 'view_fund_source_filter',
+            'view_summary_ay', 'view_summary_hei',
             'view_activity_logs',
         ]);
 
@@ -121,16 +125,26 @@ class PermissionSeeder extends Seeder
             'view_hei',
             'view_liquidation', 'create_liquidation', 'edit_liquidation', 'review_liquidation', 'endorse_liquidation',
             'view_reports', 'view_dashboard',
+            'view_summary_ay', 'view_summary_hei',
         ]);
 
         $this->createExampleRole('Accountant', 'Reviews and endorses to COA', [
             'view_hei',
             'view_liquidation', 'review_liquidation', 'endorse_liquidation',
-            'view_reports', 'view_dashboard',
+            'view_reports', 'view_dashboard', 'view_fund_source_filter',
+            'view_summary_ay', 'view_summary_hei',
         ]);
 
         $this->createExampleRole('HEI', 'Higher Education Institution user', [
             'view_liquidation', 'edit_liquidation',
+            'view_summary_ay', 'view_fund_source_filter',
+        ]);
+
+        $this->createExampleRole('STUFAPS Focal', 'Program-scoped focal for STUFAPS sub-programs', [
+            'view_liquidation', 'create_liquidation', 'edit_liquidation', 'review_liquidation', 'endorse_liquidation',
+            'view_hei',
+            'view_reports', 'view_dashboard',
+            'view_summary_ay', 'view_summary_hei',
         ]);
 
         $this->createExampleRole('Encoder', 'Data entry staff', [
@@ -140,6 +154,7 @@ class PermissionSeeder extends Seeder
 
         $this->createExampleRole('Viewer', 'Read-only access', [
             'view_hei', 'view_liquidation', 'view_reports', 'view_dashboard',
+            'view_summary_ay', 'view_summary_hei',
         ]);
     }
 

@@ -1,8 +1,9 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useForm } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog,
     DialogContent,
@@ -40,6 +41,14 @@ interface HEI {
     region?: Region | null;
 }
 
+interface Program {
+    id: string;
+    code: string;
+    name: string;
+    parent_id?: string | null;
+    parent?: { id: string; code: string; name: string } | null;
+}
+
 interface User {
     id: number;
     name: string;
@@ -48,6 +57,7 @@ interface User {
     status: string;
     region_id?: string | null;
     hei_id?: string | null;
+    programs?: Program[];
 }
 
 interface UserModalProps {
@@ -57,6 +67,7 @@ interface UserModalProps {
     roles: Role[];
     regions: Region[];
     heis: HEI[];
+    programs?: Program[];
 }
 
 interface FormData {
@@ -67,10 +78,11 @@ interface FormData {
     role_id: string;
     region_id: string;
     hei_id: string;
+    program_ids: string[];
     status: string;
 }
 
-export function UserModal({ isOpen, onClose, user, roles, regions, heis }: UserModalProps) {
+export function UserModal({ isOpen, onClose, user, roles, regions, heis, programs = [] }: UserModalProps) {
     const isEdit = !!user;
 
     const { data, setData, post, put, processing, errors, reset, clearErrors } = useForm<FormData>({
@@ -81,6 +93,7 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis }: UserM
         role_id: '',
         region_id: '',
         hei_id: '',
+        program_ids: [],
         status: 'active',
     });
 
@@ -88,6 +101,12 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis }: UserM
     const selectedRole = roles.find(r => r.id.toString() === data.role_id);
     const isHEIRole = selectedRole?.name === 'HEI';
     const isRegionalCoordinator = selectedRole?.name === 'Regional Coordinator';
+    const isProgramScoped = selectedRole?.name === 'STUFAPS Focal';
+
+    // Group programs: only show sub-programs (those with a parent_id) for STUFAPS Focal
+    const stufapsSubPrograms = useMemo(() => {
+        return programs.filter(p => p.parent_id !== null && p.parent_id !== undefined);
+    }, [programs]);
 
     useEffect(() => {
         if (isOpen) {
@@ -100,6 +119,7 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis }: UserM
                     role_id: user.role_id.toString(),
                     region_id: user.region_id || '',
                     hei_id: user.hei_id || '',
+                    program_ids: user.programs?.map(p => p.id) || [],
                     status: user.status,
                 });
             } else {
@@ -112,12 +132,20 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis }: UserM
                     role_id: '',
                     region_id: '',
                     hei_id: '',
+                    program_ids: [],
                     status: 'active',
                 });
             }
             clearErrors();
         }
     }, [isOpen, user]);
+
+    const handleProgramToggle = (programId: string, checked: boolean) => {
+        setData('program_ids', checked
+            ? [...data.program_ids, programId]
+            : data.program_ids.filter(id => id !== programId)
+        );
+    };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -185,11 +213,13 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis }: UserM
                                     // Clear role-specific fields when role changes
                                     const newRole = roles.find(r => r.id.toString() === value);
                                     if (newRole?.name === 'HEI') {
-                                        setData(data => ({ ...data, role_id: value, region_id: '' }));
+                                        setData(data => ({ ...data, role_id: value, region_id: '', program_ids: [] }));
                                     } else if (newRole?.name === 'Regional Coordinator') {
-                                        setData(data => ({ ...data, role_id: value, hei_id: '' }));
-                                    } else {
+                                        setData(data => ({ ...data, role_id: value, hei_id: '', program_ids: [] }));
+                                    } else if (newRole?.name === 'STUFAPS Focal') {
                                         setData(data => ({ ...data, role_id: value, hei_id: '', region_id: '' }));
+                                    } else {
+                                        setData(data => ({ ...data, role_id: value, hei_id: '', region_id: '', program_ids: [] }));
                                     }
                                 }}
                             >
@@ -284,6 +314,43 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis }: UserM
                             />
                             {errors.hei_id && (
                                 <p className="text-sm text-destructive">{errors.hei_id}</p>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Program Selection - For STUFAPS Focal only (multi-select checkboxes) */}
+                    {isProgramScoped && (
+                        <div className="space-y-1.5">
+                            <Label>
+                                Assigned Programs <span className="text-destructive">*</span>
+                            </Label>
+                            <div className={`rounded-md border p-3 space-y-2 ${(errors as any).program_ids ? 'border-destructive' : ''}`}>
+                                {stufapsSubPrograms.length === 0 ? (
+                                    <p className="text-sm text-muted-foreground">No sub-programs available.</p>
+                                ) : (
+                                    stufapsSubPrograms.map((program) => (
+                                        <label
+                                            key={program.id}
+                                            className="flex items-center gap-2.5 py-1 px-1 rounded hover:bg-muted/50 cursor-pointer transition-colors"
+                                        >
+                                            <Checkbox
+                                                checked={data.program_ids.includes(program.id)}
+                                                onCheckedChange={(checked) => handleProgramToggle(program.id, !!checked)}
+                                            />
+                                            <span className="text-sm">
+                                                {program.name} ({program.code})
+                                            </span>
+                                        </label>
+                                    ))
+                                )}
+                            </div>
+                            {data.program_ids.length > 0 && (
+                                <p className="text-xs text-muted-foreground">
+                                    {data.program_ids.length} program{data.program_ids.length > 1 ? 's' : ''} selected
+                                </p>
+                            )}
+                            {(errors as any).program_ids && (
+                                <p className="text-sm text-destructive">{(errors as any).program_ids}</p>
                             )}
                         </div>
                     )}

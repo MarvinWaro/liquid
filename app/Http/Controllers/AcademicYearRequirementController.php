@@ -99,18 +99,39 @@ class AcademicYearRequirementController extends Controller
         ]);
 
         DB::transaction(function () use ($validated, $academicYear) {
+            // Load global defaults to compare against
+            $globals = DocumentRequirement::whereIn(
+                'id',
+                array_column($validated['requirements'], 'document_requirement_id')
+            )->get()->keyBy('id');
+
             foreach ($validated['requirements'] as $item) {
-                AcademicYearDocumentRequirement::updateOrCreate(
-                    [
-                        'academic_year_id'         => $academicYear->id,
-                        'document_requirement_id'  => $item['document_requirement_id'],
-                    ],
-                    [
-                        'is_required' => $item['is_required'],
-                        'is_active'   => $item['is_active'],
-                        'sort_order'  => $item['sort_order'],
-                    ]
-                );
+                $reqId = $item['document_requirement_id'];
+                $global = $globals->get($reqId);
+
+                $isChanged = !$global
+                    || (bool) $item['is_required'] !== (bool) $global->is_required
+                    || (bool) $item['is_active'] !== (bool) $global->is_active
+                    || (int) $item['sort_order'] !== (int) $global->sort_order;
+
+                if ($isChanged) {
+                    AcademicYearDocumentRequirement::updateOrCreate(
+                        [
+                            'academic_year_id'         => $academicYear->id,
+                            'document_requirement_id'  => $reqId,
+                        ],
+                        [
+                            'is_required' => $item['is_required'],
+                            'is_active'   => $item['is_active'],
+                            'sort_order'  => $item['sort_order'],
+                        ]
+                    );
+                } else {
+                    // Remove override if it matches global defaults
+                    AcademicYearDocumentRequirement::where('academic_year_id', $academicYear->id)
+                        ->where('document_requirement_id', $reqId)
+                        ->delete();
+                }
             }
         });
 
@@ -178,5 +199,33 @@ class AcademicYearRequirementController extends Controller
         $this->cache->clearAYRequirementCache($academicYear->id);
 
         return redirect()->back()->with('success', 'Requirements reset to global defaults.');
+    }
+
+    /**
+     * Reset AY requirements for a specific program to global defaults.
+     */
+    public function resetProgram(Request $request, AcademicYear $academicYear): RedirectResponse
+    {
+        if (!auth()->user()->hasPermission('edit_academic_years')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $validated = $request->validate([
+            'program_id' => 'required|uuid|exists:programs,id',
+        ]);
+
+        // Get requirement IDs for this program
+        $requirementIds = DocumentRequirement::where('program_id', $validated['program_id'])
+            ->pluck('id');
+
+        AcademicYearDocumentRequirement::where('academic_year_id', $academicYear->id)
+            ->whereIn('document_requirement_id', $requirementIds)
+            ->delete();
+
+        $this->cache->clearAYRequirementCache($academicYear->id);
+
+        $program = Program::find($validated['program_id']);
+
+        return redirect()->back()->with('success', "{$program->code} requirements reset to global defaults.");
     }
 }

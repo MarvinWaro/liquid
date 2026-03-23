@@ -107,7 +107,7 @@ class NotificationService
         $recipients = collect();
 
         // Load relationships we need
-        $liquidation->loadMissing(['hei', 'creator']);
+        $liquidation->loadMissing(['hei', 'creator', 'program']);
 
         // The user who created this liquidation
         if ($liquidation->creator) {
@@ -123,14 +123,32 @@ class NotificationService
             $recipients = $recipients->merge($heiUsers);
         }
 
-        // Regional Coordinators for the HEI's region
-        if ($liquidation->hei?->region_id) {
+        $isSTUFAPSProgram = $liquidation->program && $liquidation->program->parent_id;
+
+        // Regional Coordinators — only for non-STUFAPS liquidations
+        // STUFAPS sub-program liquidations are managed by STUFAPS Focals, not RCs
+        if (!$isSTUFAPSProgram && $liquidation->hei?->region_id) {
             $rcs = User::whereHas('role', fn ($q) => $q->where('name', 'Regional Coordinator'))
                 ->where('region_id', $liquidation->hei->region_id)
                 ->where('status', 'active')
                 ->get();
             $recipients = $recipients->merge($rcs);
         }
+
+        // STUFAPS Focals assigned to the same program
+        if ($isSTUFAPSProgram) {
+            $focals = User::whereHas('role', fn ($q) => $q->where('name', 'STUFAPS Focal'))
+                ->whereHas('programs', fn ($q) => $q->where('programs.id', $liquidation->program_id))
+                ->where('status', 'active')
+                ->get();
+            $recipients = $recipients->merge($focals);
+        }
+
+        // Admins and Super Admins always get notified
+        $admins = User::whereHas('role', fn ($q) => $q->whereIn('name', ['Admin', 'Super Admin']))
+            ->where('status', 'active')
+            ->get();
+        $recipients = $recipients->merge($admins);
 
         // For endorsement actions, also notify accountants
         if (in_array($action, ['endorsed_to_accounting', 'endorsed_to_coa', 'returned_to_rc'])) {

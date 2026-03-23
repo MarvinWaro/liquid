@@ -40,10 +40,10 @@ import axios from 'axios';
 import {
     SEMESTERS,
     DOCUMENT_STATUSES,
-    RC_NOTES_OPTIONS,
     type Program,
     type HEIOption,
     type AcademicYearOption,
+    type RcNoteStatusOption,
 } from './liquidation-constants';
 
 /**
@@ -96,6 +96,7 @@ interface CreateLiquidationModalProps {
     onClose: () => void;
     programs: Program[];
     academicYears: AcademicYearOption[];
+    rcNoteStatuses: RcNoteStatusOption[];
     heis: HEIOption[];
     onSuccess: () => void;
 }
@@ -105,6 +106,7 @@ export function CreateLiquidationModal({
     onClose,
     programs,
     academicYears,
+    rcNoteStatuses,
     heis,
     onSuccess,
 }: CreateLiquidationModalProps) {
@@ -192,14 +194,23 @@ export function CreateLiquidationModal({
         }
     };
 
+    // Get due date days based on program: STUFAPS sub-programs = 30 days, others = 90 days
+    const getDueDateDays = (programId: string): number => {
+        const program = programs.find(p => p.id === programId);
+        return program?.parent_id ? 30 : 90;
+    };
+
     const handleInputChange = (field: string, value: string) => {
         setFormData(prev => {
             const updated = { ...prev, [field]: value };
-            // Auto-compute due date: fund release date + 90 days
-            if (field === 'date_fund_released' && value) {
-                const released = parse(value, 'yyyy-MM-dd', new Date());
+            // Auto-compute due date based on program type
+            const shouldRecomputeDueDate = field === 'date_fund_released' || field === 'program_id';
+            const releaseDate = field === 'date_fund_released' ? value : updated.date_fund_released;
+            if (shouldRecomputeDueDate && releaseDate) {
+                const released = parse(releaseDate, 'yyyy-MM-dd', new Date());
                 if (isValid(released)) {
-                    const due = addDays(released, 90);
+                    const days = getDueDateDays(updated.program_id);
+                    const due = addDays(released, days);
                     updated.due_date = format(due, 'yyyy-MM-dd');
                 }
             }
@@ -585,9 +596,9 @@ export function CreateLiquidationModal({
                                     <SelectValue placeholder="Select note (optional)" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {RC_NOTES_OPTIONS.map((option) => (
-                                        <SelectItem key={option.value} value={option.value}>
-                                            {option.label}
+                                    {rcNoteStatuses.map((option) => (
+                                        <SelectItem key={option.id} value={option.name}>
+                                            {option.name}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>

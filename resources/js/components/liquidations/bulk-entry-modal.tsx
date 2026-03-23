@@ -46,10 +46,10 @@ import { type SharedData } from '@/types';
 import {
     SEMESTERS,
     DOCUMENT_STATUSES,
-    RC_NOTES_OPTIONS,
     type Program,
     type HEIOption,
     type AcademicYearOption,
+    type RcNoteStatusOption,
 } from './liquidation-constants';
 
 // --- Draft persistence (scoped per user) -------------------------------
@@ -154,6 +154,7 @@ interface BulkEntryModalProps {
     onClose: () => void;
     programs: Program[];
     academicYears: AcademicYearOption[];
+    rcNoteStatuses: RcNoteStatusOption[];
     heis: HEIOption[];
     onSuccess: () => void;
 }
@@ -306,9 +307,52 @@ function DatePickerCell({
     placeholder?: string;
 }) {
     const [open, setOpen] = useState(false);
+    const [textInput, setTextInput] = useState('');
+    const [isTyping, setIsTyping] = useState(false);
 
     const dateValue = value ? parse(value, 'yyyy-MM-dd', new Date()) : undefined;
     const displayText = dateValue && isValid(dateValue) ? format(dateValue, 'MMM dd, yyyy') : '';
+
+    const handleTextSubmit = () => {
+        const trimmed = textInput.trim();
+        if (!trimmed) {
+            setIsTyping(false);
+            return;
+        }
+
+        // Try common date formats: MM/DD/YYYY, M/D/YYYY, MM-DD-YYYY, YYYY-MM-DD
+        const formats = ['MM/dd/yyyy', 'M/d/yyyy', 'MM-dd-yyyy', 'yyyy-MM-dd'];
+        for (const fmt of formats) {
+            const parsed = parse(trimmed, fmt, new Date());
+            if (isValid(parsed)) {
+                const year = parsed.getFullYear();
+                if (year >= 1900 && year <= 2100) {
+                    onChange(format(parsed, 'yyyy-MM-dd'));
+                    setIsTyping(false);
+                    setTextInput('');
+                    return;
+                }
+            }
+        }
+        // Invalid — keep input visible so user can fix
+    };
+
+    if (isTyping) {
+        return (
+            <Input
+                autoFocus
+                className="h-7 text-xs px-2"
+                placeholder="MM/DD/YYYY"
+                value={textInput}
+                onChange={(e) => setTextInput(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleTextSubmit();
+                    if (e.key === 'Escape') { setIsTyping(false); setTextInput(''); }
+                }}
+                onBlur={handleTextSubmit}
+            />
+        );
+    }
 
     return (
         <Popover open={open} onOpenChange={setOpen}>
@@ -319,14 +363,44 @@ function DatePickerCell({
                         'h-7 w-full justify-start px-2 text-xs font-normal',
                         !value && 'text-muted-foreground',
                     )}
+                    onDoubleClick={(e) => {
+                        e.preventDefault();
+                        setTextInput(value || '');
+                        setIsTyping(true);
+                        setOpen(false);
+                    }}
                 >
                     <CalendarIcon className="h-3 w-3 shrink-0 opacity-50 mr-1.5" />
                     <span className="truncate">{displayText || placeholder}</span>
                 </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
+                <div className="p-2 border-b">
+                    <Input
+                        className="h-7 text-xs"
+                        placeholder="Type date: MM/DD/YYYY"
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                const val = (e.target as HTMLInputElement).value.trim();
+                                if (!val) return;
+                                const formats = ['MM/dd/yyyy', 'M/d/yyyy', 'MM-dd-yyyy', 'yyyy-MM-dd'];
+                                for (const fmt of formats) {
+                                    const parsed = parse(val, fmt, new Date());
+                                    if (isValid(parsed) && parsed.getFullYear() >= 1900 && parsed.getFullYear() <= 2100) {
+                                        onChange(format(parsed, 'yyyy-MM-dd'));
+                                        setOpen(false);
+                                        return;
+                                    }
+                                }
+                            }
+                        }}
+                    />
+                </div>
                 <Calendar
                     mode="single"
+                    captionLayout="dropdown"
+                    startMonth={new Date(2000, 0)}
+                    endMonth={new Date(2040, 11)}
                     selected={dateValue && isValid(dateValue) ? dateValue : undefined}
                     onSelect={(date) => {
                         if (date) {
@@ -350,6 +424,7 @@ export function BulkEntryModal({
     onClose,
     programs,
     academicYears,
+    rcNoteStatuses,
     heis,
     onSuccess,
 }: BulkEntryModalProps) {
@@ -384,6 +459,12 @@ export function BulkEntryModal({
         }
     }, [isOpen, heiMap, userId]);
 
+    // Get due date days based on program: STUFAPS sub-programs = 30 days, others = 90 days
+    const getDueDateDays = (programId: string): number => {
+        const program = programs.find(p => p.id === programId);
+        return program?.parent_id ? 30 : 90;
+    };
+
     const updateRow = (index: number, field: keyof BulkEntryRow, value: string) => {
         setRows(prev => {
             const updated = [...prev];
@@ -392,11 +473,14 @@ export function BulkEntryModal({
                 const match = heiMap.get(value.trim().toLowerCase());
                 updated[index].hei_name = match?.name || '';
             }
-            // Auto-compute due date: fund release + 90 days
-            if (field === 'date_fund_released' && value) {
-                const released = parse(value, 'yyyy-MM-dd', new Date());
+            // Auto-compute due date based on program type
+            const shouldRecomputeDueDate = field === 'date_fund_released' || field === 'program_id';
+            const releaseDate = field === 'date_fund_released' ? value : updated[index].date_fund_released;
+            if (shouldRecomputeDueDate && releaseDate) {
+                const released = parse(releaseDate, 'yyyy-MM-dd', new Date());
                 if (isValid(released)) {
-                    updated[index].due_date = format(addDays(released, 90), 'yyyy-MM-dd');
+                    const days = getDueDateDays(updated[index].program_id);
+                    updated[index].due_date = format(addDays(released, days), 'yyyy-MM-dd');
                 }
             }
             return updated;
@@ -639,7 +723,7 @@ export function BulkEntryModal({
                                 const ayLabel = academicYears.find(ay => ay.id === row.academic_year_id)?.name || '';
                                 const semLabel = SEMESTERS.find(s => s.value === row.semester)?.label || '';
                                 const docLabel = DOCUMENT_STATUSES.find(s => s.value === row.document_status)?.label || '';
-                                const rcLabel = RC_NOTES_OPTIONS.find(o => o.value === row.rc_notes)?.label || '';
+                                const rcLabel = rcNoteStatuses.find(o => o.name === row.rc_notes)?.name || '';
                                 const fundDateLabel = row.date_fund_released ? format(parse(row.date_fund_released, 'yyyy-MM-dd', new Date()), 'MMM dd, yyyy') : '';
                                 const dueDateLabel = row.due_date ? format(parse(row.due_date, 'yyyy-MM-dd', new Date()), 'MMM dd, yyyy') : '';
 
@@ -738,7 +822,7 @@ export function BulkEntryModal({
                                             <CellTooltip content={rcLabel}>
                                                 <Select value={row.rc_notes} onValueChange={v => updateRow(index, 'rc_notes', v)}>
                                                     <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="--" /></SelectTrigger>
-                                                    <SelectContent>{RC_NOTES_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+                                                    <SelectContent>{rcNoteStatuses.map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}</SelectContent>
                                                 </Select>
                                             </CellTooltip>
                                         </td>

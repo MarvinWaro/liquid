@@ -123,6 +123,8 @@ export default function Index({
     const [searchQuery, setSearchQuery] = useState('');
     const [filterProgramId, setFilterProgramId] = useState<string>('all');
 
+    const selectedProgram = programs.find(p => p.id === filterProgramId);
+
     const filtered = useMemo(() => {
         return requirements.filter((r) => {
             const matchesProgram =
@@ -200,7 +202,9 @@ export default function Index({
                                 onValueChange={setFilterProgramId}
                             >
                                 <SelectTrigger className="w-44">
-                                    <SelectValue placeholder="All programs" />
+                                    <span className="truncate">
+                                        {selectedProgram ? selectedProgram.code : 'All Programs'}
+                                    </span>
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="all">

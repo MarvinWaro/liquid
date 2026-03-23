@@ -160,7 +160,8 @@ class LiquidationFinancial extends Model
     }
 
     /**
-     * Get due date - returns explicit value or calculates from fund release + 90 days.
+     * Get due date - returns explicit value or calculates from fund release date.
+     * STUFAPS sub-programs (those with a parent_id) get 30 days; all others get 90 days.
      */
     public function getDueDateAttribute($value): ?\Carbon\Carbon
     {
@@ -169,12 +170,21 @@ class LiquidationFinancial extends Model
             return \Carbon\Carbon::parse($value);
         }
 
-        // Otherwise calculate from date_fund_released + 90 days
+        // Otherwise calculate from date_fund_released
         if (!$this->date_fund_released) {
             return null;
         }
 
-        return $this->date_fund_released->copy()->addDays(90);
+        $days = 90;
+        $liquidation = $this->liquidation;
+        if ($liquidation) {
+            $program = $liquidation->program;
+            if ($program && $program->parent_id) {
+                $days = 30;
+            }
+        }
+
+        return $this->date_fund_released->copy()->addDays($days);
     }
 
     /**

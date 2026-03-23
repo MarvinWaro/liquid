@@ -7,6 +7,7 @@ use App\Traits\HasUuid;
 use App\Traits\LogsActivity;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Storage;
@@ -28,6 +29,7 @@ class User extends Authenticatable
             'role_id' => ['role', 'name'],
             'hei_id' => ['hei', 'name'],
             'region_id' => ['region', 'name'],
+            'program_id' => ['program', 'name'],
         ];
     }
 
@@ -37,6 +39,7 @@ class User extends Authenticatable
             'role_id' => 'Role',
             'hei_id' => 'HEI',
             'region_id' => 'Region',
+            'program_id' => 'Program',
             'name' => 'Name',
             'email' => 'Email',
             'status' => 'Status',
@@ -55,6 +58,7 @@ class User extends Authenticatable
         'role_id',
         'hei_id',
         'region_id',
+        'program_id',
         'status',
         'avatar',
     ];
@@ -121,6 +125,78 @@ class User extends Authenticatable
     }
 
     /**
+     * Get the primary program assigned to this user (legacy single-program field).
+     */
+    public function program(): BelongsTo
+    {
+        return $this->belongsTo(Program::class);
+    }
+
+    /**
+     * Get all programs assigned to this user (many-to-many via pivot).
+     */
+    public function programs(): BelongsToMany
+    {
+        return $this->belongsToMany(Program::class, 'user_program')->withTimestamps();
+    }
+
+    /**
+     * Check if user is a STUFAPS Focal.
+     */
+    public function isSTUFAPSFocal(): bool
+    {
+        return $this->role && $this->role->name === 'STUFAPS Focal';
+    }
+
+    /**
+     * Get all program IDs this user can access (assigned programs + their children).
+     * Returns null if user has no program assignments (meaning they see all programs).
+     */
+    public function getScopedProgramIds(): ?array
+    {
+        $assignedIds = $this->programs()->pluck('programs.id')->all();
+
+        if (empty($assignedIds)) {
+            return null;
+        }
+
+        // Include children of each assigned program
+        $childIds = Program::whereIn('parent_id', $assignedIds)->pluck('id')->all();
+
+        return array_values(array_unique(array_merge($assignedIds, $childIds)));
+    }
+
+    /**
+     * Get all program IDs under the same parent as the user's assigned programs.
+     * Used for summary views so STUFAPS Focals see consolidated data across all sibling sub-programs.
+     */
+    public function getParentScopedProgramIds(): ?array
+    {
+        $assignedIds = $this->programs()->pluck('programs.id')->all();
+
+        if (empty($assignedIds)) {
+            return null;
+        }
+
+        // Find parent IDs of assigned programs
+        $parentIds = Program::whereIn('id', $assignedIds)
+            ->whereNotNull('parent_id')
+            ->pluck('parent_id')
+            ->unique()
+            ->all();
+
+        if (empty($parentIds)) {
+            // Assigned programs have no parent — fall back to scoped
+            return $this->getScopedProgramIds();
+        }
+
+        // All children under those parents (all sibling sub-programs)
+        $allChildIds = Program::whereIn('parent_id', $parentIds)->pluck('id')->all();
+
+        return array_values(array_unique(array_merge($assignedIds, $allChildIds)));
+    }
+
+    /**
      * Check if user has a specific permission.
      */
     public function hasPermission(string $permissionName): bool
@@ -170,8 +246,8 @@ class User extends Authenticatable
             'canViewAcademicYears' => $this->hasPermission('view_academic_years'),
             'canViewDocumentRequirements' => $this->hasPermission('view_document_requirements'),
             'canViewActivityLogs' => $this->hasPermission('view_activity_logs'),
-            'canViewSummaryAY' => $this->hasPermission('view_liquidation'),
-            'canViewSummaryHEI' => $this->hasPermission('view_liquidation') && !($this->role && $this->role->name === 'HEI'),
+            'canViewSummaryAY' => $this->hasPermission('view_summary_ay'),
+            'canViewSummaryHEI' => $this->hasPermission('view_summary_hei'),
         ];
     }
 

@@ -22,6 +22,8 @@ import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useInitials } from '@/hooks/use-initials';
 import { Building2, Pencil, Plus, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
@@ -31,6 +33,8 @@ interface HEI {
     name: string;
     type: string;
     code?: string;
+    logo?: string | null;
+    user_avatar?: string | null;
     region_id?: string | null;
     region?: {
         id: string;
@@ -67,6 +71,7 @@ export default function Index({
     canEdit,
     canDelete,
 }: Props) {
+    const getInitials = useInitials();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedHEI, setSelectedHEI] = useState<HEI | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -274,6 +279,9 @@ export default function Index({
                                         UII
                                     </TableHead>
                                     <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                                        {/* Avatar */}
+                                    </TableHead>
+                                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                         HEI Name
                                     </TableHead>
                                     <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">
@@ -294,7 +302,7 @@ export default function Index({
                                 {paginatedHEIs.length === 0 ? (
                                     <TableRow>
                                         <TableCell
-                                            colSpan={6}
+                                            colSpan={7}
                                             className="py-12 text-center text-muted-foreground"
                                         >
                                             <div className="flex flex-col items-center gap-2">
@@ -316,6 +324,19 @@ export default function Index({
                                                 <span className="font-mono text-sm text-muted-foreground">
                                                     {hei.uii}
                                                 </span>
+                                            </TableCell>
+                                            <TableCell className="py-2 w-10">
+                                                <Avatar size="default">
+                                                    {(hei.logo || hei.user_avatar) && (
+                                                        <AvatarImage
+                                                            src={hei.logo ? `/storage/${hei.logo}` : hei.user_avatar!}
+                                                            alt={hei.name}
+                                                        />
+                                                    )}
+                                                    <AvatarFallback>
+                                                        {getInitials(hei.name)}
+                                                    </AvatarFallback>
+                                                </Avatar>
                                             </TableCell>
                                             <TableCell className="py-2">
                                                 <span className="text-sm font-medium">

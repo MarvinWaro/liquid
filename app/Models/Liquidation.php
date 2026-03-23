@@ -31,6 +31,7 @@ use Illuminate\Database\Eloquent\Builder;
  * @property string|null $semester_id
  * @property string|null $batch_no
  * @property string|null $document_status_id
+ * @property string|null $rc_note_status_id
  * @property string $liquidation_status
  * @property \Carbon\Carbon|null $date_submitted
  * @property string|null $remarks
@@ -102,6 +103,7 @@ class Liquidation extends Model
 
         // Status tracking
         'document_status_id',
+        'rc_note_status_id',
         'liquidation_status_id',
         'date_submitted',
         'remarks',
@@ -194,6 +196,14 @@ class Liquidation extends Model
     public function documentStatus(): BelongsTo
     {
         return $this->belongsTo(DocumentStatus::class);
+    }
+
+    /**
+     * Get the RC note status for this liquidation.
+     */
+    public function rcNoteStatus(): BelongsTo
+    {
+        return $this->belongsTo(RcNoteStatus::class);
     }
 
     /**
@@ -345,18 +355,24 @@ class Liquidation extends Model
 
     /**
      * Calculate days lapsed based on the formula:
-     * Date Fund Released + 90 Days - Date of HEI's submission
+     * Due Date - Date of HEI's submission
+     * Uses financial's due_date accessor (respects explicit due_date or auto-calculates).
+     * Returns positive if early, negative if late.
      */
     public function getDaysLapsedAttribute(): ?int
     {
         $financial = $this->financial;
 
-        if (!$financial || !$financial->date_fund_released || !$this->date_submitted) {
+        if (!$financial || !$this->date_submitted) {
             return null;
         }
 
-        $deadlineDate = $financial->date_fund_released->copy()->addDays(90);
-        return $this->date_submitted->diffInDays($deadlineDate, false);
+        $dueDate = $financial->due_date;
+        if (!$dueDate) {
+            return null;
+        }
+
+        return $this->date_submitted->diffInDays($dueDate, false);
     }
 
     // ========================================

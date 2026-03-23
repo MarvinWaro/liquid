@@ -35,6 +35,7 @@ class DatabaseSeeder extends Seeder
             HEISeeder::class,             // HEIs — depends on RegionSeeder
             DocumentLocationSeeder::class, // shelf locations (no deps)
             DocumentRequirementSeeder::class, // document requirements (no deps)
+            RcNoteStatusSeeder::class,    // RC note statuses (no deps)
         ]);
 
         // Re-enable logging

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 interface CardState {
     visible: boolean;
-    expanded: boolean;
+    /** 0 = normal, 1 = double width, 2 = full width */
+    expandLevel: number;
 }
 
 interface StoredLayout {
@@ -15,11 +16,30 @@ interface LayoutState {
     cards: Record<string, CardState>;
 }
 
+const DEFAULT_CARD: CardState = { visible: true, expandLevel: 0 };
+
+/** Migrate old boolean `expanded` to numeric `expandLevel` */
+function migrateCard(raw: Record<string, unknown>): CardState {
+    if (typeof raw.expandLevel === 'number') return raw as unknown as CardState;
+    return {
+        visible: (raw.visible as boolean) ?? true,
+        expandLevel: raw.expanded ? 1 : 0,
+    };
+}
+
 export function useDashboardLayout(availableCardIds: string[], storageKey: string = 'dashboard-layout') {
     const [stored, setStored] = useState<StoredLayout>(() => {
         try {
             const raw = localStorage.getItem(storageKey);
-            if (raw) return JSON.parse(raw);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                // Migrate cards from old format
+                const cards: Record<string, CardState> = {};
+                for (const [id, val] of Object.entries(parsed.cards || {})) {
+                    cards[id] = migrateCard(val as Record<string, unknown>);
+                }
+                return { order: parsed.order || [], cards };
+            }
         } catch {
             // ignore
         }
@@ -38,7 +58,7 @@ export function useDashboardLayout(availableCardIds: string[], storageKey: strin
 
         const cards: Record<string, CardState> = {};
         for (const id of order) {
-            cards[id] = stored.cards[id] ?? { visible: true, expanded: false };
+            cards[id] = stored.cards[id] ?? DEFAULT_CARD;
         }
 
         return { order, cards };
@@ -59,24 +79,28 @@ export function useDashboardLayout(availableCardIds: string[], storageKey: strin
             cards: {
                 ...prev.cards,
                 [id]: {
-                    ...(prev.cards[id] ?? { visible: true, expanded: false }),
+                    ...(prev.cards[id] ?? DEFAULT_CARD),
                     visible: !(prev.cards[id]?.visible ?? true),
                 },
             },
         }));
     }, []);
 
-    const toggleExpanded = useCallback((id: string) => {
-        setStored((prev) => ({
-            ...prev,
-            cards: {
-                ...prev.cards,
-                [id]: {
-                    ...(prev.cards[id] ?? { visible: true, expanded: false }),
-                    expanded: !(prev.cards[id]?.expanded ?? false),
+    /** Cycle expand: 0 → 1 → 2 → 0 */
+    const cycleExpand = useCallback((id: string) => {
+        setStored((prev) => {
+            const current = prev.cards[id] ?? DEFAULT_CARD;
+            return {
+                ...prev,
+                cards: {
+                    ...prev.cards,
+                    [id]: {
+                        ...current,
+                        expandLevel: (current.expandLevel + 1) % 3,
+                    },
                 },
-            },
-        }));
+            };
+        });
     }, []);
 
     const showCard = useCallback((id: string) => {
@@ -84,7 +108,7 @@ export function useDashboardLayout(availableCardIds: string[], storageKey: strin
             ...prev,
             cards: {
                 ...prev.cards,
-                [id]: { ...(prev.cards[id] ?? { visible: true, expanded: false }), visible: true },
+                [id]: { ...(prev.cards[id] ?? DEFAULT_CARD), visible: true },
             },
         }));
     }, []);
@@ -92,11 +116,11 @@ export function useDashboardLayout(availableCardIds: string[], storageKey: strin
     const resetLayout = useCallback(() => {
         setStored({
             order: availableCardIds,
-            cards: Object.fromEntries(availableCardIds.map((id) => [id, { visible: true, expanded: false }])),
+            cards: Object.fromEntries(availableCardIds.map((id) => [id, { ...DEFAULT_CARD }])),
         });
     }, [availableCardIds]);
 
     const hiddenCardIds = layout.order.filter((id) => !layout.cards[id]?.visible);
 
-    return { layout, updateOrder, toggleVisibility, toggleExpanded, showCard, resetLayout, hiddenCardIds };
+    return { layout, updateOrder, toggleVisibility, cycleExpand, showCard, resetLayout, hiddenCardIds };
 }

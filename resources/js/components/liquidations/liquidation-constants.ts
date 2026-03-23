@@ -32,6 +32,14 @@ export const DOCUMENT_STATUSES = [
     { value: 'COMPLETE', label: 'Complete Submission' },
 ] as const;
 
+export interface RcNoteStatusOption {
+    id: string;
+    code: string;
+    name: string;
+    badge_color: string;
+}
+
+/** @deprecated Use rcNoteStatuses from backend instead */
 export const RC_NOTES_OPTIONS = [
     { value: 'For Review', label: 'For Review' },
     { value: 'For Compliance', label: 'For Compliance' },

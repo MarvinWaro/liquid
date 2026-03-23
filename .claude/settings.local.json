@@ -38,7 +38,9 @@
       "Bash(node -e:*)",
       "Bash(xargs grep -l \"Event\\\\|Observer\\\\|Listener\")",
       "Bash(xargs grep -l \"AppNotification\\\\|type.*Notification\")",
-      "Bash(npx esbuild:*)"
+      "Bash(npx esbuild:*)",
+      "Bash(npm ls:*)",
+      "Bash(php -r \":*)"
     ]
   }
 }
