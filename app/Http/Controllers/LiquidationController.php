@@ -67,12 +67,39 @@ class LiquidationController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'uii']);
 
+        // All programs for the filter dropdown
+        $allPrograms = $this->cacheService->getSelectablePrograms();
+
+        // Scoped programs for the create modal based on role:
+        // - RC / Encoder: UniFAST only (TES, TDP — top-level programs with no parent)
+        // - STUFAPS Focal: only their assigned sub-programs under STUFAPS
+        // - Admin / Super Admin: all programs
+        $roleName = $user->role->name;
+        if (in_array($roleName, ['Regional Coordinator', 'Encoder'])) {
+            // RC/Encoder can only create for UniFAST programs (top-level, no parent)
+            $createPrograms = $allPrograms->filter(fn ($p) => $p->parent_id === null && ($p->children_count ?? 0) === 0)->values();
+        } elseif ($roleName === 'STUFAPS Focal') {
+            // STUFAPS Focal: show their assigned programs + the parent group label
+            $scopedIds = $user->getScopedProgramIds();
+            $createPrograms = $scopedIds
+                ? $allPrograms->filter(function ($p) use ($scopedIds) {
+                    return in_array($p->id, $scopedIds)
+                        || ($p->children_count > 0 && \App\Models\Program::where('parent_id', $p->id)
+                            ->whereIn('id', $scopedIds)->exists());
+                })->values()
+                : $allPrograms;
+        } else {
+            // Admin, Super Admin, Accountant — all programs
+            $createPrograms = $allPrograms;
+        }
+
         return Inertia::render('liquidation/index', [
             'liquidations' => $liquidations,
             'userHei' => $this->formatUserHei($user->hei),
             'regionalCoordinators' => $this->cacheService->getRegionalCoordinators(),
             'accountants' => $this->cacheService->getAccountants(),
-            'programs' => $this->cacheService->getSelectablePrograms(),
+            'programs' => $allPrograms,
+            'createPrograms' => $createPrograms,
             'academicYears' => \App\Models\AcademicYear::getDropdownOptions(),
             'rcNoteStatuses' => RcNoteStatus::getDropdownOptions(),
             'heis' => $heis,
@@ -248,10 +275,21 @@ class LiquidationController extends Controller
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
 
+        // Normalize control numbers: trim + uppercase
+        $entries = $request->input('entries', []);
+        foreach ($entries as &$entry) {
+            if (isset($entry['dv_control_no'])) {
+                $entry['dv_control_no'] = strtoupper(trim($entry['dv_control_no']));
+            }
+        }
+        unset($entry);
+        $request->merge(['entries' => $entries]);
+
         $request->validate([
             'entries'                          => 'required|array|min:1|max:100',
             'entries.*.program_id'             => 'required|exists:programs,id',
             'entries.*.uii'                    => 'required|string',
+            'entries.*.dv_control_no'          => 'required|string|max:100|distinct|unique:liquidations,control_no',
             'entries.*.date_fund_released'     => 'required|date',
             'entries.*.due_date'               => 'nullable|date',
             'entries.*.academic_year_id'       => 'required|exists:academic_years,id',
@@ -262,6 +300,10 @@ class LiquidationController extends Controller
             'entries.*.total_amount_liquidated' => 'nullable|numeric|min:0',
             'entries.*.document_status'        => 'nullable|string|in:NONE,PARTIAL,COMPLETE',
             'entries.*.rc_notes'               => 'nullable|string|max:1000',
+        ], [
+            'entries.*.dv_control_no.required' => 'Control No. is required for row :position.',
+            'entries.*.dv_control_no.distinct'  => 'Control No. in row :position is duplicated.',
+            'entries.*.dv_control_no.unique'    => 'Control No. in row :position already exists in the system.',
         ]);
 
         $imported = 0;

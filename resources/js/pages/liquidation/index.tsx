@@ -109,6 +109,7 @@ interface Props {
         meta: any;
     };
     programs: Program[];
+    createPrograms: Program[];
     academicYears: AcademicYearOption[];
     rcNoteStatuses: RcNoteStatusOption[];
     heis: HEIOption[];
@@ -130,7 +131,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Liquidation Management', href: route('liquidation.index') },
 ];
 
-export default function Index({ liquidations, programs, academicYears, rcNoteStatuses, heis, filters, permissions, userRole }: Props) {
+export default function Index({ liquidations, programs, createPrograms, academicYears, rcNoteStatuses, heis, filters, permissions, userRole }: Props) {
     const [searchQuery, setSearchQuery] = useState(filters.search || '');
     const [programFilter, setProgramFilter] = useState(filters.program || '');
     const [documentStatusFilter, setDocumentStatusFilter] = useState(filters.document_status || '');
@@ -251,7 +252,7 @@ export default function Index({ liquidations, programs, academicYears, rcNoteSta
             <CreateLiquidationModal
                 isOpen={isCreateModalOpen}
                 onClose={() => setIsCreateModalOpen(false)}
-                programs={programs}
+                programs={createPrograms}
                 academicYears={academicYears}
                 rcNoteStatuses={rcNoteStatuses}
                 heis={heis}
@@ -262,7 +263,7 @@ export default function Index({ liquidations, programs, academicYears, rcNoteSta
             <BulkEntryModal
                 isOpen={isBulkEntryOpen}
                 onClose={() => setIsBulkEntryOpen(false)}
-                programs={programs}
+                programs={createPrograms}
                 academicYears={academicYears}
                 rcNoteStatuses={rcNoteStatuses}
                 heis={heis}

@@ -754,9 +754,10 @@ class DashboardController extends Controller
         }
 
         if ($userRole === 'Regional Coordinator') {
-            // RC only sees top-level programs (TES, TDP) — not STUFAPS sub-programs
+            // RC only sees leaf UniFAST programs (TES, TDP) — exclude STUFAPS parent
             return Program::where('status', 'active')
                 ->whereNull('parent_id')
+                ->doesntHave('children')
                 ->orderBy('name')
                 ->get(['id', 'code', 'name'])
                 ->toArray();
