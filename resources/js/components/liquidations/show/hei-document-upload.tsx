@@ -97,8 +97,6 @@ export default function HeiDocumentUpload({
         return map;
     }, [requirements]);
 
-    if (requirements.length === 0) return null;
-
     const total = completeness?.total ?? requirements.length;
     const fulfilled = completeness?.fulfilled ?? 0;
     const percentage = completeness?.percentage ?? 0;
@@ -124,7 +122,7 @@ export default function HeiDocumentUpload({
 
             if (data?.success) {
                 toast.success('Document uploaded successfully.');
-                router.reload({ only: ['liquidation'], preserveScroll: true });
+                router.reload({ only: ['liquidation'] });
             } else {
                 toast.error(data?.message ?? 'Upload failed. Please try again.');
             }
@@ -155,7 +153,7 @@ export default function HeiDocumentUpload({
                 toast.success('Google Drive link added successfully.');
                 setGdriveLink('');
                 setGdriveOpenId(null);
-                router.reload({ only: ['liquidation'], preserveScroll: true });
+                router.reload({ only: ['liquidation'] });
             } else {
                 toast.error(data?.message ?? 'Failed to add link.');
             }
@@ -202,6 +200,8 @@ export default function HeiDocumentUpload({
             onError: () => toast.error('Failed to delete document.'),
         });
     }, []);
+
+    if (requirements.length === 0) return null;
 
     return (
         <Card className="mb-3" id="document-requirements">

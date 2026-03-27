@@ -1,8 +1,9 @@
 import AppLayout from '@/layouts/app-layout';
 import { dashboard } from '@/routes';
 import { type BreadcrumbItem } from '@/types';
-import { Head } from '@inertiajs/react';
+import { Deferred, Head } from '@inertiajs/react';
 import { useCallback, useMemo, useState } from 'react';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
     Table,
     TableBody,
@@ -35,7 +36,7 @@ import {
 } from '@/components/ui/tooltip';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Label, Sector } from 'recharts';
 import type { PieSectorDataItem } from 'recharts/types/polar/Pie';
-import { DollarSign, FileText, CheckCircle, Clock, AlertCircle, Filter, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { DollarSign, FileText, CheckCircle, Clock, AlertCircle, Filter, Search, ChevronLeft, ChevronRight, Building2, Users, GraduationCap } from 'lucide-react';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import { SortableDashboard, DashboardCard, DashboardToolbar } from '@/components/sortable-dashboard';
 
@@ -127,6 +128,26 @@ interface FundSourceStats {
     statusDistribution: StatusDistribution[];
 }
 
+interface ProgramStat {
+    code: string;
+    name: string;
+    grantees: number;
+    liquidation_count: number;
+}
+
+interface OverviewStats {
+    total_heis: number;
+    total_grantees: number;
+    unifast: {
+        grantees: number;
+        programs: ProgramStat[];
+    };
+    stufaps: {
+        grantees: number;
+        programs: ProgramStat[];
+    };
+}
+
 interface DashboardProps {
     isAdmin?: boolean;
     summaryPerAY: AYSummary[];
@@ -141,6 +162,7 @@ interface DashboardProps {
         unifast: FundSourceStats;
         stufaps: FundSourceStats;
     };
+    overviewStats?: OverviewStats;
 }
 
 interface CardConfig {
@@ -149,7 +171,9 @@ interface CardConfig {
     colSpan: number;
 }
 
-export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, totalStats: rawTotalStats, userStats: rawUserStats, recentLiquidations, userRole, calendarDueDates = [], fundSourceData }: DashboardProps) {
+export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, statusDistribution, totalStats: rawTotalStats, userStats: rawUserStats, recentLiquidations, userRole, calendarDueDates = [], fundSourceData, overviewStats }: DashboardProps) {
+    // Deferred props are undefined until loaded
+    const chartsLoading = summaryPerAY === undefined;
     // Provide default values to prevent undefined errors
     const totalStats: TotalStats = {
         total_liquidations: rawTotalStats?.total_liquidations ?? 0,
@@ -201,14 +225,14 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
         if (fundSourceFilter !== 'all' && fundSourceData?.[fundSourceFilter]?.summaryPerAY) {
             return fundSourceData[fundSourceFilter].summaryPerAY;
         }
-        return summaryPerAY;
+        return summaryPerAY ?? [];
     }, [fundSourceFilter, fundSourceData, summaryPerAY]);
 
     const activeStatusDistribution = useMemo(() => {
         if (fundSourceFilter !== 'all' && fundSourceData?.[fundSourceFilter]?.statusDistribution) {
             return fundSourceData[fundSourceFilter].statusDistribution;
         }
-        return statusDistribution;
+        return statusDistribution ?? [];
     }, [fundSourceFilter, fundSourceData, statusDistribution]);
 
     const activeCalendarDueDates = useMemo(() => {
@@ -368,6 +392,11 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
         const statColSpan = statCardDefs.length <= 4 ? Math.floor(12 / statCardDefs.length) : 4;
         for (const sc of statCardDefs) {
             cards.push({ id: sc.id, title: sc.title, colSpan: statColSpan });
+        }
+
+        // Overview stats (Admin/Super Admin only)
+        if (overviewStats) {
+            cards.push({ id: 'overview-stats', title: 'Overview', colSpan: 4 });
         }
 
         // Charts
@@ -786,6 +815,86 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
         );
     };
 
+    // ---------- Overview stats card (Admin/Super Admin only) ----------
+
+    const renderOverviewStats = () => {
+        if (!overviewStats) return null;
+        const { total_heis, total_grantees, unifast, stufaps } = overviewStats;
+
+        return (
+            <div className="space-y-4">
+                {/* Top summary row */}
+                <div className="grid grid-cols-3 gap-3">
+                    <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-center">
+                        <Building2 className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
+                        <p className="text-2xl font-bold">{total_heis.toLocaleString()}</p>
+                        <p className="text-[11px] text-muted-foreground">HEIs</p>
+                    </div>
+                    <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-center">
+                        <Users className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
+                        <p className="text-2xl font-bold">{total_grantees.toLocaleString()}</p>
+                        <p className="text-[11px] text-muted-foreground">Total Grantees</p>
+                    </div>
+                    <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-center">
+                        <FileText className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
+                        <p className="text-2xl font-bold">{activeTotalStats.total_liquidations.toLocaleString()}</p>
+                        <p className="text-[11px] text-muted-foreground">Liquidations</p>
+                    </div>
+                </div>
+
+                {/* UniFAST section */}
+                <div className="rounded-lg border border-border/60 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">UniFAST</h4>
+                        <span className="text-sm font-bold">{unifast.grantees.toLocaleString()} grantees</span>
+                    </div>
+                    <div className="space-y-1.5">
+                        {unifast.programs.map(p => (
+                            <div key={p.code} className="flex items-center justify-between text-sm">
+                                <div className="flex items-center gap-2">
+                                    <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                                    <span className="text-muted-foreground">{p.code}</span>
+                                </div>
+                                <div className="flex items-center gap-3 text-xs">
+                                    <span className="text-muted-foreground">{p.liquidation_count} reports</span>
+                                    <span className="font-semibold w-20 text-right">{p.grantees.toLocaleString()}</span>
+                                </div>
+                            </div>
+                        ))}
+                        {unifast.programs.length === 0 && (
+                            <p className="text-xs text-muted-foreground italic">No data yet</p>
+                        )}
+                    </div>
+                </div>
+
+                {/* STuFAPs section */}
+                <div className="rounded-lg border border-border/60 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">STuFAPs</h4>
+                        <span className="text-sm font-bold">{stufaps.grantees.toLocaleString()} grantees</span>
+                    </div>
+                    <div className="space-y-1.5">
+                        {stufaps.programs.map(p => (
+                            <div key={p.code} className="flex items-center justify-between text-sm">
+                                <div className="flex items-center gap-2">
+                                    <div className="h-2 w-2 rounded-full bg-violet-500" />
+                                    <span className="text-muted-foreground">{p.code}</span>
+                                </div>
+                                <div className="flex items-center gap-3 text-xs">
+                                    <span className="text-muted-foreground">{p.liquidation_count} reports</span>
+                                    <span className="font-semibold w-20 text-right">{p.grantees.toLocaleString()}</span>
+                                </div>
+                            </div>
+                        ))}
+                        {stufaps.programs.length === 0 && (
+                            <p className="text-xs text-muted-foreground italic">No data yet</p>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     // ---------- Card renderer & header actions maps ----------
 
     // Build card renderers including individual stat cards
@@ -793,6 +902,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
         'status-distribution': renderStatusDistribution,
         'liquidation-progress': renderLiquidationProgress,
         'recent-liquidations': renderRecentLiquidations,
+        ...(overviewStats ? { 'overview-stats': renderOverviewStats } : {}),
     };
 
     // Add stat card renderers dynamically
@@ -819,6 +929,8 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
         if (statCardIconMap[id]) return statCardIconMap[id];
 
         switch (id) {
+            case 'overview-stats':
+                return <GraduationCap className="h-4 w-4 text-muted-foreground" />;
             case 'liquidation-progress':
                 if (isAdmin || userRole === 'Regional Coordinator' || userRole === 'Accountant') {
                     return (
@@ -925,6 +1037,24 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
                                         );
                                     })}
                             </SortableDashboard>
+
+                            {/* Skeleton placeholders while deferred chart data loads */}
+                            {chartsLoading && (
+                                <div className="grid grid-cols-12 gap-4 mt-4">
+                                    <div className="col-span-8">
+                                        <div className="rounded-xl border bg-card p-6 space-y-4">
+                                            <Skeleton className="h-4 w-48" />
+                                            <Skeleton className="h-[200px] w-full rounded-lg" />
+                                        </div>
+                                    </div>
+                                    <div className="col-span-4">
+                                        <div className="rounded-xl border bg-card p-6 space-y-4">
+                                            <Skeleton className="h-4 w-32" />
+                                            <Skeleton className="h-[200px] w-full rounded-full mx-auto max-w-[200px]" />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Right: Calendar Sidebar */}
@@ -934,7 +1064,12 @@ export default function Dashboard({ isAdmin, summaryPerAY, statusDistribution, t
                                     <CardTitle className="text-base">Due Date Calendar</CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                    {renderCalendar()}
+                                    {chartsLoading ? (
+                                        <div className="space-y-3">
+                                            <Skeleton className="h-[250px] w-full rounded-lg" />
+                                            <Skeleton className="h-4 w-32" />
+                                        </div>
+                                    ) : renderCalendar()}
                                 </CardContent>
                             </Card>
                         </div>

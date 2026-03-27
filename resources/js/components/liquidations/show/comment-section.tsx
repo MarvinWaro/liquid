@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -31,7 +31,7 @@ interface CommentSectionProps {
 const MENTION_REGEX = /@\[(.+?)\]\(([a-f0-9-]+)\)/g;
 
 function renderCommentBody(body: string) {
-    const parts: (string | JSX.Element)[] = [];
+    const parts: (string | React.ReactElement)[] = [];
     let lastIndex = 0;
     let match: RegExpExecArray | null;
     const regex = new RegExp(MENTION_REGEX.source, 'g');

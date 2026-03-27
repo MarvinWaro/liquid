@@ -54,55 +54,12 @@ class LiquidationController extends Controller
         $user = $request->user();
         $filters = $request->only(['search', 'program', 'document_status', 'liquidation_status']);
 
-        $liquidations = $this->liquidationService
-            ->getPaginatedLiquidations($user, $filters)
-            ->through(fn ($liquidation) => $this->formatLiquidationForList($liquidation));
-
-        // For RC create modal: only HEIs in their region; admins get all
-        $heis = \App\Models\HEI::where('status', 'active')
-            ->when(
-                $user->role->name === 'Regional Coordinator' && $user->region_id,
-                fn ($q) => $q->where('region_id', $user->region_id)
-            )
-            ->orderBy('name')
-            ->get(['id', 'name', 'uii']);
-
-        // All programs for the filter dropdown
+        // All programs for the filter dropdown (lightweight, cached)
         $allPrograms = $this->cacheService->getSelectablePrograms();
 
-        // Scoped programs for the create modal based on role:
-        // - RC / Encoder: UniFAST only (TES, TDP — top-level programs with no parent)
-        // - STUFAPS Focal: only their assigned sub-programs under STUFAPS
-        // - Admin / Super Admin: all programs
-        $roleName = $user->role->name;
-        if (in_array($roleName, ['Regional Coordinator', 'Encoder'])) {
-            // RC/Encoder can only create for UniFAST programs (top-level, no parent)
-            $createPrograms = $allPrograms->filter(fn ($p) => $p->parent_id === null && ($p->children_count ?? 0) === 0)->values();
-        } elseif ($roleName === 'STUFAPS Focal') {
-            // STUFAPS Focal: show their assigned programs + the parent group label
-            $scopedIds = $user->getScopedProgramIds();
-            $createPrograms = $scopedIds
-                ? $allPrograms->filter(function ($p) use ($scopedIds) {
-                    return in_array($p->id, $scopedIds)
-                        || ($p->children_count > 0 && \App\Models\Program::where('parent_id', $p->id)
-                            ->whereIn('id', $scopedIds)->exists());
-                })->values()
-                : $allPrograms;
-        } else {
-            // Admin, Super Admin, Accountant — all programs
-            $createPrograms = $allPrograms;
-        }
-
         return Inertia::render('liquidation/index', [
-            'liquidations' => $liquidations,
-            'userHei' => $this->formatUserHei($user->hei),
-            'regionalCoordinators' => $this->cacheService->getRegionalCoordinators(),
-            'accountants' => $this->cacheService->getAccountants(),
+            // Essential — needed for initial page paint (filters, header, permissions)
             'programs' => $allPrograms,
-            'createPrograms' => $createPrograms,
-            'academicYears' => \App\Models\AcademicYear::getDropdownOptions(),
-            'rcNoteStatuses' => RcNoteStatus::getDropdownOptions(),
-            'heis' => $heis,
             'filters' => $filters,
             'permissions' => [
                 'review' => $user->hasPermission('review_liquidation'),
@@ -110,6 +67,42 @@ class LiquidationController extends Controller
                 'void' => $user->hasPermission('delete_liquidation'),
             ],
             'userRole' => $user->role->name,
+
+            // Deferred — table data loads after initial paint
+            'liquidations' => Inertia::defer(fn () =>
+                $this->liquidationService
+                    ->getPaginatedLiquidations($user, $filters)
+                    ->through(fn ($liquidation) => $this->formatLiquidationForList($liquidation))
+            ),
+
+            // Deferred — only needed when user opens create/bulk modals
+            'createPrograms' => Inertia::defer(function () use ($user, $allPrograms) {
+                $roleName = $user->role->name;
+                if (in_array($roleName, ['Regional Coordinator', 'Encoder'])) {
+                    return $allPrograms->filter(fn ($p) => $p->parent_id === null && ($p->children_count ?? 0) === 0)->values();
+                } elseif ($roleName === 'STUFAPS Focal') {
+                    $scopedIds = $user->getScopedProgramIds();
+                    return $scopedIds
+                        ? $allPrograms->filter(function ($p) use ($scopedIds) {
+                            return in_array($p->id, $scopedIds)
+                                || ($p->children_count > 0 && \App\Models\Program::where('parent_id', $p->id)
+                                    ->whereIn('id', $scopedIds)->exists());
+                        })->values()
+                        : $allPrograms;
+                }
+                return $allPrograms;
+            }),
+            'academicYears' => Inertia::defer(fn () => \App\Models\AcademicYear::getDropdownOptions()),
+            'rcNoteStatuses' => Inertia::defer(fn () => RcNoteStatus::getDropdownOptions()),
+            'heis' => Inertia::defer(fn () =>
+                \App\Models\HEI::where('status', 'active')
+                    ->when(
+                        $user->role->name === 'Regional Coordinator' && $user->region_id,
+                        fn ($q) => $q->where('region_id', $user->region_id)
+                    )
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'uii'])
+            ),
         ]);
     }
 
@@ -474,28 +467,26 @@ class LiquidationController extends Controller
 
         $this->authorizeView($user, $liquidation);
 
+        // Eager-load only what's needed for the initial paint (header, details, workflow)
         $liquidation->load([
             'hei', 'program', 'semester', 'academicYear', 'financial',
-            'beneficiaries', 'documents', 'reviewer',
-            'reviews.reviewType', 'transmittal.endorser', 'transmittal.location',
+            'reviewer', 'reviews.reviewType',
+            'transmittal.endorser', 'transmittal.location',
             'compliance.complianceStatus',
             'documentStatus', 'liquidationStatus', 'creator',
-            'trackingEntries.documentStatus',
-            'trackingEntries.liquidationStatus',
-            'trackingEntries.locations',
-            'runningData',
         ]);
 
         $heiRegionId = $liquidation->hei?->region_id;
         $isHEIUser = $user->hei !== null;
         $requirements = $this->cacheService->getDocumentRequirementsForAY($liquidation->program_id, $liquidation->academic_year_id);
 
-        // Comment counts per document requirement (for badge display)
-        $commentCounts = \App\Models\LiquidationComment::where('liquidation_id', $liquidation->id)
-            ->whereNotNull('document_requirement_id')
-            ->selectRaw('document_requirement_id, count(*) as count')
-            ->groupBy('document_requirement_id')
-            ->pluck('count', 'document_requirement_id');
+        // Load tracking + running data for the initial liquidation prop (needed for details card)
+        $liquidation->load([
+            'trackingEntries.documentStatus',
+            'trackingEntries.liquidationStatus',
+            'trackingEntries.locations',
+            'runningData',
+        ]);
 
         return Inertia::render('liquidation/show', [
             'liquidation' => $this->formatLiquidationDetails($liquidation, $requirements, $isHEIUser),
@@ -503,14 +494,22 @@ class LiquidationController extends Controller
             'regionalCoordinators' => $this->cacheService->getRegionalCoordinators($heiRegionId),
             'accountants' => $this->cacheService->getAccountants(),
             'documentLocations' => DocumentLocation::orderBy('sort_order')->pluck('name'),
-            'documentRequirements' => $requirements,
             'permissions' => [
                 'review' => $user->hasPermission('review_liquidation'),
                 'submit' => $isHEIUser,
                 'edit' => $user->hasPermission('edit_liquidation'),
             ],
             'userRole' => $user->role->name,
-            'commentCounts' => $commentCounts,
+
+            // Deferred props — load after initial page paint for instant navigation
+            'documentRequirements' => Inertia::defer(fn () => $requirements),
+            'commentCounts' => Inertia::defer(fn () =>
+                \App\Models\LiquidationComment::where('liquidation_id', $liquidation->id)
+                    ->whereNotNull('document_requirement_id')
+                    ->selectRaw('document_requirement_id, count(*) as count')
+                    ->groupBy('document_requirement_id')
+                    ->pluck('count', 'document_requirement_id')
+            ),
         ]);
     }
 
@@ -796,7 +795,18 @@ class LiquidationController extends Controller
             'entries.*.rc_note'             => 'nullable|string|max:255',
             'entries.*.date_endorsement'    => 'nullable|date',
             'entries.*.liquidation_status'  => 'required|string',
+            'expected_updated_at'           => 'nullable|string',
         ]);
+
+        // Optimistic locking: reject save if another user modified the record
+        if (!empty($validated['expected_updated_at'])) {
+            $expected = \Carbon\Carbon::parse($validated['expected_updated_at']);
+            if ($liquidation->updated_at->ne($expected)) {
+                return back()->withErrors([
+                    'conflict' => 'This record was modified by another user. Please refresh the page to see the latest data.',
+                ]);
+            }
+        }
 
         // Pre-load lookup maps (name → id) to avoid N+1 on each iteration
         $docStatusMap  = DocumentStatus::pluck('id', 'name')->toArray();
@@ -869,10 +879,20 @@ class LiquidationController extends Controller
             $latestLiqStatusId = $liqStatusId;
         }
 
+        // Resolve the latest entry's RC Note text to an rc_note_status_id
+        $latestRcNote = null;
+        $lastEntry = end($validated['entries']);
+        if (!empty($lastEntry['rc_note'])) {
+            $latestRcNote = RcNoteStatus::findByCode(
+                strtoupper(str_replace(' ', '_', $lastEntry['rc_note']))
+            )?->id;
+        }
+
         // Sync the latest entry's statuses up to the liquidation record
         $liquidation->update([
             'document_status_id'    => $latestDocStatusId,
             'liquidation_status_id' => $latestLiqStatusId,
+            'rc_note_status_id'     => $latestRcNote,
         ]);
 
         // Detect which fields changed by comparing incoming request data against old snapshot
@@ -973,7 +993,18 @@ class LiquidationController extends Controller
             'entries.*.total_amount_liquidated' => 'nullable|numeric|min:0',
             'entries.*.transmittal_ref_no' => 'nullable|string|max:255',
             'entries.*.group_transmittal_ref_no' => 'nullable|string|max:255',
+            'expected_updated_at' => 'nullable|string',
         ]);
+
+        // Optimistic locking: reject save if another user modified the record
+        if (!empty($validated['expected_updated_at'])) {
+            $expected = \Carbon\Carbon::parse($validated['expected_updated_at']);
+            if ($liquidation->updated_at->ne($expected)) {
+                return back()->withErrors([
+                    'conflict' => 'This record was modified by another user. Please refresh the page to see the latest data.',
+                ]);
+            }
+        }
 
         // Snapshot old entries for change detection
         $oldRunningEntries = $liquidation->runningData()->get()->keyBy('id')->toArray();
@@ -1463,6 +1494,7 @@ class LiquidationController extends Controller
             'document_status' => $liquidation->documentStatus?->name ?? 'N/A',
             'liquidation_status' => $liquidation->liquidationStatus?->name ?? 'Unliquidated',
             'date_submitted' => $liquidation->date_submitted?->format('Y-m-d H:i:s'),
+            'updated_at' => $liquidation->updated_at?->toIso8601String(),
             'created_by_name' => $liquidation->creator?->name,
             'beneficiaries' => $liquidation->beneficiaries->map(fn ($b) => [
                 'id' => $b->id,

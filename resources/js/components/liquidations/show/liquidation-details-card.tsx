@@ -119,8 +119,21 @@ export default function LiquidationDetailsCard({
         });
     }, [liquidation.id, editForm]);
 
-    const unliquidated = Math.max(0, totalDisbursements - runningDataTotalLiquidated);
-    const percentage = totalDisbursements > 0 ? ((runningDataTotalLiquidated / totalDisbursements) * 100) : 0;
+    // Amount Liquidated always reflects running data total
+    const effectiveLiquidated = runningDataTotalLiquidated;
+    const remainingAmount = Math.max(0, totalDisbursements - effectiveLiquidated);
+
+    // Remaining amount is allocated based on latest RC Note:
+    // - For Compliance → goes to For Compliance
+    // - For Endorsement → goes to For Endorsement
+    // - Otherwise (Partially/Fully Endorsed, For Review, etc.) → goes to Unliquidated
+    const isForCompliance = latestRcNote === 'For Compliance';
+    const isForEndorsement = latestRcNote === 'For Endorsement';
+
+    const forComplianceAmount = isForCompliance ? remainingAmount : 0;
+    const forEndorsementAmount = isForEndorsement ? remainingAmount : 0;
+    const unliquidated = (!isForCompliance && !isForEndorsement) ? remainingAmount : 0;
+    const percentage = totalDisbursements > 0 ? ((effectiveLiquidated / totalDisbursements) * 100) : 0;
 
     const editInputClass = 'h-9 text-sm border-ring/30 bg-background focus:border-ring';
 
@@ -181,7 +194,7 @@ export default function LiquidationDetailsCard({
                                         <DisplayValue>{liquidation.batch_no || 'N/A'}</DisplayValue>
                                     )}
                                 </FieldBlock>
-                                <FieldBlock label="DV Control No.">
+                                <FieldBlock label="Control No.">
                                     <DisplayValue className="font-mono-nums">{liquidation.dv_control_no}</DisplayValue>
                                 </FieldBlock>
                                 <FieldBlock label="Date of Fund Release">
@@ -223,10 +236,16 @@ export default function LiquidationDetailsCard({
                                         )}
                                     </FieldBlock>
                                     <FieldBlock label="Amount Liquidated" hint="Auto-computed from Running Data">
-                                        <CurrencyValue amount={runningDataTotalLiquidated} className="text-foreground" />
+                                        <CurrencyValue amount={effectiveLiquidated} className="text-foreground" />
                                     </FieldBlock>
                                     <FieldBlock label="Unliquidated">
                                         <CurrencyValue amount={unliquidated} className={unliquidated > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-foreground'} />
+                                    </FieldBlock>
+                                    <FieldBlock label="For Compliance">
+                                        <CurrencyValue amount={forComplianceAmount} className={forComplianceAmount > 0 ? 'text-violet-600 dark:text-violet-400' : 'text-foreground'} />
+                                    </FieldBlock>
+                                    <FieldBlock label="For Endorsement">
+                                        <CurrencyValue amount={forEndorsementAmount} className={forEndorsementAmount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'} />
                                     </FieldBlock>
                                     <FieldBlock label="Document Status">
                                         {isEditing ? (
@@ -345,7 +364,7 @@ export default function LiquidationDetailsCard({
 function FieldBlock({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
     return (
         <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">{label}</Label>
+            <Label className="text-xs text-muted-foreground block">{label}</Label>
             {children}
             {hint && <span className="text-[10px] text-muted-foreground italic">{hint}</span>}
         </div>

@@ -234,6 +234,9 @@ class User extends Authenticatable
      */
     public function getNavigationAbilities(): array
     {
+        // Ensure permissions are loaded to avoid N+1 queries (12 checks below)
+        $this->loadMissing('role.permissions');
+
         return [
             'canViewDashboard' => true, // Everyone can see dashboard
             'canViewLiquidation' => $this->hasPermission('view_liquidation'),

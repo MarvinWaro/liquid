@@ -710,24 +710,7 @@ export function BulkEntryModal({
                 {/* Table — scrollable both directions */}
                 <div className="flex-1 overflow-auto border rounded-md min-h-0">
                     <table className="text-sm border-collapse min-w-[1500px] w-full">
-                        <colgroup>
-                            <col style={{ width: 36 }} />    {/* # */}
-                            <col style={{ width: 80 }} />    {/* Program */}
-                            <col style={{ width: 140 }} />   {/* UII */}
-                            <col style={{ width: 200 }} />   {/* HEI Name */}
-                            <col style={{ width: 140 }} />   {/* Fund Released */}
-                            <col style={{ width: 140 }} />   {/* Due Date */}
-                            <col style={{ width: 110 }} />   {/* Academic Year */}
-                            <col style={{ width: 120 }} />   {/* Semester */}
-                            <col style={{ width: 60 }} />    {/* Batch */}
-                            <col style={{ width: 150 }} />   {/* Control No */}
-                            <col style={{ width: 80 }} />    {/* Grantees */}
-                            <col style={{ width: 120 }} />   {/* Disbursements */}
-                            <col style={{ width: 120 }} />   {/* Amt Liquidated */}
-                            <col style={{ width: 130 }} />   {/* Doc Status */}
-                            <col style={{ width: 130 }} />   {/* RC Notes */}
-                            <col style={{ width: 56 }} />    {/* Actions */}
-                        </colgroup>
+                        <colgroup><col style={{ width: 36 }} /><col style={{ width: 80 }} /><col style={{ width: 140 }} /><col style={{ width: 200 }} /><col style={{ width: 140 }} /><col style={{ width: 140 }} /><col style={{ width: 110 }} /><col style={{ width: 120 }} /><col style={{ width: 60 }} /><col style={{ width: 150 }} /><col style={{ width: 80 }} /><col style={{ width: 120 }} /><col style={{ width: 120 }} /><col style={{ width: 130 }} /><col style={{ width: 130 }} /><col style={{ width: 56 }} /></colgroup>
                         <thead className="bg-muted/50 sticky top-0 z-10">
                             <tr>
                                 <th className="px-1 py-1.5 text-center text-[11px] font-medium text-muted-foreground">#</th>
@@ -808,7 +791,7 @@ export function BulkEntryModal({
                                         <td className="px-0.5 py-0.5">
                                             <CellTooltip content={ayLabel}>
                                                 <Select value={row.academic_year_id} onValueChange={v => updateRow(index, 'academic_year_id', v)}>
-                                                    <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="--" /></SelectTrigger>
+                                                    <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="--">{ayLabel.replace(/^Academic Year\s*/i, '')}</SelectValue></SelectTrigger>
                                                     <SelectContent>{academicYears.map(ay => <SelectItem key={ay.id} value={ay.id}>{ay.name}</SelectItem>)}</SelectContent>
                                                 </Select>
                                             </CellTooltip>

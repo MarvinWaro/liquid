@@ -28,7 +28,7 @@ function getWorkflowSteps(liquidation: Liquidation, isHEIUser: boolean, avatarMa
             { label: 'Completed', description: 'Liquidation Complete' },
         ];
 
-        if (normalizedStatus === 'fully_liquidated' || isDocComplete) {
+        if (normalizedStatus === 'fully_liquidated' && isDocComplete) {
             return { steps: heiSteps, currentStep: 3, isFullyCompleted: true, lastCompletedStep: undefined };
         }
 

@@ -1,10 +1,9 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { router } from '@inertiajs/react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { BarChart3, Plus, Save, Trash2 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import AmountInput from './amount-input';
@@ -20,7 +19,17 @@ interface RunningDataTableProps {
     totalDisbursements: number;
     totalGrantees: number;
     isHEIUser: boolean;
+    latestLiquidationStatus?: string;
     onTotalLiquidatedChange: (total: number) => void;
+    updatedAt?: string | null;
+}
+
+interface ComputedTotals {
+    totalAmtLiquidated: number;
+    totalUnliquidated: number;
+    percentage: number;
+    remainingGrantees: number;
+    remainingDisbursements: number;
 }
 
 export default function RunningDataTable({
@@ -29,12 +38,28 @@ export default function RunningDataTable({
     totalDisbursements,
     totalGrantees,
     isHEIUser,
+    latestLiquidationStatus,
     onTotalLiquidatedChange,
+    updatedAt,
 }: RunningDataTableProps) {
+    // Hide "Add Entry" when latest tracking entry's liquidation status is "Unliquidated"
+    const isDisabled = latestLiquidationStatus === 'Unliquidated';
     const [entries, setEntries] = useState<RunningDataEntry[]>(
         initialEntries.length > 0 ? initialEntries : [createEmptyRunningDataEntry()]
     );
     const [isSaving, setIsSaving] = useState(false);
+    const prevDisabled = useRef(isDisabled);
+
+    // Remove empty unsaved rows when switching to "Unliquidated"
+    useEffect(() => {
+        if (isDisabled && !prevDisabled.current) {
+            setEntries(prev => {
+                const filled = prev.filter(e => e.id || isRunningDataEntryFilled(e));
+                return filled.length > 0 ? filled : prev.slice(0, 1);
+            });
+        }
+        prevDisabled.current = isDisabled;
+    }, [isDisabled]);
 
     const updateEntries = useCallback((updater: (prev: RunningDataEntry[]) => RunningDataEntry[]) => {
         setEntries(prev => {
@@ -58,7 +83,7 @@ export default function RunningDataTable({
         updateEntries(prev => prev.map((entry, i) => i === index ? { ...entry, [field]: value } : entry));
     }, [updateEntries]);
 
-    const computeRunningTotals = useMemo(() => {
+    const computeRunningTotals = useMemo((): ComputedTotals[] => {
         return entries.map((entry, index) => {
             const totalAmtLiquidated = Number(entry.amount_complete_docs ?? 0) + Number(entry.amount_refunded ?? 0);
 
@@ -67,7 +92,6 @@ export default function RunningDataTable({
                 cumulativeLiquidated += Number(entries[i].amount_complete_docs ?? 0) + Number(entries[i].amount_refunded ?? 0);
             }
             const totalUnliquidated = totalDisbursements - cumulativeLiquidated;
-
             const percentage = totalDisbursements > 0 ? ((cumulativeLiquidated / totalDisbursements) * 100) : 0;
 
             let previousGrantees = 0;
@@ -116,17 +140,28 @@ export default function RunningDataTable({
         }));
         router.post(route('liquidation.save-running-data', liquidationId), {
             entries: entriesWithComputed,
+            expected_updated_at: updatedAt,
         }, {
             onSuccess: () => setIsSaving(false),
-            onError: () => {
+            onError: (errors) => {
                 setIsSaving(false);
-                toast.error('Failed to save running data. Please check your inputs.');
+                if (errors.conflict) {
+                    toast.error(errors.conflict, {
+                        action: {
+                            label: 'Refresh',
+                            onClick: () => window.location.reload(),
+                        },
+                        duration: 10000,
+                    });
+                } else {
+                    toast.error('Failed to save running data. Please check your inputs.');
+                }
             },
             preserveScroll: true,
         });
-    }, [liquidationId, entries, totalDisbursements, totalGrantees]);
+    }, [liquidationId, entries, totalDisbursements, totalGrantees, updatedAt]);
 
-    const fmt = (n: number) => n.toLocaleString('en-PH', { minimumFractionDigits: 2 });
+    const canDelete = entries.length > 1;
 
     return (
         <div id="running-data" className="mb-6">
@@ -171,135 +206,27 @@ export default function RunningDataTable({
                             </thead>
                             <tbody className={isHEIUser ? 'pointer-events-none opacity-60' : ''}>
                                 {entries.map((entry, index) => {
-                                    const computed = computeRunningTotals[index];
                                     return (
-                                        <tr key={entry.id || index} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-                                            {/* Disbursements (read-only running) */}
-                                            <td className="px-3 py-2">
-                                                <span className="text-sm tabular-nums text-muted-foreground">
-                                                    {fmt(computed.remainingDisbursements)}
-                                                </span>
-                                            </td>
-                                            {/* Grantees (read-only running) */}
-                                            <td className="px-3 py-2">
-                                                <span className="text-sm tabular-nums text-muted-foreground">
-                                                    {index === 0 ? totalGrantees : computed.remainingGrantees}
-                                                </span>
-                                            </td>
-                                            {/* No. of Grantees Liquidated */}
-                                            <td className="px-3 py-2">
-                                                <Input
-                                                    type="number"
-                                                    min="0"
-                                                    value={entry.grantees_liquidated ?? ''}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value ? parseInt(e.target.value) : null;
-                                                        if (val !== null && val > computed.remainingGrantees) {
-                                                            toast.error(`Cannot exceed remaining grantees. Only ${computed.remainingGrantees} grantee(s) remaining.`);
-                                                        }
-                                                        if (val !== null && val < 0) {
-                                                            toast.error('Grantees liquidated cannot be negative.');
-                                                        }
-                                                        const clamped = val !== null ? Math.min(Math.max(0, val), computed.remainingGrantees) : null;
-                                                        updateField(index, 'grantees_liquidated', clamped);
-                                                    }}
-                                                    className="h-8 text-xs min-w-[70px]"
-                                                    placeholder="0"
-                                                />
-                                            </td>
-                                            {/* Amt w/ Complete Docs */}
-                                            <td className="px-3 py-2">
-                                                <AmountInput
-                                                    value={entry.amount_complete_docs}
-                                                    onValueChange={(val) => {
-                                                        if (val !== null && val < 0) {
-                                                            toast.error('Amount with Complete Docs cannot be negative.');
-                                                            return;
-                                                        }
-                                                        if (val !== null) {
-                                                            const refunded = Number(entry.amount_refunded ?? 0);
-                                                            let otherEntriesTotal = 0;
-                                                            entries.forEach((e, i) => {
-                                                                if (i !== index) otherEntriesTotal += Number(e.amount_complete_docs ?? 0) + Number(e.amount_refunded ?? 0);
-                                                            });
-                                                            const newCumulative = otherEntriesTotal + val + refunded;
-                                                            if (newCumulative > totalDisbursements) {
-                                                                toast.error(`Total amount liquidated across all entries (${fmt(newCumulative)}) would exceed total disbursements (${fmt(totalDisbursements)}).`);
-                                                            }
-                                                        }
-                                                        updateField(index, 'amount_complete_docs', val);
-                                                    }}
-                                                    className="h-8 text-xs min-w-[100px]"
-                                                />
-                                            </td>
-                                            {/* Amt Refunded */}
-                                            <td className="px-3 py-2">
-                                                <AmountInput
-                                                    value={entry.amount_refunded}
-                                                    onValueChange={(val) => {
-                                                        if (val !== null && val < 0) {
-                                                            toast.error('Amount Refunded cannot be negative.');
-                                                            return;
-                                                        }
-                                                        if (val !== null) {
-                                                            const completeDocs = Number(entry.amount_complete_docs ?? 0);
-                                                            let otherEntriesTotal = 0;
-                                                            entries.forEach((e, i) => {
-                                                                if (i !== index) otherEntriesTotal += Number(e.amount_complete_docs ?? 0) + Number(e.amount_refunded ?? 0);
-                                                            });
-                                                            const newCumulative = otherEntriesTotal + completeDocs + val;
-                                                            if (newCumulative > totalDisbursements) {
-                                                                toast.error(`Total amount liquidated across all entries (${fmt(newCumulative)}) would exceed total disbursements (${fmt(totalDisbursements)}).`);
-                                                            }
-                                                        }
-                                                        updateField(index, 'amount_refunded', val);
-                                                    }}
-                                                    className="h-8 text-xs min-w-[100px]"
-                                                />
-                                            </td>
-                                            {/* Refund OR No. */}
-                                            <td className="px-3 py-2">
-                                                <Input type="text" value={entry.refund_or_no ?? ''} onChange={(e) => updateField(index, 'refund_or_no', e.target.value)} className="h-8 text-xs min-w-[80px]" placeholder="OR No." />
-                                            </td>
-                                            {/* Total Amt Liquidated (computed) */}
-                                            <td className="px-3 py-2 text-right">
-                                                <span className="text-sm font-medium tabular-nums text-foreground">
-                                                    {fmt(computed.totalAmtLiquidated)}
-                                                </span>
-                                            </td>
-                                            {/* Total Unliquidated (computed) */}
-                                            <td className="px-3 py-2 text-right">
-                                                <span className={`text-sm font-medium tabular-nums ${computed.totalUnliquidated > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-foreground'}`}>
-                                                    {fmt(computed.totalUnliquidated)}
-                                                </span>
-                                            </td>
-                                            {/* % of Liquidation (computed) */}
-                                            <td className="px-3 py-2 text-right">
-                                                <span className="text-sm font-medium tabular-nums text-foreground">{computed.percentage.toFixed(2)}%</span>
-                                            </td>
-                                            {/* Transmittal Ref No. */}
-                                            <td className="px-3 py-2">
-                                                <Input type="text" value={entry.transmittal_ref_no ?? ''} onChange={(e) => updateField(index, 'transmittal_ref_no', e.target.value)} className="h-8 text-xs min-w-[90px]" placeholder="Ref No." />
-                                            </td>
-                                            {/* Group Transmittal Ref No. */}
-                                            <td className="px-3 py-2">
-                                                <Input type="text" value={entry.group_transmittal_ref_no ?? ''} onChange={(e) => updateField(index, 'group_transmittal_ref_no', e.target.value)} className="h-8 text-xs min-w-[90px]" placeholder="Group Ref" />
-                                            </td>
-                                            {/* Delete */}
-                                            {!isHEIUser && (
-                                                <td className="px-3 py-2">
-                                                    {entries.length > 1 && (
-                                                        <DeleteRowButton isFilled={isRunningDataEntryFilled(entry)} onDelete={() => removeEntry(index)} />
-                                                    )}
-                                                </td>
-                                            )}
-                                        </tr>
+                                        <RunningDataRow
+                                            key={entry.id || `new-${index}`}
+                                            entry={entry}
+                                            index={index}
+                                            computed={computeRunningTotals[index]}
+                                            isFirstEntry={index === 0}
+                                            totalGrantees={totalGrantees}
+                                            totalDisbursements={totalDisbursements}
+                                            entries={entries}
+                                            isHEIUser={isHEIUser}
+                                            canDelete={canDelete}
+                                            updateField={updateField}
+                                            removeEntry={removeEntry}
+                                        />
                                     );
                                 })}
                             </tbody>
                         </table>
                     </div>
-                    {!isHEIUser && (
+                    {!isHEIUser && !isDisabled && (
                         <Button size="sm" onClick={addEntry} className="mt-4 h-8 text-xs px-3 bg-foreground text-background hover:bg-foreground/90">
                             <Plus className="h-3.5 w-3.5 mr-1.5" />
                             Add Entry
@@ -311,16 +238,159 @@ export default function RunningDataTable({
     );
 }
 
-function CellTooltip({ content, children }: { content?: string | null; children: React.ReactNode }) {
-    return (
-        <Tooltip>
-            <TooltipTrigger asChild>{children}</TooltipTrigger>
-            {content && <TooltipContent side="top" className="max-w-xs break-words">{content}</TooltipContent>}
-        </Tooltip>
-    );
+/* ── Memoized Row ── */
+
+const fmt = (n: number) => n.toLocaleString('en-PH', { minimumFractionDigits: 2 });
+
+interface RunningDataRowProps {
+    entry: RunningDataEntry;
+    index: number;
+    computed: ComputedTotals;
+    isFirstEntry: boolean;
+    totalGrantees: number;
+    totalDisbursements: number;
+    entries: RunningDataEntry[];
+    isHEIUser: boolean;
+    canDelete: boolean;
+    updateField: (index: number, field: keyof RunningDataEntry, value: string | number | null) => void;
+    removeEntry: (index: number) => void;
 }
 
-function DeleteRowButton({ isFilled, onDelete }: { isFilled: boolean; onDelete: () => void }) {
+const RunningDataRow = React.memo(function RunningDataRow({
+    entry,
+    index,
+    computed,
+    isFirstEntry,
+    totalGrantees,
+    totalDisbursements,
+    entries,
+    isHEIUser,
+    canDelete,
+    updateField,
+    removeEntry,
+}: RunningDataRowProps) {
+    return (
+        <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+            <td className="px-3 py-2">
+                <span className="text-sm tabular-nums text-muted-foreground">
+                    {fmt(computed.remainingDisbursements)}
+                </span>
+            </td>
+            <td className="px-3 py-2">
+                <span className="text-sm tabular-nums text-muted-foreground">
+                    {isFirstEntry ? totalGrantees : computed.remainingGrantees}
+                </span>
+            </td>
+            <td className="px-3 py-2">
+                <Input
+                    type="number"
+                    min="0"
+                    value={entry.grantees_liquidated ?? ''}
+                    onChange={(e) => {
+                        const val = e.target.value ? parseInt(e.target.value) : null;
+                        if (val !== null && val > computed.remainingGrantees) {
+                            toast.error(`Cannot exceed remaining grantees. Only ${computed.remainingGrantees} grantee(s) remaining.`);
+                        }
+                        if (val !== null && val < 0) {
+                            toast.error('Grantees liquidated cannot be negative.');
+                        }
+                        const clamped = val !== null ? Math.min(Math.max(0, val), computed.remainingGrantees) : null;
+                        updateField(index, 'grantees_liquidated', clamped);
+                    }}
+                    className="h-8 text-xs min-w-[70px]"
+                    placeholder="0"
+                />
+            </td>
+            <td className="px-3 py-2">
+                <AmountInput
+                    value={entry.amount_complete_docs}
+                    onValueChange={(val) => {
+                        if (val !== null && val < 0) {
+                            toast.error('Amount with Complete Docs cannot be negative.');
+                            return;
+                        }
+                        if (val !== null) {
+                            const refunded = Number(entry.amount_refunded ?? 0);
+                            let otherEntriesTotal = 0;
+                            entries.forEach((e, i) => {
+                                if (i !== index) otherEntriesTotal += Number(e.amount_complete_docs ?? 0) + Number(e.amount_refunded ?? 0);
+                            });
+                            const maxAllowed = Math.max(0, totalDisbursements - otherEntriesTotal - refunded);
+                            if (val > maxAllowed) {
+                                toast.error(`Cannot exceed remaining amount. Only ${fmt(maxAllowed)} remaining.`);
+                            }
+                            const clamped = Math.min(val, maxAllowed);
+                            updateField(index, 'amount_complete_docs', clamped);
+                            return;
+                        }
+                        updateField(index, 'amount_complete_docs', val);
+                    }}
+                    className="h-8 text-xs min-w-[100px]"
+                />
+            </td>
+            <td className="px-3 py-2">
+                <AmountInput
+                    value={entry.amount_refunded}
+                    onValueChange={(val) => {
+                        if (val !== null && val < 0) {
+                            toast.error('Amount Refunded cannot be negative.');
+                            return;
+                        }
+                        if (val !== null) {
+                            const completeDocs = Number(entry.amount_complete_docs ?? 0);
+                            let otherEntriesTotal = 0;
+                            entries.forEach((e, i) => {
+                                if (i !== index) otherEntriesTotal += Number(e.amount_complete_docs ?? 0) + Number(e.amount_refunded ?? 0);
+                            });
+                            const maxAllowed = Math.max(0, totalDisbursements - otherEntriesTotal - completeDocs);
+                            if (val > maxAllowed) {
+                                toast.error(`Cannot exceed remaining amount. Only ${fmt(maxAllowed)} remaining.`);
+                            }
+                            const clamped = Math.min(val, maxAllowed);
+                            updateField(index, 'amount_refunded', clamped);
+                            return;
+                        }
+                        updateField(index, 'amount_refunded', val);
+                    }}
+                    className="h-8 text-xs min-w-[100px]"
+                />
+            </td>
+            <td className="px-3 py-2">
+                <Input type="text" value={entry.refund_or_no ?? ''} onChange={(e) => updateField(index, 'refund_or_no', e.target.value)} className="h-8 text-xs min-w-[80px]" placeholder="OR No." />
+            </td>
+            <td className="px-3 py-2 text-right">
+                <span className="text-sm font-medium tabular-nums text-foreground">
+                    {fmt(computed.totalAmtLiquidated)}
+                </span>
+            </td>
+            <td className="px-3 py-2 text-right">
+                <span className={`text-sm font-medium tabular-nums ${computed.totalUnliquidated > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-foreground'}`}>
+                    {fmt(computed.totalUnliquidated)}
+                </span>
+            </td>
+            <td className="px-3 py-2 text-right">
+                <span className="text-sm font-medium tabular-nums text-foreground">{computed.percentage.toFixed(2)}%</span>
+            </td>
+            <td className="px-3 py-2">
+                <Input type="text" value={entry.transmittal_ref_no ?? ''} onChange={(e) => updateField(index, 'transmittal_ref_no', e.target.value)} className="h-8 text-xs min-w-[90px]" placeholder="Ref No." />
+            </td>
+            <td className="px-3 py-2">
+                <Input type="text" value={entry.group_transmittal_ref_no ?? ''} onChange={(e) => updateField(index, 'group_transmittal_ref_no', e.target.value)} className="h-8 text-xs min-w-[90px]" placeholder="Group Ref" />
+            </td>
+            {!isHEIUser && (
+                <td className="px-3 py-2">
+                    {canDelete && (
+                        <DeleteRowButton isFilled={isRunningDataEntryFilled(entry)} onDelete={() => removeEntry(index)} />
+                    )}
+                </td>
+            )}
+        </tr>
+    );
+});
+
+/* ── Sub-components ── */
+
+const DeleteRowButton = React.memo(function DeleteRowButton({ isFilled, onDelete }: { isFilled: boolean; onDelete: () => void }) {
     if (!isFilled) {
         return (
             <Button variant="ghost" size="sm" onClick={onDelete} className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive">
@@ -350,4 +420,4 @@ function DeleteRowButton({ isFilled, onDelete }: { isFilled: boolean; onDelete: 
             </PopoverContent>
         </Popover>
     );
-}
+});

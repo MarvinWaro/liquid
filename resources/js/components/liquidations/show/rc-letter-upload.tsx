@@ -65,7 +65,7 @@ export default function RcLetterUpload({ liquidationId, documents, userRole }: R
 
             if (data?.success) {
                 toast.success('Letter uploaded successfully.');
-                router.reload({ only: ['liquidation'], preserveScroll: true });
+                router.reload({ only: ['liquidation'] });
             } else {
                 toast.error(data?.message ?? 'Upload failed. Please try again.');
             }

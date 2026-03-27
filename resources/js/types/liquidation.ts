@@ -150,6 +150,7 @@ export interface Liquidation {
     document_status?: string;
     liquidation_status?: string;
     date_submitted?: string | null;
+    updated_at?: string | null;
     created_by_name?: string | null;
     document_completeness?: DocumentCompleteness;
 }
