@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Check, ChevronsUpDown, FileSearch, Plus, Save, Trash2 } from 'lucide-react';
+import { toast } from '@/lib/toast';
 import AvatarStack from './avatar-stack';
 import {
     type TrackingEntry,
@@ -28,6 +28,7 @@ interface DocumentTrackingTableProps {
     documentLocations: string[];
     avatarMap: Record<string, string>;
     onEntriesChange: (entries: TrackingEntry[]) => void;
+    updatedAt?: string | null;
 }
 
 export default function DocumentTrackingTable({
@@ -38,6 +39,7 @@ export default function DocumentTrackingTable({
     documentLocations,
     avatarMap,
     onEntriesChange,
+    updatedAt,
 }: DocumentTrackingTableProps) {
     const [entries, setEntries] = useState<TrackingEntry[]>(
         initialEntries.length > 0 ? initialEntries : [createEmptyTrackingEntry()]
@@ -73,12 +75,26 @@ export default function DocumentTrackingTable({
         setIsSaving(true);
         router.post(route('liquidation.save-tracking-entries', liquidationId), {
             entries: entries as any,
+            expected_updated_at: updatedAt,
         }, {
             onSuccess: () => setIsSaving(false),
-            onError: () => setIsSaving(false),
+            onError: (errors) => {
+                setIsSaving(false);
+                if (errors.conflict) {
+                    toast.error(errors.conflict, {
+                        action: {
+                            label: 'Refresh',
+                            onClick: () => window.location.reload(),
+                        },
+                        duration: 10000,
+                    });
+                }
+            },
             preserveScroll: true,
         });
-    }, [liquidationId, entries]);
+    }, [liquidationId, entries, updatedAt]);
+
+    const canDelete = entries.length > 1;
 
     return (
         <div id="document-tracking" className="mb-6">
@@ -120,95 +136,22 @@ export default function DocumentTrackingTable({
                                 </tr>
                             </thead>
                             <tbody className={isHEIUser ? 'pointer-events-none opacity-60' : ''}>
-                                {entries.map((entry, index) => (
-                                    <tr key={entry.id || index} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-                                        <td className="px-3 py-2">
-                                            <CellTooltip content={entry.document_status || null}>
-                                                <Select value={entry.document_status} onValueChange={(v) => updateField(index, 'document_status', v)}>
-                                                    <SelectTrigger className="h-8 text-xs min-w-[120px]">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="No Submission">No Submission</SelectItem>
-                                                        <SelectItem value="Partial Submission">Partial Submission</SelectItem>
-                                                        <SelectItem value="Complete Submission">Complete Submission</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </CellTooltip>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <CellTooltip content={entry.received_by || null}>
-                                                <div>
-                                                    <RCMultiSelect value={entry.received_by} users={regionalCoordinators} avatarMap={avatarMap} onChange={(v) => updateField(index, 'received_by', v)} />
-                                                </div>
-                                            </CellTooltip>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <CellTooltip content={entry.date_received || null}>
-                                                <Input type="date" value={entry.date_received ?? ''} onChange={(e) => updateField(index, 'date_received', e.target.value)} className="h-8 text-xs min-w-[110px]" />
-                                            </CellTooltip>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <CellTooltip content={entry.document_location || null}>
-                                                <div>
-                                                    <LocationMultiSelect value={entry.document_location} locations={documentLocations} onChange={(v) => updateField(index, 'document_location', v)} />
-                                                </div>
-                                            </CellTooltip>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <CellTooltip content={entry.reviewed_by || null}>
-                                                <div>
-                                                    <RCMultiSelect value={entry.reviewed_by} users={regionalCoordinators} avatarMap={avatarMap} onChange={(v) => updateField(index, 'reviewed_by', v)} />
-                                                </div>
-                                            </CellTooltip>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <CellTooltip content={entry.date_reviewed || null}>
-                                                <Input type="date" value={entry.date_reviewed ?? ''} onChange={(e) => updateField(index, 'date_reviewed', e.target.value)} className="h-8 text-xs min-w-[110px]" />
-                                            </CellTooltip>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <CellTooltip content={entry.rc_note || null}>
-                                                <Select value={entry.rc_note || ''} onValueChange={(v) => updateField(index, 'rc_note', v)}>
-                                                    <SelectTrigger className="h-8 text-xs min-w-[120px]">
-                                                        <SelectValue placeholder="Select note" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {RC_NOTES_OPTIONS.map((opt) => (
-                                                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </CellTooltip>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <CellTooltip content={entry.date_endorsement || null}>
-                                                <Input type="date" value={entry.date_endorsement ?? ''} onChange={(e) => updateField(index, 'date_endorsement', e.target.value)} className="h-8 text-xs min-w-[110px]" />
-                                            </CellTooltip>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <CellTooltip content={entry.liquidation_status || null}>
-                                                <Select value={entry.liquidation_status} onValueChange={(v) => updateField(index, 'liquidation_status', v)}>
-                                                    <SelectTrigger className="h-8 text-xs min-w-[120px]">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="Unliquidated">Unliquidated</SelectItem>
-                                                        <SelectItem value="Partially Liquidated">Partially Liquidated</SelectItem>
-                                                        <SelectItem value="Fully Liquidated">Fully Liquidated</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </CellTooltip>
-                                        </td>
-                                        {!isHEIUser && (
-                                            <td className="px-3 py-2">
-                                                {entries.length > 1 && (
-                                                    <DeleteRowButton isFilled={isTrackingEntryFilled(entry)} onDelete={() => removeEntry(index)} />
-                                                )}
-                                            </td>
-                                        )}
-                                    </tr>
-                                ))}
+                                {entries.map((entry, index) => {
+                                    return (
+                                        <TrackingRow
+                                            key={entry.id || `new-${index}`}
+                                            entry={entry}
+                                            index={index}
+                                            isHEIUser={isHEIUser}
+                                            canDelete={canDelete}
+                                            regionalCoordinators={regionalCoordinators}
+                                            documentLocations={documentLocations}
+                                            avatarMap={avatarMap}
+                                            updateField={updateField}
+                                            removeEntry={removeEntry}
+                                        />
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -224,18 +167,101 @@ export default function DocumentTrackingTable({
     );
 }
 
-/* ── Sub-components ── */
+/* ── Memoized Row ── */
 
-function CellTooltip({ content, children }: { content?: string | null; children: React.ReactNode }) {
-    return (
-        <Tooltip>
-            <TooltipTrigger asChild>{children}</TooltipTrigger>
-            {content && <TooltipContent side="top" className="max-w-xs break-words">{content}</TooltipContent>}
-        </Tooltip>
-    );
+interface TrackingRowProps {
+    entry: TrackingEntry;
+    index: number;
+    isHEIUser: boolean;
+    canDelete: boolean;
+    regionalCoordinators: LiquidationUser[];
+    documentLocations: string[];
+    avatarMap: Record<string, string>;
+    updateField: (index: number, field: keyof TrackingEntry, value: string) => void;
+    removeEntry: (index: number) => void;
 }
 
-function DeleteRowButton({ isFilled, onDelete }: { isFilled: boolean; onDelete: () => void }) {
+const TrackingRow = React.memo(function TrackingRow({
+    entry,
+    index,
+    isHEIUser,
+    canDelete,
+    regionalCoordinators,
+    documentLocations,
+    avatarMap,
+    updateField,
+    removeEntry,
+}: TrackingRowProps) {
+    return (
+        <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+            <td className="px-3 py-2">
+                <Select value={entry.document_status} onValueChange={(v) => updateField(index, 'document_status', v)}>
+                    <SelectTrigger className="h-8 text-xs min-w-[120px]">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="No Submission">No Submission</SelectItem>
+                        <SelectItem value="Partial Submission">Partial Submission</SelectItem>
+                        <SelectItem value="Complete Submission">Complete Submission</SelectItem>
+                    </SelectContent>
+                </Select>
+            </td>
+            <td className="px-3 py-2">
+                <RCMultiSelect value={entry.received_by} users={regionalCoordinators} avatarMap={avatarMap} onChange={(v) => updateField(index, 'received_by', v)} />
+            </td>
+            <td className="px-3 py-2">
+                <Input type="date" value={entry.date_received ?? ''} onChange={(e) => updateField(index, 'date_received', e.target.value)} className="h-8 text-xs min-w-[110px]" />
+            </td>
+            <td className="px-3 py-2">
+                <LocationMultiSelect value={entry.document_location} locations={documentLocations} onChange={(v) => updateField(index, 'document_location', v)} />
+            </td>
+            <td className="px-3 py-2">
+                <RCMultiSelect value={entry.reviewed_by} users={regionalCoordinators} avatarMap={avatarMap} onChange={(v) => updateField(index, 'reviewed_by', v)} />
+            </td>
+            <td className="px-3 py-2">
+                <Input type="date" value={entry.date_reviewed ?? ''} onChange={(e) => updateField(index, 'date_reviewed', e.target.value)} className="h-8 text-xs min-w-[110px]" />
+            </td>
+            <td className="px-3 py-2">
+                <Select value={entry.rc_note || ''} onValueChange={(v) => updateField(index, 'rc_note', v)}>
+                    <SelectTrigger className="h-8 text-xs min-w-[120px]">
+                        <SelectValue placeholder="Select note" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {RC_NOTES_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </td>
+            <td className="px-3 py-2">
+                <Input type="date" value={entry.date_endorsement ?? ''} onChange={(e) => updateField(index, 'date_endorsement', e.target.value)} className="h-8 text-xs min-w-[110px]" />
+            </td>
+            <td className="px-3 py-2">
+                <Select value={entry.liquidation_status} onValueChange={(v) => updateField(index, 'liquidation_status', v)}>
+                    <SelectTrigger className="h-8 text-xs min-w-[120px]">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="Unliquidated">Unliquidated</SelectItem>
+                        <SelectItem value="Partially Liquidated">Partially Liquidated</SelectItem>
+                        <SelectItem value="Fully Liquidated">Fully Liquidated</SelectItem>
+                    </SelectContent>
+                </Select>
+            </td>
+            {!isHEIUser && (
+                <td className="px-3 py-2">
+                    {canDelete && (
+                        <DeleteRowButton isFilled={isTrackingEntryFilled(entry)} onDelete={() => removeEntry(index)} />
+                    )}
+                </td>
+            )}
+        </tr>
+    );
+});
+
+/* ── Sub-components ── */
+
+const DeleteRowButton = React.memo(function DeleteRowButton({ isFilled, onDelete }: { isFilled: boolean; onDelete: () => void }) {
     if (!isFilled) {
         return (
             <Button variant="ghost" size="sm" onClick={onDelete} className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive">
@@ -265,9 +291,9 @@ function DeleteRowButton({ isFilled, onDelete }: { isFilled: boolean; onDelete: 
             </PopoverContent>
         </Popover>
     );
-}
+});
 
-function RCMultiSelect({ value, users, avatarMap, onChange }: {
+const RCMultiSelect = React.memo(function RCMultiSelect({ value, users, avatarMap, onChange }: {
     value: string;
     users: LiquidationUser[];
     avatarMap: Record<string, string>;
@@ -310,9 +336,9 @@ function RCMultiSelect({ value, users, avatarMap, onChange }: {
             </PopoverContent>
         </Popover>
     );
-}
+});
 
-function LocationMultiSelect({ value, locations, onChange }: {
+const LocationMultiSelect = React.memo(function LocationMultiSelect({ value, locations, onChange }: {
     value: string;
     locations: string[];
     onChange: (val: string) => void;
@@ -360,4 +386,4 @@ function LocationMultiSelect({ value, locations, onChange }: {
             </PopoverContent>
         </Popover>
     );
-}
+});

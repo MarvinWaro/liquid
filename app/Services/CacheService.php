@@ -217,7 +217,7 @@ class CacheService
             $globals = DocumentRequirement::active()
                 ->ordered()
                 ->forProgram($programId)
-                ->get(['id', 'code', 'name', 'description', 'reference_image_path', 'upload_message', 'is_required', 'sort_order']);
+                ->get(['id', 'code', 'name', 'description', 'reference_image_path', 'upload_message', 'is_required', 'is_active', 'sort_order']);
 
             // Load AY-specific overrides for these requirements
             $reqIds = $globals->pluck('id');
@@ -256,6 +256,20 @@ class CacheService
         $programIds = Program::where('status', 'active')->pluck('id');
         foreach ($programIds as $programId) {
             Cache::forget("lookup:document_requirements:{$programId}:ay:{$academicYearId}");
+        }
+    }
+
+    /**
+     * Clear all cached requirement entries for a given program (base + all AY-scoped).
+     */
+    public function clearProgramRequirementCache(string $programId): void
+    {
+        Cache::forget("lookup:document_requirements:{$programId}");
+
+        // Clear AY-scoped caches for this program
+        $academicYearIds = \App\Models\AcademicYear::pluck('id');
+        foreach ($academicYearIds as $ayId) {
+            Cache::forget("lookup:document_requirements:{$programId}:ay:{$ayId}");
         }
     }
 

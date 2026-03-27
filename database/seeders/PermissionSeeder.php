@@ -124,6 +124,7 @@ class PermissionSeeder extends Seeder
         $this->createExampleRole('Regional Coordinator', 'Reviews and endorses liquidation', [
             'view_hei',
             'view_liquidation', 'create_liquidation', 'edit_liquidation', 'review_liquidation', 'endorse_liquidation',
+            'view_document_requirements', 'create_document_requirements', 'edit_document_requirements', 'delete_document_requirements',
             'view_reports', 'view_dashboard',
             'view_summary_ay', 'view_summary_hei',
         ]);

@@ -55,6 +55,7 @@ interface ImportPreviewDialogProps {
     isOpen: boolean;
     onClose: () => void;
     onImportComplete: (result: { imported: number; errors: any[] }) => void;
+    initialFile?: File | null;
 }
 
 // --- Component ------------------------------------------------------------
@@ -63,6 +64,7 @@ export function ImportPreviewDialog({
     isOpen,
     onClose,
     onImportComplete,
+    initialFile,
 }: ImportPreviewDialogProps) {
     const [step, setStep] = useState<'idle' | 'validating' | 'preview' | 'importing'>('idle');
     const [rows, setRows] = useState<ValidatedRow[]>([]);
@@ -71,6 +73,19 @@ export function ImportPreviewDialog({
     const [detailOpen, setDetailOpen] = useState(false);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
+    const processedFileRef = React.useRef<File | null>(null);
+
+    // Auto-validate when opened with an initialFile from the popover
+    React.useEffect(() => {
+        if (isOpen && initialFile && initialFile !== processedFileRef.current) {
+            processedFileRef.current = initialFile;
+            setSelectedFile(initialFile);
+            validateFile(initialFile);
+        }
+        if (!isOpen) {
+            processedFileRef.current = null;
+        }
+    }, [isOpen, initialFile]);
 
     const reset = useCallback(() => {
         setStep('idle');
@@ -174,14 +189,12 @@ export function ImportPreviewDialog({
                     <div className="flex items-center gap-2.5">
                         <FileSpreadsheet className="h-5 w-5 text-emerald-600 shrink-0" />
                         <DialogTitle>
-                            {step === 'idle' && 'Upload Excel File'}
                             {step === 'validating' && 'Validating...'}
                             {step === 'preview' && 'Import Preview'}
                             {step === 'importing' && 'Importing...'}
                         </DialogTitle>
                     </div>
                     <DialogDescription>
-                        {step === 'idle' && 'Select an Excel file to validate before importing.'}
                         {step === 'validating' && 'Checking your file for errors...'}
                         {step === 'preview' && 'Review the validation results below. Click a row to see details.'}
                         {step === 'importing' && 'Creating liquidation records...'}
@@ -190,24 +203,6 @@ export function ImportPreviewDialog({
 
                 {/* Body */}
                 <div className="flex-1 min-h-0 flex overflow-hidden">
-                    {/* Idle state — upload prompt */}
-                    {step === 'idle' && (
-                        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-10">
-                            <div className="rounded-full bg-muted p-6">
-                                <Upload className="h-10 w-10 text-muted-foreground" />
-                            </div>
-                            <div className="text-center">
-                                <p className="text-sm font-medium mb-1">Select your Excel file</p>
-                                <p className="text-xs text-muted-foreground">
-                                    Supports .xlsx and .xls files (max 10MB)
-                                </p>
-                            </div>
-                            <Button onClick={() => fileInputRef.current?.click()}>
-                                <Upload className="h-4 w-4 mr-2" />
-                                Choose File
-                            </Button>
-                        </div>
-                    )}
 
                     {/* Validating spinner */}
                     {step === 'validating' && (

@@ -27,8 +27,12 @@ export default function AmountInput({
     );
 
     useEffect(() => {
+        const expected = value ? Math.round(value * 100).toString() : '';
         if (!isFocused.current) {
-            setDigits(value ? Math.round(value * 100).toString() : '');
+            setDigits(expected);
+        } else if (digits && expected && parseInt(digits, 10) !== parseInt(expected, 10)) {
+            // Parent clamped the value — sync even while focused
+            setDigits(expected);
         }
     }, [value]);
 

@@ -1,8 +1,9 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import AppLayout from '@/layouts/app-layout';
-import { Head, router, usePage } from '@inertiajs/react';
+import { Deferred, Head, router, usePage } from '@inertiajs/react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { type BreadcrumbItem, type SharedData } from '@/types';
-import type { ShowPageProps, TrackingEntry } from '@/types/liquidation';
+import { type ShowPageProps, type TrackingEntry, parseNames, joinNames } from '@/types/liquidation';
 
 // Section components
 import LiquidationHeader from '@/components/liquidations/show/liquidation-header';
@@ -150,18 +151,36 @@ export default function Show({
             ? liquidation.tracking_entries
             : []
     );
+    const trackingDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const debouncedSetTrackingEntries = useCallback((entries: TrackingEntry[]) => {
+        if (trackingDebounceRef.current) clearTimeout(trackingDebounceRef.current);
+        trackingDebounceRef.current = setTimeout(() => setTrackingEntries(entries), 300);
+    }, []);
 
-    // ── RC reviewer name (from tracking entries as fallback) ──
+    // ── RC reviewer names (aggregated from all tracking entries) ──
     const rcReviewerName = useMemo(() => {
-        if (liquidation.reviewed_by_name) return liquidation.reviewed_by_name;
-        const latest = trackingEntries[trackingEntries.length - 1];
-        return latest?.reviewed_by || null;
-    }, [liquidation.reviewed_by_name, trackingEntries]);
+        const knownNames = [...regionalCoordinators, ...accountants].map(u => u.name);
+        const allReviewers = [
+            ...new Set(
+                trackingEntries
+                    .flatMap(e => parseNames(e.reviewed_by, knownNames))
+                    .filter(Boolean)
+            )
+        ];
+        if (allReviewers.length > 0) return joinNames(allReviewers);
+        return liquidation.reviewed_by_name || null;
+    }, [liquidation.reviewed_by_name, trackingEntries, regionalCoordinators, accountants]);
 
     // ── Latest RC note (from tracking entries) ──
     const latestRcNote = useMemo(() => {
         const latest = trackingEntries[trackingEntries.length - 1];
         return latest?.rc_note || null;
+    }, [trackingEntries]);
+
+    // ── Latest liquidation status (from tracking entries) ──
+    const latestLiquidationStatus = useMemo(() => {
+        const latest = trackingEntries[trackingEntries.length - 1];
+        return latest?.liquidation_status || null;
     }, [trackingEntries]);
 
     // ── Running data total (for LiquidationDetailsCard) ──
@@ -171,6 +190,19 @@ export default function Show({
         );
     }, [liquidation.running_data]);
     const [runningDataTotalLiquidated, setRunningDataTotalLiquidated] = useState(initialRunningTotal);
+    const totalDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const debouncedSetTotalLiquidated = useCallback((total: number) => {
+        if (totalDebounceRef.current) clearTimeout(totalDebounceRef.current);
+        totalDebounceRef.current = setTimeout(() => setRunningDataTotalLiquidated(total), 300);
+    }, []);
+
+    // ── Cleanup debounce timers ──
+    useEffect(() => {
+        return () => {
+            if (trackingDebounceRef.current) clearTimeout(trackingDebounceRef.current);
+            if (totalDebounceRef.current) clearTimeout(totalDebounceRef.current);
+        };
+    }, []);
 
     // ── Modal handlers ──
     const handleSubmitForReview = useCallback((remarks: string) => {
@@ -285,7 +317,8 @@ export default function Show({
                     regionalCoordinators={regionalCoordinators}
                     documentLocations={documentLocations}
                     avatarMap={avatarMap}
-                    onEntriesChange={setTrackingEntries}
+                    onEntriesChange={debouncedSetTrackingEntries}
+                    updatedAt={liquidation.updated_at}
                 />
 
                 {/* Running Data Table */}
@@ -295,21 +328,25 @@ export default function Show({
                     totalDisbursements={totalDisbursements}
                     totalGrantees={totalGrantees}
                     isHEIUser={isHEIUser}
-                    onTotalLiquidatedChange={setRunningDataTotalLiquidated}
+                    latestLiquidationStatus={latestLiquidationStatus ?? undefined}
+                    onTotalLiquidatedChange={debouncedSetTotalLiquidated}
+                    updatedAt={liquidation.updated_at}
                 />
 
                 {/* HEI Document Requirements */}
-                <HeiDocumentUpload
-                    liquidationId={liquidation.id}
-                    documents={liquidation.documents ?? []}
-                    requirements={documentRequirements}
-                    completeness={liquidation.document_completeness}
-                    isHEIUser={isHEIUser}
-                    commentCounts={commentCounts}
-                    currentUserId={String(auth.user.id)}
-                    defaultExpanded={focusDocuments}
-                    focusRequirementId={focusRequirementId}
-                />
+                <Deferred data={['documentRequirements', 'commentCounts']} fallback={<HeiDocumentUploadSkeleton />}>
+                    <HeiDocumentUpload
+                        liquidationId={liquidation.id}
+                        documents={liquidation.documents ?? []}
+                        requirements={documentRequirements ?? []}
+                        completeness={liquidation.document_completeness}
+                        isHEIUser={isHEIUser}
+                        commentCounts={commentCounts ?? {}}
+                        currentUserId={String(auth.user.id)}
+                        defaultExpanded={focusDocuments}
+                        focusRequirementId={focusRequirementId}
+                    />
+                </Deferred>
 
                 {/* RC Letter Upload */}
                 <RcLetterUpload
@@ -362,5 +399,31 @@ export default function Show({
                 totalDisbursed={liquidation.total_disbursed || 0}
             />
         </AppLayout>
+    );
+}
+
+/* ── Skeleton for deferred HEI Document Requirements section ── */
+function HeiDocumentUploadSkeleton() {
+    return (
+        <div id="document-requirements" className="mb-6">
+            <div className="rounded-xl border bg-card p-6 space-y-4">
+                <div className="flex items-center gap-2">
+                    <Skeleton className="h-8 w-8 rounded-md" />
+                    <div className="space-y-1.5">
+                        <Skeleton className="h-4 w-48" />
+                        <Skeleton className="h-3 w-64" />
+                    </div>
+                </div>
+                <div className="space-y-3 pt-2">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="flex items-center gap-3 p-3 rounded-lg border">
+                            <Skeleton className="h-5 w-5 rounded" />
+                            <Skeleton className="h-4 flex-1" />
+                            <Skeleton className="h-6 w-20 rounded-full" />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
     );
 }

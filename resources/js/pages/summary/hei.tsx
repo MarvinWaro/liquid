@@ -57,6 +57,7 @@ interface HEISummary {
     unliquidated_amount: number;
     for_compliance: number;
     percentage_liquidation: number;
+    percentage_compliance: number;
     percentage_submission: number;
 }
 
@@ -238,13 +239,14 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters }:
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated Amount</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Compliance</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Liquidation</TableHead>
+                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Compliance</TableHead>
                                         <TableHead className="h-9 pr-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Submission</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {filtered.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
+                                            <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
                                                 {searchQuery ? 'No matching HEIs found.' : 'No data available.'}
                                             </TableCell>
                                         </TableRow>
@@ -260,6 +262,7 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters }:
                                                 <TableCell className="font-mono text-red-500">{formatCurrency(row.unliquidated_amount)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.for_compliance)}</TableCell>
                                                 <TableCell>{formatPercentage(row.percentage_liquidation)}</TableCell>
+                                                <TableCell>{formatPercentage(row.percentage_compliance)}</TableCell>
                                                 <TableCell className="pr-6">{formatPercentage(row.percentage_submission)}</TableCell>
                                             </TableRow>
                                         ))

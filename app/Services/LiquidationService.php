@@ -177,7 +177,7 @@ class LiquidationService
             $documentStatusId = DocumentStatus::findByCode($documentStatusCode)?->id;
 
             $liquidation = Liquidation::create([
-                'control_no'            => $this->generateControlNo($data['program_id']),
+                'control_no'            => $data['dv_control_no'] ?? $this->generateControlNo($data['program_id']),
                 'hei_id'                => $hei->id,
                 'program_id'            => $data['program_id'],
                 'academic_year_id'      => $data['academic_year_id'],

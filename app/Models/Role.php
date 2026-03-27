@@ -45,6 +45,11 @@ class Role extends Model
      */
     public function hasPermission(string $permissionName): bool
     {
+        // Use the already-loaded collection when available (avoids N+1 queries)
+        if ($this->relationLoaded('permissions')) {
+            return $this->permissions->contains('name', $permissionName);
+        }
+
         return $this->permissions()->where('name', $permissionName)->exists();
     }
 

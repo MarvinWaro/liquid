@@ -64,6 +64,7 @@ interface DraftRow {
     academic_year_id: string;
     semester: string;
     batch_no: string;
+    dv_control_no: string;
     number_of_grantees: string;
     total_disbursements: string;
     total_amount_liquidated: string;
@@ -76,9 +77,9 @@ function getDraftKey(userId: number | string) {
 }
 
 function saveDraftToStorage(userId: number | string, rows: BulkEntryRow[]) {
-    const draft: DraftRow[] = rows.map(({ program_id, uii, date_fund_released, due_date, academic_year_id, semester, batch_no, number_of_grantees, total_disbursements, total_amount_liquidated, document_status, rc_notes }) => ({
+    const draft: DraftRow[] = rows.map(({ program_id, uii, date_fund_released, due_date, academic_year_id, semester, batch_no, dv_control_no, number_of_grantees, total_disbursements, total_amount_liquidated, document_status, rc_notes }) => ({
         program_id, uii, date_fund_released, due_date, academic_year_id, semester,
-        batch_no, number_of_grantees, total_disbursements, total_amount_liquidated,
+        batch_no, dv_control_no, number_of_grantees, total_disbursements, total_amount_liquidated,
         document_status, rc_notes,
     }));
     localStorage.setItem(getDraftKey(userId), JSON.stringify({ rows: draft, savedAt: new Date().toISOString() }));
@@ -110,6 +111,7 @@ interface BulkEntryRow {
     academic_year_id: string;
     semester: string;
     batch_no: string;
+    dv_control_no: string;
     number_of_grantees: string;
     total_disbursements: string;
     total_amount_liquidated: string;
@@ -171,6 +173,7 @@ const createEmptyRow = (): BulkEntryRow => ({
     academic_year_id: '',
     semester: '',
     batch_no: '',
+    dv_control_no: '',
     number_of_grantees: '',
     total_disbursements: '',
     total_amount_liquidated: '',
@@ -460,6 +463,11 @@ export function BulkEntryModal({
     }, [isOpen, heiMap, userId]);
 
     // Get due date days based on program: STUFAPS sub-programs = 30 days, others = 90 days
+    const getProgramPrefix = (programId: string): string => {
+        const program = programs.find(p => p.id === programId);
+        return program ? `${program.code}-` : '';
+    };
+
     const getDueDateDays = (programId: string): number => {
         const program = programs.find(p => p.id === programId);
         return program?.parent_id ? 30 : 90;
@@ -472,6 +480,10 @@ export function BulkEntryModal({
             if (field === 'uii') {
                 const match = heiMap.get(value.trim().toLowerCase());
                 updated[index].hei_name = match?.name || '';
+            }
+            // Reset control no suffix when program changes
+            if (field === 'program_id') {
+                updated[index].dv_control_no = '';
             }
             // Auto-compute due date based on program type
             const shouldRecomputeDueDate = field === 'date_fund_released' || field === 'program_id';
@@ -568,9 +580,13 @@ export function BulkEntryModal({
         }
     };
 
-    // Validation
+    // Validation — suffix format: YYYY-NNNN (e.g., 2026-0001)
+    const SUFFIX_REGEX = /^\d{4}-\d{1,5}$/;
+
     const validateRows = (): boolean => {
         const errors: Record<number, string> = {};
+        const seenControlNos = new Map<string, number>();
+
         rows.forEach((row, i) => {
             if (!row.program_id) errors[i] = 'Program is required.';
             else if (!row.uii.trim()) errors[i] = 'UII is required.';
@@ -578,7 +594,19 @@ export function BulkEntryModal({
             else if (!row.date_fund_released) errors[i] = 'Date of Fund Released is required.';
             else if (!row.academic_year_id) errors[i] = 'Academic Year is required.';
             else if (!row.semester) errors[i] = 'Semester is required.';
-            else if (!row.total_disbursements) errors[i] = 'Total Disbursements is required.';
+            else if (!row.dv_control_no.trim()) errors[i] = 'Control No. is required.';
+            else if (row.dv_control_no.trim() !== row.dv_control_no) errors[i] = 'Control No. has leading/trailing spaces.';
+            else if (!SUFFIX_REGEX.test(row.dv_control_no)) errors[i] = 'Control No. format invalid. Use: YYYY-NNNN (e.g., 2026-0001).';
+            else {
+                const fullControlNo = getProgramPrefix(row.program_id) + row.dv_control_no;
+                if (seenControlNos.has(fullControlNo)) {
+                    errors[i] = `Control No. "${fullControlNo}" is duplicated with Row ${(seenControlNos.get(fullControlNo)!) + 1}.`;
+                } else if (!row.total_disbursements) {
+                    errors[i] = 'Total Disbursements is required.';
+                } else {
+                    seenControlNos.set(fullControlNo, i);
+                }
+            }
         });
         setRowErrors(errors);
         return Object.keys(errors).length === 0;
@@ -594,6 +622,7 @@ export function BulkEntryModal({
         const entries = rows.map(row => ({
             program_id: row.program_id,
             uii: row.uii.trim(),
+            dv_control_no: getProgramPrefix(row.program_id) + row.dv_control_no.trim(),
             date_fund_released: row.date_fund_released,
             due_date: row.due_date || null,
             academic_year_id: row.academic_year_id,
@@ -681,23 +710,7 @@ export function BulkEntryModal({
                 {/* Table — scrollable both directions */}
                 <div className="flex-1 overflow-auto border rounded-md min-h-0">
                     <table className="text-sm border-collapse min-w-[1500px] w-full">
-                        <colgroup>
-                            <col style={{ width: 36 }} />    {/* # */}
-                            <col style={{ width: 80 }} />    {/* Program */}
-                            <col style={{ width: 140 }} />   {/* UII */}
-                            <col style={{ width: 200 }} />   {/* HEI Name */}
-                            <col style={{ width: 140 }} />   {/* Fund Released */}
-                            <col style={{ width: 140 }} />   {/* Due Date */}
-                            <col style={{ width: 110 }} />   {/* Academic Year */}
-                            <col style={{ width: 120 }} />   {/* Semester */}
-                            <col style={{ width: 60 }} />    {/* Batch */}
-                            <col style={{ width: 80 }} />    {/* Grantees */}
-                            <col style={{ width: 120 }} />   {/* Disbursements */}
-                            <col style={{ width: 120 }} />   {/* Amt Liquidated */}
-                            <col style={{ width: 130 }} />   {/* Doc Status */}
-                            <col style={{ width: 130 }} />   {/* RC Notes */}
-                            <col style={{ width: 56 }} />    {/* Actions */}
-                        </colgroup>
+                        <colgroup><col style={{ width: 36 }} /><col style={{ width: 80 }} /><col style={{ width: 140 }} /><col style={{ width: 200 }} /><col style={{ width: 140 }} /><col style={{ width: 140 }} /><col style={{ width: 110 }} /><col style={{ width: 120 }} /><col style={{ width: 60 }} /><col style={{ width: 150 }} /><col style={{ width: 80 }} /><col style={{ width: 120 }} /><col style={{ width: 120 }} /><col style={{ width: 130 }} /><col style={{ width: 130 }} /><col style={{ width: 56 }} /></colgroup>
                         <thead className="bg-muted/50 sticky top-0 z-10">
                             <tr>
                                 <th className="px-1 py-1.5 text-center text-[11px] font-medium text-muted-foreground">#</th>
@@ -709,6 +722,7 @@ export function BulkEntryModal({
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Acad. Year *</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Semester *</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Batch</th>
+                                <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Control No. *</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Grantees</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Disbursements *</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Amt Liquidated</th>
@@ -777,7 +791,7 @@ export function BulkEntryModal({
                                         <td className="px-0.5 py-0.5">
                                             <CellTooltip content={ayLabel}>
                                                 <Select value={row.academic_year_id} onValueChange={v => updateRow(index, 'academic_year_id', v)}>
-                                                    <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="--" /></SelectTrigger>
+                                                    <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="--">{ayLabel.replace(/^Academic Year\s*/i, '')}</SelectValue></SelectTrigger>
                                                     <SelectContent>{academicYears.map(ay => <SelectItem key={ay.id} value={ay.id}>{ay.name}</SelectItem>)}</SelectContent>
                                                 </Select>
                                             </CellTooltip>
@@ -793,6 +807,24 @@ export function BulkEntryModal({
                                         <td className="px-0.5 py-0.5">
                                             <CellTooltip content={row.batch_no ? `Batch ${row.batch_no}` : ''}>
                                                 <Input className="h-7 text-xs" type="number" min="0" value={row.batch_no} onChange={e => updateRow(index, 'batch_no', e.target.value)} placeholder="1" />
+                                            </CellTooltip>
+                                        </td>
+                                        <td className="px-0.5 py-0.5">
+                                            <CellTooltip content={row.dv_control_no ? `${getProgramPrefix(row.program_id)}${row.dv_control_no}` : ''}>
+                                                <div className="flex items-center h-7 rounded-md border border-input bg-background text-xs font-mono">
+                                                    {row.program_id && (
+                                                        <span className="px-1 text-muted-foreground bg-muted border-r border-input rounded-l-md h-full flex items-center select-none text-[10px]">
+                                                            {getProgramPrefix(row.program_id)}
+                                                        </span>
+                                                    )}
+                                                    <Input
+                                                        className="h-full border-0 shadow-none focus-visible:ring-0 text-xs font-mono px-1"
+                                                        value={row.dv_control_no}
+                                                        onChange={e => updateRow(index, 'dv_control_no', e.target.value.toUpperCase())}
+                                                        placeholder={row.program_id ? '2026-0001' : '--'}
+                                                        disabled={!row.program_id}
+                                                    />
+                                                </div>
                                             </CellTooltip>
                                         </td>
                                         <td className="px-0.5 py-0.5">
@@ -853,7 +885,7 @@ export function BulkEntryModal({
                                     </tr>
                                     {rowErrors[index] && (
                                         <tr>
-                                            <td colSpan={15} className="px-2 py-0.5 bg-red-50/80 dark:bg-red-950/30 border-b">
+                                            <td colSpan={16} className="px-2 py-0.5 bg-red-50/80 dark:bg-red-950/30 border-b">
                                                 <div className="flex items-center gap-1.5 text-[11px] text-red-600 dark:text-red-400">
                                                     <AlertCircle className="h-3 w-3 shrink-0" />
                                                     Row {index + 1}: {rowErrors[index]}

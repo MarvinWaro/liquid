@@ -115,7 +115,6 @@ export function CreateLiquidationModal({
     const [heiSearch, setHeiSearch] = useState('');
     const [selectedHei, setSelectedHei] = useState<HEIOption | null>(null);
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-    const [nextControlNo, setNextControlNo] = useState<string>('');
 
     const MAX_VISIBLE_HEIS = 50;
 
@@ -146,19 +145,9 @@ export function CreateLiquidationModal({
         rc_notes: '',
     });
 
-    // Fetch next control number scoped by program
-    const fetchNextControlNo = (programId?: string) => {
-        const params = programId ? { program_id: programId } : {};
-        axios.get(route('liquidation.next-control-no'), { params })
-            .then(res => setNextControlNo(res.data.control_no))
-            .catch(() => setNextControlNo(''));
-    };
-
-    // Reset form when modal opens/closes
+    // Reset form when modal closes
     useEffect(() => {
-        if (isOpen) {
-            fetchNextControlNo();
-        } else {
+        if (!isOpen) {
             setFormData({
                 program_id: '',
                 uii: '',
@@ -177,7 +166,6 @@ export function CreateLiquidationModal({
             setSelectedHei(null);
             setHeiSearch('');
             setFieldErrors({});
-            setNextControlNo('');
         }
     }, [isOpen]);
 
@@ -200,9 +188,19 @@ export function CreateLiquidationModal({
         return program?.parent_id ? 30 : 90;
     };
 
+    // Program code prefix for control number
+    const controlNoPrefix = useMemo(() => {
+        const program = programs.find(p => p.id === formData.program_id);
+        return program ? `${program.code}-` : '';
+    }, [formData.program_id, programs]);
+
     const handleInputChange = (field: string, value: string) => {
         setFormData(prev => {
             const updated = { ...prev, [field]: value };
+            // Reset control no suffix when program changes
+            if (field === 'program_id') {
+                updated.dv_control_no = '';
+            }
             // Auto-compute due date based on program type
             const shouldRecomputeDueDate = field === 'date_fund_released' || field === 'program_id';
             const releaseDate = field === 'date_fund_released' ? value : updated.date_fund_released;
@@ -216,10 +214,6 @@ export function CreateLiquidationModal({
             }
             return updated;
         });
-        // Re-fetch control number when program changes
-        if (field === 'program_id') {
-            fetchNextControlNo(value || undefined);
-        }
         // Clear field error when user starts typing
         if (fieldErrors[field]) {
             setFieldErrors(prev => {
@@ -242,7 +236,11 @@ export function CreateLiquidationModal({
         setIsSubmitting(true);
 
         try {
-            const response = await axios.post(route('liquidation.store'), formData);
+            const submitData = {
+                ...formData,
+                dv_control_no: controlNoPrefix + formData.dv_control_no,
+            };
+            const response = await axios.post(route('liquidation.store'), submitData);
 
             if (response.data.success) {
                 toast.success('Liquidation created successfully');
@@ -504,15 +502,25 @@ export function CreateLiquidationModal({
 
                         {/* Control No */}
                         <div className="space-y-2">
-                            <Label htmlFor="dv_control_no">Control No.</Label>
-                            <Input
-                                id="dv_control_no"
-                                value={nextControlNo}
-                                disabled
-                                placeholder="Loading..."
-                                className="bg-muted font-mono cursor-not-allowed"
-                            />
-                            <p className="text-xs text-muted-foreground">Auto-generated upon creation.</p>
+                            <Label htmlFor="dv_control_no">Control No. *</Label>
+                            <div className={`flex items-center rounded-md border bg-background font-mono text-sm ${fieldErrors.dv_control_no ? 'border-red-500' : 'border-input'}`}>
+                                {controlNoPrefix && (
+                                    <span className="px-3 py-2 text-muted-foreground bg-muted border-r border-input rounded-l-md select-none">
+                                        {controlNoPrefix}
+                                    </span>
+                                )}
+                                <Input
+                                    id="dv_control_no"
+                                    value={formData.dv_control_no}
+                                    onChange={(e) => handleInputChange('dv_control_no', e.target.value.toUpperCase())}
+                                    placeholder={controlNoPrefix ? '2026-0001' : 'Select program first'}
+                                    disabled={!formData.program_id}
+                                    className="border-0 shadow-none focus-visible:ring-0 font-mono"
+                                />
+                            </div>
+                            {fieldErrors.dv_control_no && (
+                                <p className="text-sm text-red-500">{fieldErrors.dv_control_no}</p>
+                            )}
                         </div>
 
                         {/* Number of Grantees */}

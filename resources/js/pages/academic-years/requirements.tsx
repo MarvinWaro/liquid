@@ -186,23 +186,31 @@ function SortableRequirementsTable({
                 </div>
             </div>
 
-            <Table>
+            <Table className="table-fixed w-full">
+                <colgroup>
+                    <col className="w-10" />       {/* drag handle */}
+                    <col className="w-14" />       {/* order */}
+                    <col style={{ width: '12%' }} /> {/* code */}
+                    <col style={{ width: 'auto' }} /> {/* requirement - takes remaining */}
+                    <col className="w-24" />       {/* required */}
+                    <col className="w-24" />       {/* active */}
+                </colgroup>
                 <TableHeader>
                     <TableRow className="border-b hover:bg-transparent">
-                        <TableHead className="h-9 w-10 pl-3 text-xs font-medium tracking-wider text-muted-foreground uppercase" />
-                        <TableHead className="h-9 w-16 text-center text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                        <TableHead className="h-9 pl-3 text-xs font-medium tracking-wider text-muted-foreground uppercase" />
+                        <TableHead className="h-9 text-center text-xs font-medium tracking-wider text-muted-foreground uppercase">
                             Order
                         </TableHead>
-                        <TableHead className="h-9 w-24 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">
                             Code
                         </TableHead>
                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">
                             Requirement
                         </TableHead>
-                        <TableHead className="h-9 w-28 text-center text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                        <TableHead className="h-9 text-center text-xs font-medium tracking-wider text-muted-foreground uppercase">
                             Required
                         </TableHead>
-                        <TableHead className="h-9 w-28 pr-4 text-center text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                        <TableHead className="h-9 pr-4 text-center text-xs font-medium tracking-wider text-muted-foreground uppercase">
                             Active
                         </TableHead>
                     </TableRow>
@@ -222,15 +230,15 @@ function SortableRequirementsTable({
                                     </span>
                                 </TableCell>
                                 <TableCell className="py-2">
-                                    <span className="font-mono text-xs font-semibold text-muted-foreground">
+                                    <span className="font-mono text-xs font-semibold text-muted-foreground truncate block">
                                         {req.code}
                                     </span>
                                 </TableCell>
                                 <TableCell className="py-2">
                                     <div>
-                                        <span className="text-sm font-medium text-foreground">{req.name}</span>
+                                        <p className="text-sm font-medium text-foreground">{req.name}</p>
                                         {req.description && (
-                                            <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{req.description}</p>
+                                            <p className="mt-0.5 text-xs text-muted-foreground whitespace-normal break-words">{req.description}</p>
                                         )}
                                     </div>
                                     {row.has_override && (

@@ -231,16 +231,26 @@ export default function Index({
                     </div>
 
                     <div className="overflow-hidden rounded-lg border">
-                        <Table>
+                        <Table className="table-fixed w-full">
+                            <colgroup>
+                                <col className="w-12" />        {/* # */}
+                                <col className="w-20" />        {/* program */}
+                                <col style={{ width: '10%' }} /> {/* code */}
+                                <col style={{ width: '18%' }} /> {/* name */}
+                                <col style={{ width: 'auto' }} /> {/* description - takes remaining */}
+                                <col className="w-24" />        {/* required */}
+                                <col className="w-24" />        {/* status */}
+                                <col className="w-24" />        {/* actions */}
+                            </colgroup>
                             <TableHeader>
                                 <TableRow className="border-b hover:bg-transparent">
-                                    <TableHead className="h-9 w-16 pl-6 text-center text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                                    <TableHead className="h-9 pl-6 text-center text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                         #
                                     </TableHead>
-                                    <TableHead className="h-9 w-32 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                         Program
                                     </TableHead>
-                                    <TableHead className="h-9 w-36 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                         Code
                                     </TableHead>
                                     <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">
@@ -249,13 +259,13 @@ export default function Index({
                                     <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                         Description
                                     </TableHead>
-                                    <TableHead className="h-9 w-24 text-center text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                                    <TableHead className="h-9 text-center text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                         Required
                                     </TableHead>
-                                    <TableHead className="h-9 w-24 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                                    <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                         Status
                                     </TableHead>
-                                    <TableHead className="h-9 w-24 pr-6 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                                    <TableHead className="h-9 pr-6 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                         Actions
                                     </TableHead>
                                 </TableRow>
@@ -296,18 +306,18 @@ export default function Index({
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="py-2">
-                                                <span className="rounded bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
+                                                <span className="rounded bg-muted px-2 py-1 font-mono text-xs text-muted-foreground truncate block w-fit max-w-full">
                                                     {req.code}
                                                 </span>
                                             </TableCell>
                                             <TableCell className="py-2">
-                                                <span className="text-sm font-medium">
+                                                <p className="text-sm font-medium whitespace-normal break-words">
                                                     {req.name}
-                                                </span>
+                                                </p>
                                             </TableCell>
-                                            <TableCell className="max-w-xs py-2">
+                                            <TableCell className="py-2">
                                                 <div className="flex items-center gap-1.5">
-                                                    <span className="line-clamp-1 text-sm text-muted-foreground">
+                                                    <span className="text-sm text-muted-foreground whitespace-normal break-words line-clamp-3">
                                                         {req.description || '—'}
                                                     </span>
                                                     {req.reference_image_url && (
