@@ -7,7 +7,6 @@ use App\Models\Program;
 use App\Services\CacheService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -156,6 +155,6 @@ class DocumentRequirementController extends Controller
 
     private function clearRequirementCache(string $programId): void
     {
-        Cache::forget("lookup:document_requirements:{$programId}");
+        $this->cache->clearProgramRequirementCache($programId);
     }
 }

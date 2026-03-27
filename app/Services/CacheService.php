@@ -260,6 +260,20 @@ class CacheService
     }
 
     /**
+     * Clear all cached requirement entries for a given program (base + all AY-scoped).
+     */
+    public function clearProgramRequirementCache(string $programId): void
+    {
+        Cache::forget("lookup:document_requirements:{$programId}");
+
+        // Clear AY-scoped caches for this program
+        $academicYearIds = \App\Models\AcademicYear::pluck('id');
+        foreach ($academicYearIds as $ayId) {
+            Cache::forget("lookup:document_requirements:{$programId}:ay:{$ayId}");
+        }
+    }
+
+    /**
      * Clear all lookup caches.
      */
     public function clearLookupCaches(): void

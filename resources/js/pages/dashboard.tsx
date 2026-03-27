@@ -687,12 +687,14 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     }, []);
 
+    const completedStatuses = ['fully liquidated', 'voided'];
+
     // Sorted due dates list: overdue first (nearest overdue at top), then upcoming (nearest first)
     const sortedDueDates = useMemo(() => {
         return [...activeCalendarDueDates]
             .filter(d => {
                 const status = d.status.toLowerCase();
-                return status !== 'endorsed to coa';
+                return !completedStatuses.includes(status);
             })
             .sort((a, b) => {
                 const aOverdue = a.due_date < todayStr;
@@ -736,7 +738,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                         const count = dues?.length || 0;
                         const isToday = dateStr === todayStr;
                         const hasDue = count > 0;
-                        const isOverdue = hasDue && dateStr <= todayStr && dues!.some(d => d.status.toLowerCase() !== 'endorsed to coa');
+                        const isOverdue = hasDue && dateStr <= todayStr && dues!.some(d => !completedStatuses.includes(d.status.toLowerCase()));
 
                         return (
                             <TooltipProvider key={dateStr} delayDuration={200}>
