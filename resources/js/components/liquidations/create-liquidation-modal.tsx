@@ -112,6 +112,8 @@ export function CreateLiquidationModal({
 }: CreateLiquidationModalProps) {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [heiPopoverOpen, setHeiPopoverOpen] = useState(false);
+    const [fundReleasedCalOpen, setFundReleasedCalOpen] = useState(false);
+    const [dueDateCalOpen, setDueDateCalOpen] = useState(false);
     const [heiSearch, setHeiSearch] = useState('');
     const [selectedHei, setSelectedHei] = useState<HEIOption | null>(null);
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -315,14 +317,19 @@ export function CreateLiquidationModal({
                                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                     </Button>
                                 </PopoverTrigger>
-                                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                                <PopoverContent
+                                    className="w-[--radix-popover-trigger-width] p-0"
+                                    align="start"
+                                    onWheel={(e) => e.stopPropagation()}
+                                    onTouchMove={(e) => e.stopPropagation()}
+                                >
                                     <Command shouldFilter={false}>
                                         <CommandInput
                                             placeholder="Type UII or school name..."
                                             value={heiSearch}
                                             onValueChange={setHeiSearch}
                                         />
-                                        <CommandList>
+                                        <CommandList className="max-h-[200px] overflow-y-auto overscroll-contain">
                                             <CommandEmpty>No HEI found.</CommandEmpty>
                                             <CommandGroup>
                                                 {filteredHeis.map((hei) => (
@@ -373,7 +380,7 @@ export function CreateLiquidationModal({
                         {/* Date of Fund Released */}
                         <div className="space-y-2">
                             <Label>Date of Fund Released *</Label>
-                            <Popover>
+                            <Popover open={fundReleasedCalOpen} onOpenChange={setFundReleasedCalOpen}>
                                 <PopoverTrigger asChild>
                                     <Button
                                         variant="outline"
@@ -393,7 +400,10 @@ export function CreateLiquidationModal({
                                     <Calendar
                                         mode="single"
                                         selected={formData.date_fund_released ? parse(formData.date_fund_released, 'yyyy-MM-dd', new Date()) : undefined}
-                                        onSelect={(date) => handleInputChange('date_fund_released', date ? format(date, 'yyyy-MM-dd') : '')}
+                                        onSelect={(date) => {
+                                            handleInputChange('date_fund_released', date ? format(date, 'yyyy-MM-dd') : '');
+                                            setFundReleasedCalOpen(false);
+                                        }}
                                         initialFocus
                                     />
                                 </PopoverContent>
@@ -406,7 +416,7 @@ export function CreateLiquidationModal({
                         {/* Due Date */}
                         <div className="space-y-2">
                             <Label>Due Date</Label>
-                            <Popover>
+                            <Popover open={dueDateCalOpen} onOpenChange={setDueDateCalOpen}>
                                 <PopoverTrigger asChild>
                                     <Button
                                         variant="outline"
@@ -426,7 +436,10 @@ export function CreateLiquidationModal({
                                     <Calendar
                                         mode="single"
                                         selected={formData.due_date ? parse(formData.due_date, 'yyyy-MM-dd', new Date()) : undefined}
-                                        onSelect={(date) => handleInputChange('due_date', date ? format(date, 'yyyy-MM-dd') : '')}
+                                        onSelect={(date) => {
+                                            handleInputChange('due_date', date ? format(date, 'yyyy-MM-dd') : '');
+                                            setDueDateCalOpen(false);
+                                        }}
                                         initialFocus
                                     />
                                 </PopoverContent>

@@ -23,6 +23,7 @@ use App\Models\LiquidationRunningData;
 use App\Models\LiquidationStatus;
 use App\Models\RcNoteStatus;
 use App\Models\LiquidationTrackingEntry;
+use App\Models\User;
 use App\Services\CacheService;
 use App\Services\LiquidationService;
 use App\Services\NotificationService;
@@ -491,7 +492,9 @@ class LiquidationController extends Controller
         return Inertia::render('liquidation/show', [
             'liquidation' => $this->formatLiquidationDetails($liquidation, $requirements, $isHEIUser),
             'userHei' => $this->formatUserHei($user->hei),
-            'regionalCoordinators' => $this->cacheService->getRegionalCoordinators($heiRegionId),
+            'regionalCoordinators' => $liquidation->program?->parent_id
+                ? $this->getStufapsFocalsForProgram($liquidation->program_id)
+                : $this->cacheService->getRegionalCoordinators($heiRegionId),
             'accountants' => $this->cacheService->getAccountants(),
             'documentLocations' => DocumentLocation::orderBy('sort_order')->pluck('name'),
             'permissions' => [
@@ -500,6 +503,7 @@ class LiquidationController extends Controller
                 'edit' => $user->hasPermission('edit_liquidation'),
             ],
             'userRole' => $user->role->name,
+            'isStufapsProgram' => (bool) $liquidation->program?->parent_id,
 
             // Deferred props — load after initial page paint for instant navigation
             'documentRequirements' => Inertia::defer(fn () => $requirements),
@@ -1422,6 +1426,14 @@ class LiquidationController extends Controller
             'can_edit' => true,
             'can_submit' => true,
         ];
+    }
+
+    private function getStufapsFocalsForProgram(string $programId): Collection
+    {
+        return User::whereHas('role', fn ($q) => $q->where('name', 'STUFAPS Focal'))
+            ->where('status', 'active')
+            ->orderBy('name')
+            ->get(['id', 'name', 'avatar', 'region_id']);
     }
 
     private function formatLiquidationDetails(Liquidation $liquidation, Collection $requirements, bool $isHEIUser): array

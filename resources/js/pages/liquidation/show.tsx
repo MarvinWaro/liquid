@@ -40,6 +40,7 @@ export default function Show({
     documentRequirements,
     permissions,
     userRole,
+    isStufapsProgram,
     commentCounts,
 }: ShowPageProps) {
     const { auth } = usePage<SharedData>().props;
@@ -319,6 +320,7 @@ export default function Show({
                     avatarMap={avatarMap}
                     onEntriesChange={debouncedSetTrackingEntries}
                     updatedAt={liquidation.updated_at}
+                    isStufapsProgram={isStufapsProgram}
                 />
 
                 {/* Running Data Table */}
@@ -353,6 +355,7 @@ export default function Show({
                     liquidationId={liquidation.id}
                     documents={liquidation.documents ?? []}
                     userRole={userRole}
+                    isStufapsProgram={isStufapsProgram}
                 />
             </div>
 

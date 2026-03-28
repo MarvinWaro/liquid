@@ -176,7 +176,7 @@ class DashboardController extends Controller
         foreach (['unifast', 'stufaps'] as $source) {
             $ids = $fs[$source];
             $result[$source] = [
-                'totalStats' => !empty($ids) ? $this->getTotalStats($regionId, $ids) : $empty,
+                'totalStats' => !empty($ids) ? $this->getTotalStats($regionId, $ids, false, $heiId) : $empty,
                 'summaryPerAY' => !empty($ids) ? $this->getSummaryPerAY($heiId, $regionId, $ids) : [],
                 'statusDistribution' => !empty($ids) ? $this->getLiquidationStatusDistribution($heiId, $regionId, $ids) : [],
             ];
@@ -297,12 +297,16 @@ class DashboardController extends Controller
     /**
      * Get total stats with joins to liquidation_financials.
      */
-    private function getTotalStats(?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false): array
+    private function getTotalStats(?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, ?string $heiId = null): array
     {
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id');
         $this->applyBaseExclusions($query);
+
+        if ($heiId) {
+            $query->where('liquidations.hei_id', $heiId);
+        }
 
         if ($regionId) {
             $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
@@ -332,6 +336,10 @@ class DashboardController extends Controller
         $pendingQuery = Liquidation::excludeVoided()
             ->whereNotNull('date_submitted')
             ->whereNull('coa_endorsed_at');
+
+        if ($heiId) {
+            $pendingQuery->where('hei_id', $heiId);
+        }
 
         if ($regionId) {
             $pendingQuery->whereHas('hei', fn($q) => $q->where('region_id', $regionId));

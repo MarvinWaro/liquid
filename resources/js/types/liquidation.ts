@@ -181,6 +181,7 @@ export interface ShowPageProps {
     documentRequirements: DocumentRequirement[];
     permissions: ShowPagePermissions;
     userRole: string;
+    isStufapsProgram: boolean;
     commentCounts: Record<string, number>;
 }
 

@@ -366,22 +366,31 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                 { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(userStats.total_amount), subtitle: 'Received from CHED', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
             );
         } else {
+            // When fund source filter is active, use filtered totalStats for numeric values
+            const filtered = fundSourceFilter !== 'all';
+            const myLiq = filtered ? activeTotalStats.total_liquidations : userStats.my_liquidations;
+            const pendingAct = filtered ? activeTotalStats.pending_review : userStats.pending_action;
+            const completedVal = filtered ? 0 : userStats.completed; // no completed breakdown in fund source data
+            const totalAmt = filtered ? activeTotalStats.total_disbursed : userStats.total_amount;
+            const totalLiq = filtered ? activeTotalStats.total_liquidated : userStats.total_liquidated;
+            const totalUnliq = filtered ? activeTotalStats.total_unliquidated : (userStats.total_unliquidated || 0);
+
             defs.push(
-                { id: 'stat-my-liquidations', title: 'My Liquidations', value: userStats.my_liquidations, subtitle: 'Total reports in my queue', icon: <FileText className="h-4 w-4 text-muted-foreground" /> },
-                { id: 'stat-pending-action', title: 'Pending Action', value: userStats.pending_action, subtitle: 'Requires your attention', icon: <Clock className="h-4 w-4 text-muted-foreground" /> },
-                { id: 'stat-completed', title: 'Completed', value: userStats.completed, subtitle: 'Successfully processed', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" /> },
-                { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(userStats.total_amount), subtitle: 'Received from CHED', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-my-liquidations', title: 'My Liquidations', value: myLiq, subtitle: 'Total reports in my queue', icon: <FileText className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-pending-action', title: 'Pending Action', value: pendingAct, subtitle: 'Requires your attention', icon: <Clock className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-completed', title: 'Completed', value: completedVal, subtitle: 'Successfully processed', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(totalAmt), subtitle: 'Received from CHED', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
             );
-            if (userStats.total_liquidated !== undefined) {
+            if (userStats.total_liquidated !== undefined || filtered) {
                 defs.push(
-                    { id: 'stat-total-liquidated', title: 'Total Liquidated', value: formatCurrency(userStats.total_liquidated), subtitle: 'Disbursed to students', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-emerald-600 dark:text-emerald-400' },
-                    { id: 'stat-total-unliquidated', title: 'Total Unliquidated', value: formatCurrency(userStats.total_unliquidated || 0), subtitle: 'Remaining from CHED', icon: <AlertCircle className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-red-600 dark:text-red-400' },
+                    { id: 'stat-total-liquidated', title: 'Total Liquidated', value: formatCurrency(totalLiq ?? 0), subtitle: 'Disbursed to students', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-emerald-600 dark:text-emerald-400' },
+                    { id: 'stat-total-unliquidated', title: 'Total Unliquidated', value: formatCurrency(totalUnliq), subtitle: 'Remaining from CHED', icon: <AlertCircle className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-red-600 dark:text-red-400' },
                 );
             }
         }
 
         return defs;
-    }, [isAdmin, userRole, activeTotalStats, userStats]);
+    }, [isAdmin, userRole, activeTotalStats, userStats, fundSourceFilter]);
 
     // ---------- Card configuration (individual cards) ----------
 

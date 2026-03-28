@@ -16,6 +16,7 @@ interface RcLetterUploadProps {
     liquidationId: number;
     documents: LiquidationDocument[];
     userRole: string;
+    isStufapsProgram?: boolean;
 }
 
 function formatFileSize(bytes: number): string {
@@ -29,8 +30,9 @@ function formatUploadDate(dateStr: string): string {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export default function RcLetterUpload({ liquidationId, documents, userRole }: RcLetterUploadProps) {
-    const isRC = userRole === 'Regional Coordinator';
+export default function RcLetterUpload({ liquidationId, documents, userRole, isStufapsProgram = false }: RcLetterUploadProps) {
+    const canManage = userRole === 'Regional Coordinator' || userRole === 'STUFAPS Focal';
+    const isFocalContext = isStufapsProgram || userRole === 'STUFAPS Focal';
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
@@ -58,7 +60,9 @@ export default function RcLetterUpload({ liquidationId, documents, userRole }: R
         const formData = new FormData();
         formData.append('file', file);
         formData.append('document_type', RC_LETTER_TYPE);
-        formData.append('description', 'Letter from Regional Coordinator to HEI');
+        formData.append('description', isFocalContext
+            ? 'Letter from STUFAPS Focal to HEI'
+            : 'Letter from Regional Coordinator to HEI');
 
         try {
             const { data } = await axios.post(route('liquidation.upload-document', liquidationId), formData);
@@ -111,14 +115,18 @@ export default function RcLetterUpload({ liquidationId, documents, userRole }: R
                         <Mail className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                     </div>
                     <div>
-                        <CardTitle className="text-base font-semibold">RC Letters</CardTitle>
+                        <CardTitle className="text-base font-semibold">
+                            {isFocalContext ? 'Focal Letters' : 'RC Letters'}
+                        </CardTitle>
                         <CardDescription className="text-xs">
-                            Letters from the Regional Coordinator for the HEI to view
+                            {isFocalContext
+                                ? 'Letters from the STUFAPS Focal for the HEI to view'
+                                : 'Letters from the Regional Coordinator for the HEI to view'}
                         </CardDescription>
                     </div>
                 </div>
 
-                {isRC && canUploadMore && (
+                {canManage && canUploadMore && (
                     <Button
                         size="sm"
                         onClick={() => fileInputRef.current?.click()}
@@ -177,7 +185,7 @@ export default function RcLetterUpload({ liquidationId, documents, userRole }: R
                                             <Download className="w-4 h-4" />
                                         </a>
                                     </Button>
-                                    {isRC && (
+                                    {canManage && (
                                         <Popover>
                                             <PopoverTrigger asChild>
                                                 <Button
@@ -210,7 +218,7 @@ export default function RcLetterUpload({ liquidationId, documents, userRole }: R
                 )}
 
                 {/* Drag-and-drop zone (RC only) */}
-                {isRC && canUploadMore && (
+                {canManage && canUploadMore && (
                     <div
                         className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer select-none ${
                             isDragging
@@ -234,14 +242,14 @@ export default function RcLetterUpload({ liquidationId, documents, userRole }: R
                 )}
 
                 {/* Empty state for non-RC users */}
-                {!isRC && rcLetters.length === 0 && (
+                {!canManage && rcLetters.length === 0 && (
                     <div className="py-6 text-center text-sm text-muted-foreground">
                         No letters have been uploaded yet.
                     </div>
                 )}
 
                 {/* Max reached notice for RC */}
-                {isRC && !canUploadMore && (
+                {canManage && !canUploadMore && (
                     <p className="text-xs text-muted-foreground text-center pt-1">
                         Maximum of {MAX_LETTERS} letters reached. Delete one to upload a new file.
                     </p>

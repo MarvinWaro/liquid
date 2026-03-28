@@ -29,6 +29,7 @@ interface DocumentTrackingTableProps {
     avatarMap: Record<string, string>;
     onEntriesChange: (entries: TrackingEntry[]) => void;
     updatedAt?: string | null;
+    isStufapsProgram?: boolean;
 }
 
 export default function DocumentTrackingTable({
@@ -40,6 +41,7 @@ export default function DocumentTrackingTable({
     avatarMap,
     onEntriesChange,
     updatedAt,
+    isStufapsProgram = false,
 }: DocumentTrackingTableProps) {
     const [entries, setEntries] = useState<TrackingEntry[]>(
         initialEntries.length > 0 ? initialEntries : [createEmptyTrackingEntry()]
@@ -149,6 +151,7 @@ export default function DocumentTrackingTable({
                                             avatarMap={avatarMap}
                                             updateField={updateField}
                                             removeEntry={removeEntry}
+                                            isStufapsProgram={isStufapsProgram}
                                         />
                                     );
                                 })}
@@ -179,6 +182,7 @@ interface TrackingRowProps {
     avatarMap: Record<string, string>;
     updateField: (index: number, field: keyof TrackingEntry, value: string) => void;
     removeEntry: (index: number) => void;
+    isStufapsProgram?: boolean;
 }
 
 const TrackingRow = React.memo(function TrackingRow({
@@ -191,6 +195,7 @@ const TrackingRow = React.memo(function TrackingRow({
     avatarMap,
     updateField,
     removeEntry,
+    isStufapsProgram = false,
 }: TrackingRowProps) {
     return (
         <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors">
@@ -207,7 +212,7 @@ const TrackingRow = React.memo(function TrackingRow({
                 </Select>
             </td>
             <td className="px-3 py-2">
-                <RCMultiSelect value={entry.received_by} users={regionalCoordinators} avatarMap={avatarMap} onChange={(v) => updateField(index, 'received_by', v)} />
+                <RCMultiSelect value={entry.received_by} users={regionalCoordinators} avatarMap={avatarMap} onChange={(v) => updateField(index, 'received_by', v)} placeholder={isStufapsProgram ? 'Select Focal' : 'Select RC'} />
             </td>
             <td className="px-3 py-2">
                 <Input type="date" value={entry.date_received ?? ''} onChange={(e) => updateField(index, 'date_received', e.target.value)} className="h-8 text-xs min-w-[110px]" />
@@ -216,7 +221,7 @@ const TrackingRow = React.memo(function TrackingRow({
                 <LocationMultiSelect value={entry.document_location} locations={documentLocations} onChange={(v) => updateField(index, 'document_location', v)} />
             </td>
             <td className="px-3 py-2">
-                <RCMultiSelect value={entry.reviewed_by} users={regionalCoordinators} avatarMap={avatarMap} onChange={(v) => updateField(index, 'reviewed_by', v)} />
+                <RCMultiSelect value={entry.reviewed_by} users={regionalCoordinators} avatarMap={avatarMap} onChange={(v) => updateField(index, 'reviewed_by', v)} placeholder={isStufapsProgram ? 'Select Focal' : 'Select RC'} />
             </td>
             <td className="px-3 py-2">
                 <Input type="date" value={entry.date_reviewed ?? ''} onChange={(e) => updateField(index, 'date_reviewed', e.target.value)} className="h-8 text-xs min-w-[110px]" />
@@ -293,11 +298,12 @@ const DeleteRowButton = React.memo(function DeleteRowButton({ isFilled, onDelete
     );
 });
 
-const RCMultiSelect = React.memo(function RCMultiSelect({ value, users, avatarMap, onChange }: {
+const RCMultiSelect = React.memo(function RCMultiSelect({ value, users, avatarMap, onChange, placeholder = 'Select RC' }: {
     value: string;
     users: LiquidationUser[];
     avatarMap: Record<string, string>;
     onChange: (val: string) => void;
+    placeholder?: string;
 }) {
     const knownNames = users.map(u => u.name);
     const selected = parseNames(value, knownNames);
@@ -308,7 +314,7 @@ const RCMultiSelect = React.memo(function RCMultiSelect({ value, users, avatarMa
                 <Button variant="outline" size="sm" className="h-auto min-h-[32px] text-xs min-w-[110px] justify-between font-normal py-1">
                     {value
                         ? <AvatarStack namesStr={value} avatarMap={avatarMap} knownNames={knownNames} disableTooltip />
-                        : <span className="text-muted-foreground">Select RC</span>
+                        : <span className="text-muted-foreground">{placeholder}</span>
                     }
                     <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-50 ml-1" />
                 </Button>

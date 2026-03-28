@@ -139,20 +139,29 @@ class LiquidationCommentController extends Controller
      */
     public function mentionableUsers(Request $request, Liquidation $liquidation): JsonResponse
     {
-        $liquidation->loadMissing('hei');
+        $liquidation->loadMissing(['hei', 'program']);
         $currentUserId = $request->user()->id;
+        $isSTUFAPSProgram = $liquidation->program && $liquidation->program->parent_id;
 
         $users = User::where('status', 'active')
             ->where('id', '!=', $currentUserId)
-            ->where(function ($q) use ($liquidation) {
+            ->where(function ($q) use ($liquidation, $isSTUFAPSProgram) {
                 // HEI users for this liquidation's institution
                 $q->where('hei_id', $liquidation->hei_id);
-                // RCs for the same region
-                if ($liquidation->hei?->region_id) {
+                // For STUFAPS sub-programs: show STUFAPS Focals assigned to the program
+                if ($isSTUFAPSProgram) {
                     $q->orWhere(function ($sub) use ($liquidation) {
-                        $sub->whereHas('role', fn ($r) => $r->where('name', 'Regional Coordinator'))
-                            ->where('region_id', $liquidation->hei->region_id);
+                        $sub->whereHas('role', fn ($r) => $r->where('name', 'STUFAPS Focal'))
+                            ->whereHas('programs', fn ($r) => $r->where('programs.id', $liquidation->program_id));
                     });
+                } else {
+                    // For non-STUFAPS: show RCs for the same region
+                    if ($liquidation->hei?->region_id) {
+                        $q->orWhere(function ($sub) use ($liquidation) {
+                            $sub->whereHas('role', fn ($r) => $r->where('name', 'Regional Coordinator'))
+                                ->where('region_id', $liquidation->hei->region_id);
+                        });
+                    }
                 }
                 // Accountants and admins
                 $q->orWhereHas('role', fn ($r) => $r->whereIn('name', ['Accountant', 'Admin', 'Super Admin']));
@@ -325,17 +334,29 @@ class LiquidationCommentController extends Controller
         $alreadyNotified = $alreadyNotified->unique()->toArray();
 
         $isActorHei = $actor->hei_id && $actor->hei_id === $liquidation->hei_id;
+        $liquidation->loadMissing('program');
+        $isSTUFAPSProgram = $liquidation->program && $liquidation->program->parent_id;
 
         if ($isActorHei) {
-            // HEI user commented → notify RC users for the region
-            $recipients = User::where('status', 'active')
-                ->where('id', '!=', $actor->id)
-                ->whereNotIn('id', $alreadyNotified)
-                ->where('region_id', $liquidation->hei?->region_id)
-                ->whereHas('role', fn ($q) => $q->where('name', 'Regional Coordinator'))
-                ->get();
+            if ($isSTUFAPSProgram) {
+                // HEI commented on STUFAPS program → notify STUFAPS Focals assigned to the program
+                $recipients = User::where('status', 'active')
+                    ->where('id', '!=', $actor->id)
+                    ->whereNotIn('id', $alreadyNotified)
+                    ->whereHas('role', fn ($q) => $q->where('name', 'STUFAPS Focal'))
+                    ->whereHas('programs', fn ($q) => $q->where('programs.id', $liquidation->program_id))
+                    ->get();
+            } else {
+                // HEI commented on non-STUFAPS program → notify RC users for the region
+                $recipients = User::where('status', 'active')
+                    ->where('id', '!=', $actor->id)
+                    ->whereNotIn('id', $alreadyNotified)
+                    ->where('region_id', $liquidation->hei?->region_id)
+                    ->whereHas('role', fn ($q) => $q->where('name', 'Regional Coordinator'))
+                    ->get();
+            }
         } else {
-            // RC/Accountant/Admin commented → notify HEI users
+            // RC/Accountant/Admin/STUFAPS Focal commented → notify HEI users
             $recipients = User::where('status', 'active')
                 ->where('id', '!=', $actor->id)
                 ->whereNotIn('id', $alreadyNotified)
