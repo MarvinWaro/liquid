@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/tooltip';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Label, Sector } from 'recharts';
 import type { PieSectorDataItem } from 'recharts/types/polar/Pie';
-import { DollarSign, FileText, CheckCircle, Clock, AlertCircle, Filter, Search, ChevronLeft, ChevronRight, Building2, Users, GraduationCap } from 'lucide-react';
+import { DollarSign, FileText, CheckCircle, Clock, AlertCircle, Filter, Search, ChevronLeft, ChevronRight, Building2, Users, GraduationCap, Send, ShieldAlert } from 'lucide-react';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import { SortableDashboard, DashboardCard, DashboardToolbar } from '@/components/sortable-dashboard';
 
@@ -84,7 +84,11 @@ interface TotalStats {
     total_disbursed: number;
     total_liquidated: number;
     total_unliquidated: number;
+    for_endorsement: number;
+    for_compliance: number;
     pending_review: number;
+    pending_action?: number;
+    completed?: number;
 }
 
 interface UserStats {
@@ -180,6 +184,8 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
         total_disbursed: rawTotalStats?.total_disbursed ?? 0,
         total_liquidated: rawTotalStats?.total_liquidated ?? 0,
         total_unliquidated: rawTotalStats?.total_unliquidated ?? 0,
+        for_endorsement: rawTotalStats?.for_endorsement ?? 0,
+        for_compliance: rawTotalStats?.for_compliance ?? 0,
         pending_review: rawTotalStats?.pending_review ?? 0,
     };
 
@@ -215,7 +221,11 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                 total_disbursed: fs.total_disbursed ?? 0,
                 total_liquidated: fs.total_liquidated ?? 0,
                 total_unliquidated: fs.total_unliquidated ?? 0,
+                for_endorsement: fs.for_endorsement ?? 0,
+                for_compliance: fs.for_compliance ?? 0,
                 pending_review: fs.pending_review ?? 0,
+                pending_action: fs.pending_action,
+                completed: fs.completed,
             };
         }
         return totalStats;
@@ -329,7 +339,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
             name: item.academic_year,
             'Total Disbursements': item.total_disbursements,
             'Amount Liquidated': item.liquidated_amount,
-            'Unliquidated Amount': item.unliquidated_amount,
+            'Unliquidated Amount': item.total_disbursements - item.liquidated_amount,
             'For Compliance': item.for_compliance,
         }));
 
@@ -350,13 +360,14 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
     const statCardDefs = useMemo(() => {
         const defs: { id: string; title: string; value: React.ReactNode; subtitle: string; icon: React.ReactNode; valueClass?: string }[] = [];
 
-        if (isAdmin || userRole === 'Regional Coordinator') {
+        if (isAdmin || userRole === 'Regional Coordinator' || userRole === 'STUFAPS Focal') {
             defs.push(
                 { id: 'stat-total-liquidations', title: 'Total Liquidations', value: activeTotalStats.total_liquidations, subtitle: 'All liquidation reports', icon: <FileText className="h-4 w-4 text-muted-foreground" /> },
                 { id: 'stat-total-disbursed', title: 'Total Disbursed', value: formatCurrency(activeTotalStats.total_disbursed), subtitle: 'Amount received from CHED', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
                 { id: 'stat-total-liquidated', title: 'Total Liquidated', value: formatCurrency(activeTotalStats.total_liquidated), subtitle: 'Amount disbursed to students', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-emerald-600 dark:text-emerald-400' },
                 { id: 'stat-total-unliquidated', title: 'Total Unliquidated', value: formatCurrency(activeTotalStats.total_unliquidated), subtitle: 'Remaining from CHED funds', icon: <AlertCircle className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-red-600 dark:text-red-400' },
-                { id: 'stat-pending-review', title: 'Pending Review', value: activeTotalStats.pending_review, subtitle: 'Awaiting review', icon: <Clock className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-for-endorsement', title: 'For Endorsement', value: formatCurrency(activeTotalStats.for_endorsement), subtitle: 'Pending endorsement to Accounting', icon: <Send className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-amber-600 dark:text-amber-400' },
+                { id: 'stat-for-compliance', title: 'For Compliance', value: formatCurrency(activeTotalStats.for_compliance), subtitle: 'Returned for compliance', icon: <ShieldAlert className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-violet-600 dark:text-violet-400' },
             );
         } else if (userRole === 'Accountant') {
             defs.push(
@@ -369,8 +380,8 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
             // When fund source filter is active, use filtered totalStats for numeric values
             const filtered = fundSourceFilter !== 'all';
             const myLiq = filtered ? activeTotalStats.total_liquidations : userStats.my_liquidations;
-            const pendingAct = filtered ? activeTotalStats.pending_review : userStats.pending_action;
-            const completedVal = filtered ? 0 : userStats.completed; // no completed breakdown in fund source data
+            const pendingAct = filtered ? (activeTotalStats.pending_action ?? activeTotalStats.pending_review) : userStats.pending_action;
+            const completedVal = filtered ? (activeTotalStats.completed ?? 0) : userStats.completed;
             const totalAmt = filtered ? activeTotalStats.total_disbursed : userStats.total_amount;
             const totalLiq = filtered ? activeTotalStats.total_liquidated : userStats.total_liquidated;
             const totalUnliq = filtered ? activeTotalStats.total_unliquidated : (userStats.total_unliquidated || 0);
@@ -424,7 +435,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
         return cards;
     }, [isAdmin, userRole, statCardDefs, chartData.length, barChartData.length, recentLiquidations]);
 
-    const storageKey = `dashboard-layout-v2-${isAdmin ? 'admin' : userRole || 'default'}`;
+    const storageKey = `dashboard-layout-v3-${isAdmin ? 'admin' : userRole || 'default'}`;
     const { layout, updateOrder, toggleVisibility, cycleExpand, showCard, resetLayout, hiddenCardIds } = useDashboardLayout(
         cardConfigs.map(c => c.id),
         storageKey,

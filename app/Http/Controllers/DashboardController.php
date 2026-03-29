@@ -169,7 +169,8 @@ class DashboardController extends Controller
         $fs = $this->getFundSourceProgramIds();
         $empty = [
             'total_liquidations' => 0, 'total_disbursed' => 0,
-            'total_liquidated' => 0, 'total_unliquidated' => 0, 'pending_review' => 0,
+            'total_liquidated' => 0, 'total_unliquidated' => 0,
+            'for_endorsement' => 0, 'for_compliance' => 0, 'pending_review' => 0,
         ];
 
         $result = [];
@@ -189,7 +190,6 @@ class DashboardController extends Controller
     {
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->leftJoin('liquidation_compliance', 'liquidations.id', '=', 'liquidation_compliance.liquidation_id')
             ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id');
         $this->applyBaseExclusions($query);
 
@@ -217,7 +217,10 @@ class DashboardController extends Controller
         // For Compliance = remaining (amount_received - amount_liquidated) when RC note is FOR_COMPLIANCE
         // For Endorsement = remaining (amount_received - amount_liquidated) when RC note is FOR_ENDORSEMENT
         // Unliquidated = remaining (amount_received - amount_liquidated) for all other RC notes
+        // % Submission = (Liquidated + Unliquidated where docs submitted) / Disbursed
+        // Docs submitted = document_status is COMPLETE or PARTIAL (not NONE)
         return $query->leftJoin('academic_years', 'liquidations.academic_year_id', '=', 'academic_years.id')
+            ->leftJoin('document_statuses', 'liquidations.document_status_id', '=', 'document_statuses.id')
             ->select('academic_years.name as academic_year')
             ->selectRaw('COALESCE(SUM(liquidation_financials.number_of_grantees), 0) as total_grantees')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursements')
@@ -225,9 +228,9 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code NOT IN ("FOR_COMPLIANCE", "FOR_ENDORSEMENT") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as unliquidated_amount')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_compliance')
-            ->selectRaw('ROUND(COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_liquidation')
+            ->selectRaw('ROUND((COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_liquidation')
             ->selectRaw('ROUND(COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_compliance')
-            ->selectRaw('ROUND((COUNT(*) / NULLIF(COUNT(*), 0)) * 100, 2) as percentage_submission')
+            ->selectRaw('ROUND((COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN document_statuses.code IN ("COMPLETE", "PARTIAL") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_submission')
             ->groupBy('academic_years.name')
             ->orderBy('academic_years.name', 'desc')
             ->get();
@@ -240,7 +243,6 @@ class DashboardController extends Controller
     {
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->leftJoin('liquidation_compliance', 'liquidations.id', '=', 'liquidation_compliance.liquidation_id')
             ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id')
             ->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id');
         $this->applyBaseExclusions($query);
@@ -264,7 +266,9 @@ class DashboardController extends Controller
         // For Compliance = remaining (amount_received - amount_liquidated) when RC note is FOR_COMPLIANCE
         // For Endorsement = remaining (amount_received - amount_liquidated) when RC note is FOR_ENDORSEMENT
         // Unliquidated = remaining (amount_received - amount_liquidated) for all other RC notes
+        // % Submission = (Liquidated + Unliquidated where docs submitted) / Disbursed
         return $query
+            ->leftJoin('document_statuses', 'liquidations.document_status_id', '=', 'document_statuses.id')
             ->select('liquidations.hei_id', 'heis.name as hei_name')
             ->selectRaw('COALESCE(SUM(liquidation_financials.number_of_grantees), 0) as total_grantees')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursements')
@@ -272,9 +276,9 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code NOT IN ("FOR_COMPLIANCE", "FOR_ENDORSEMENT") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as unliquidated_amount')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_compliance')
-            ->selectRaw('ROUND(COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_liquidation')
+            ->selectRaw('ROUND((COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_liquidation')
             ->selectRaw('ROUND(COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_compliance')
-            ->selectRaw('ROUND((COUNT(*) / NULLIF(COUNT(*), 0)) * 100, 2) as percentage_submission')
+            ->selectRaw('ROUND((COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN document_statuses.code IN ("COMPLETE", "PARTIAL") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_submission')
             ->groupBy('liquidations.hei_id', 'heis.name')
             ->get()
             ->map(function ($item) {
@@ -330,6 +334,8 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursed')
             ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) as total_liquidated')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code NOT IN ("FOR_COMPLIANCE", "FOR_ENDORSEMENT") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as total_unliquidated')
+            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
+            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_compliance')
             ->first();
 
         // Pending review = submitted but not yet endorsed to COA
@@ -358,13 +364,46 @@ class DashboardController extends Controller
 
         $pendingReview = $pendingQuery->count();
 
-        return [
+        $result = [
             'total_liquidations' => $stats->total_liquidations ?? 0,
             'total_disbursed' => $stats->total_disbursed ?? 0,
             'total_liquidated' => $stats->total_liquidated ?? 0,
             'total_unliquidated' => $stats->total_unliquidated ?? 0,
+            'for_endorsement' => $stats->for_endorsement ?? 0,
+            'for_compliance' => $stats->for_compliance ?? 0,
             'pending_review' => $pendingReview,
         ];
+
+        // For HEI users: also compute pending_action (not submitted OR returned by RC)
+        if ($heiId) {
+            $pendingActionQuery = Liquidation::excludeVoided()
+                ->where('hei_id', $heiId)
+                ->where(function ($q) {
+                    $q->whereNull('date_submitted')
+                      ->orWhereHas('reviews', function ($q2) {
+                          $q2->whereHas('reviewType', fn($q3) => $q3->where('code', 'rc_return'));
+                      });
+                });
+
+            if ($programIds) {
+                $pendingActionQuery->whereIn('program_id', $programIds);
+            }
+
+            $result['pending_action'] = $pendingActionQuery->count();
+
+            // Completed (endorsed to COA) for HEI
+            $completedQuery = Liquidation::excludeVoided()
+                ->where('hei_id', $heiId)
+                ->whereNotNull('coa_endorsed_at');
+
+            if ($programIds) {
+                $completedQuery->whereIn('program_id', $programIds);
+            }
+
+            $result['completed'] = $completedQuery->count();
+        }
+
+        return $result;
     }
 
     /**
@@ -760,7 +799,8 @@ class DashboardController extends Controller
             }
         }
 
-        $data = $this->getSummaryPerAY($heiId, $regionId, $programIds);
+        $excludeSubPrograms = ($userRole === 'Regional Coordinator');
+        $data = $this->getSummaryPerAY($heiId, $regionId, $programIds, $excludeSubPrograms);
 
         // Get programs for filter dropdown (scoped for STUFAPS Focal)
         $programs = $this->getProgramsForFilter($user, $userRole);
@@ -769,6 +809,7 @@ class DashboardController extends Controller
             'summaryPerAY' => $data,
             'programs' => $programs,
             'filters' => ['program' => $request->query('program', 'all')],
+            'userRole' => $userRole,
         ]);
     }
 
@@ -795,7 +836,8 @@ class DashboardController extends Controller
             }
         }
 
-        $data = ($userRole === 'HEI') ? [] : $this->getSummaryPerHEI($regionId, $programIds);
+        $excludeSubPrograms = ($userRole === 'Regional Coordinator');
+        $data = ($userRole === 'HEI') ? [] : $this->getSummaryPerHEI($regionId, $programIds, $excludeSubPrograms);
 
         $programs = $this->getProgramsForFilter($user, $userRole);
 
@@ -803,6 +845,7 @@ class DashboardController extends Controller
             'summaryPerHEI' => $data,
             'programs' => $programs,
             'filters' => ['program' => $request->query('program', 'all')],
+            'userRole' => $userRole,
         ]);
     }
 

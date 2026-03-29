@@ -45,7 +45,8 @@
       "Bash(npx -y esbuild resources/js/components/liquidations/show/running-data-table.tsx resources/js/components/liquidations/show/document-tracking-table.tsx resources/js/components/liquidations/show/liquidation-details-card.tsx resources/js/pages/liquidation/show.tsx --bundle --jsx=automatic --loader:.tsx=tsx --outdir=/tmp/check --platform=browser --external:react --external:'@inertiajs/*' --external:'@/*' --external:lucide-react --external:sonner)",
       "Bash(npx -y esbuild resources/js/pages/liquidation/show.tsx --bundle --jsx=automatic --loader:.tsx=tsx --outdir=/tmp/check2 --platform=browser --external:react --external:'@inertiajs/*' --external:'@/*' --external:lucide-react --external:sonner)",
       "Bash(npx -y esbuild resources/js/components/liquidations/import-preview-dialog.tsx resources/js/pages/liquidation/index.tsx --bundle --jsx=automatic --loader:.tsx=tsx --outdir=/tmp/check3 --platform=browser --external:react --external:'@inertiajs/*' --external:'@/*' --external:lucide-react --external:sonner --external:axios)",
-      "Bash(npx -y esbuild resources/js/components/liquidations/import-preview-dialog.tsx resources/js/pages/liquidation/index.tsx --bundle --jsx=automatic --loader:.tsx=tsx --outdir=/tmp/check4 --platform=browser --external:react --external:'@inertiajs/*' --external:'@/*' --external:lucide-react --external:sonner --external:axios)"
+      "Bash(npx -y esbuild resources/js/components/liquidations/import-preview-dialog.tsx resources/js/pages/liquidation/index.tsx --bundle --jsx=automatic --loader:.tsx=tsx --outdir=/tmp/check4 --platform=browser --external:react --external:'@inertiajs/*' --external:'@/*' --external:lucide-react --external:sonner --external:axios)",
+      "Bash(python3 -c \":*)"
     ]
   }
 }

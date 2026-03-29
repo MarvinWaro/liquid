@@ -290,6 +290,7 @@ export default function Show({
                             runningDataTotalLiquidated={runningDataTotalLiquidated}
                             totalDisbursements={totalDisbursements}
                             latestRcNote={latestRcNote ?? undefined}
+                            isStufapsProgram={isStufapsProgram}
                         />
                     </div>
                     <div className="lg:col-span-4 flex flex-col">

@@ -29,6 +29,7 @@ interface LiquidationDetailsCardProps {
     runningDataTotalLiquidated: number;
     totalDisbursements: number;
     latestRcNote?: string;
+    isStufapsProgram?: boolean;
 }
 
 /** Read-only display value — replaces disabled <Input> for Vercel-clean look */
@@ -56,6 +57,7 @@ export default function LiquidationDetailsCard({
     runningDataTotalLiquidated,
     totalDisbursements,
     latestRcNote,
+    isStufapsProgram = false,
 }: LiquidationDetailsCardProps) {
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -133,7 +135,12 @@ export default function LiquidationDetailsCard({
     const forComplianceAmount = isForCompliance ? remainingAmount : 0;
     const forEndorsementAmount = isForEndorsement ? remainingAmount : 0;
     const unliquidated = (!isForCompliance && !isForEndorsement) ? remainingAmount : 0;
-    const percentage = totalDisbursements > 0 ? ((effectiveLiquidated / totalDisbursements) * 100) : 0;
+    // TES: (Liquidated + For Endorsement) / Disbursed
+    // STuFAPs: Liquidated / Disbursed
+    const percentageNumerator = isStufapsProgram
+        ? effectiveLiquidated
+        : effectiveLiquidated + forEndorsementAmount;
+    const percentage = totalDisbursements > 0 ? ((percentageNumerator / totalDisbursements) * 100) : 0;
 
     const editInputClass = 'h-9 text-sm border-ring/30 bg-background focus:border-ring';
 

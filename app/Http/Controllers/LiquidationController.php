@@ -1334,8 +1334,14 @@ class LiquidationController extends Controller
         $totalDisbursements = (float) ($financial?->amount_received ?? 0);
         $totalLiquidated = (float) ($financial?->amount_liquidated ?? 0);
         $totalUnliquidated = $totalDisbursements - $totalLiquidated;
+        // TES: (Liquidated + For Endorsement) / Disbursed
+        // STuFAPs (sub-programs): Liquidated / Disbursed
+        $isStufaps = $liquidation->program?->parent_id !== null;
+        $forEndorsement = (!$isStufaps && $liquidation->rcNoteStatus?->code === 'FOR_ENDORSEMENT')
+            ? $totalDisbursements - $totalLiquidated
+            : 0;
         $percentageLiquidation = $totalDisbursements > 0
-            ? round(($totalLiquidated / $totalDisbursements) * 100, 2)
+            ? round((($totalLiquidated + $forEndorsement) / $totalDisbursements) * 100, 2)
             : 0;
 
         // Determine Status of Documents display name

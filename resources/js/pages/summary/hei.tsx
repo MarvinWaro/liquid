@@ -71,9 +71,20 @@ interface Props {
     summaryPerHEI: HEISummary[];
     programs: Program[];
     filters: { program: string };
+    userRole?: string;
 }
 
-export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters }: Props) {
+export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, userRole }: Props) {
+    // STuFAPs formula: Liquidated / Disbursed
+    // TES formula: (Liquidated + For Endorsement) / Disbursed
+    const isStufapsFocal = userRole === 'STUFAPS Focal';
+    const computePercentLiquidation = (row: HEISummary) => {
+        if (!row.total_disbursements) return 0;
+        const numerator = isStufapsFocal
+            ? row.total_amount_liquidated
+            : row.total_amount_liquidated + row.for_endorsement;
+        return (numerator / row.total_disbursements) * 100;
+    };
     const [searchQuery, setSearchQuery] = useState<string>('');
     const [showChart, setShowChart] = useState(false);
 
@@ -204,7 +215,7 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters }:
                                 <h3 className="text-sm font-semibold mb-4">Liquidation Rates & Grantees</h3>
                                 <ResponsiveContainer width="100%" height={300}>
                                     <ComposedChart
-                                        data={filtered.map(r => ({ ...r, name: r.hei?.name?.substring(0, 30) || 'N/A' }))}
+                                        data={filtered.map(r => ({ ...r, name: r.hei?.name?.substring(0, 30) || 'N/A', computed_pct_liquidation: computePercentLiquidation(r) }))}
                                         margin={{ top: 5, right: 30, left: 20, bottom: 60 }}
                                     >
                                         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -219,7 +230,7 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters }:
                                         />
                                         <Legend wrapperStyle={{ fontSize: 12 }} />
                                         <Bar yAxisId="right" dataKey="total_grantees" name="Grantees" fill="#0ea5e9" radius={[4, 4, 0, 0]} opacity={0.4} />
-                                        <Line yAxisId="left" type="monotone" dataKey="percentage_liquidation" name="% Liquidation" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} />
+                                        <Line yAxisId="left" type="monotone" dataKey="computed_pct_liquidation" name="% Liquidation" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} />
                                         <Line yAxisId="left" type="monotone" dataKey="percentage_submission" name="% Submission" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} />
                                     </ComposedChart>
                                 </ResponsiveContainer>
@@ -236,7 +247,8 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters }:
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Disbursements</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Amount Liquidated</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Endorsement</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated Amount</TableHead>
+                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated (net of endorsement)</TableHead>
+                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated (not submitted)</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Compliance</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Liquidation</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Compliance</TableHead>
@@ -246,7 +258,7 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters }:
                                 <TableBody>
                                     {filtered.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
+                                            <TableCell colSpan={12} className="text-center py-12 text-muted-foreground">
                                                 {searchQuery ? 'No matching HEIs found.' : 'No data available.'}
                                             </TableCell>
                                         </TableRow>
@@ -259,9 +271,10 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters }:
                                                 <TableCell className="font-mono">{formatCurrency(row.total_disbursements)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.total_amount_liquidated)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.for_endorsement)}</TableCell>
-                                                <TableCell className="font-mono text-red-500">{formatCurrency(row.unliquidated_amount)}</TableCell>
+                                                <TableCell className="font-mono text-red-500">{formatCurrency(row.total_disbursements - row.total_amount_liquidated - row.for_endorsement)}</TableCell>
+                                                <TableCell className="font-mono text-red-500">{formatCurrency(row.total_disbursements - row.total_amount_liquidated)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.for_compliance)}</TableCell>
-                                                <TableCell>{formatPercentage(row.percentage_liquidation)}</TableCell>
+                                                <TableCell>{formatPercentage(computePercentLiquidation(row))}</TableCell>
                                                 <TableCell>{formatPercentage(row.percentage_compliance)}</TableCell>
                                                 <TableCell className="pr-6">{formatPercentage(row.percentage_submission)}</TableCell>
                                             </TableRow>
