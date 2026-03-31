@@ -338,7 +338,7 @@ class Liquidation extends Model
      */
     public function trackingEntries(): HasMany
     {
-        return $this->hasMany(LiquidationTrackingEntry::class);
+        return $this->hasMany(LiquidationTrackingEntry::class)->orderBy('created_at');
     }
 
     /**

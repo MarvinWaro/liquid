@@ -227,17 +227,16 @@ class DashboardController extends Controller
 
         // Amount Liquidated = always from running data (amount_liquidated) regardless of RC note
         // For Compliance = remaining (amount_received - amount_liquidated) when RC note is FOR_COMPLIANCE
-        // For Endorsement = remaining (amount_received - amount_liquidated) when RC note is FOR_ENDORSEMENT
-        // Unliquidated = remaining (amount_received - amount_liquidated) for all other RC notes
+        // Unliquidated = always remaining (amount_received - amount_liquidated)
+        // For Endorsement / For Compliance = categorize the remaining by RC note
         // % Submission = (Liquidated + Unliquidated where docs submitted) / Disbursed
-        // Docs submitted = document_status is COMPLETE or PARTIAL (not NONE)
         return $query->leftJoin('academic_years', 'liquidations.academic_year_id', '=', 'academic_years.id')
             ->leftJoin('document_statuses', 'liquidations.document_status_id', '=', 'document_statuses.id')
             ->select('academic_years.name as academic_year')
             ->selectRaw('COALESCE(SUM(liquidation_financials.number_of_grantees), 0) as total_grantees')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursements')
             ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) as liquidated_amount')
-            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code NOT IN ("FOR_COMPLIANCE", "FOR_ENDORSEMENT") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as unliquidated_amount')
+            ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)), 0) as unliquidated_amount')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_compliance')
             ->selectRaw('ROUND((COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_liquidation')
@@ -281,10 +280,8 @@ class DashboardController extends Controller
         }
 
         // Amount Liquidated = always from running data (amount_liquidated) regardless of RC note
-        // For Compliance = remaining (amount_received - amount_liquidated) when RC note is FOR_COMPLIANCE
-        // For Endorsement = remaining (amount_received - amount_liquidated) when RC note is FOR_ENDORSEMENT
-        // Unliquidated = remaining (amount_received - amount_liquidated) for all other RC notes
-        // % Submission = (Liquidated + Unliquidated where docs submitted) / Disbursed
+        // Unliquidated = always remaining (amount_received - amount_liquidated)
+        // For Compliance / For Endorsement = categorize the remaining by RC note
         return $query
             ->leftJoin('document_statuses', 'liquidations.document_status_id', '=', 'document_statuses.id')
             ->select('liquidations.hei_id', 'heis.name as hei_name')
@@ -292,7 +289,7 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursements')
             ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) as total_amount_liquidated')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
-            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code NOT IN ("FOR_COMPLIANCE", "FOR_ENDORSEMENT") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as unliquidated_amount')
+            ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)), 0) as unliquidated_amount')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_compliance')
             ->selectRaw('ROUND((COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_liquidation')
             ->selectRaw('ROUND(COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_compliance')
@@ -353,11 +350,11 @@ class DashboardController extends Controller
         }
 
         // Amount Liquidated = always from running data regardless of RC note
-        // Unliquidated = remaining amount for non-compliance/non-endorsement RC notes
+        // Unliquidated = always remaining (amount_received - amount_liquidated)
         $stats = $query->selectRaw('COUNT(*) as total_liquidations')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursed')
             ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) as total_liquidated')
-            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code NOT IN ("FOR_COMPLIANCE", "FOR_ENDORSEMENT") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as total_unliquidated')
+            ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)), 0) as total_unliquidated')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_compliance')
             ->first();

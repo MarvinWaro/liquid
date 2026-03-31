@@ -127,16 +127,14 @@ export default function LiquidationDetailsCard({
     const effectiveLiquidated = runningDataTotalLiquidated;
     const remainingAmount = Math.max(0, totalDisbursements - effectiveLiquidated);
 
-    // Remaining amount is allocated based on latest RC Note:
-    // - For Compliance → goes to For Compliance
-    // - For Endorsement → goes to For Endorsement
-    // - Otherwise (Partially/Fully Endorsed, For Review, etc.) → goes to Unliquidated
+    // Unliquidated always shows the actual remaining amount
+    const unliquidated = remainingAmount;
+
+    // For Compliance / For Endorsement categorize where the remaining amount sits
     const isForCompliance = latestRcNote === 'For Compliance';
     const isForEndorsement = latestRcNote === 'For Endorsement';
-
     const forComplianceAmount = isForCompliance ? remainingAmount : 0;
     const forEndorsementAmount = isForEndorsement ? remainingAmount : 0;
-    const unliquidated = (!isForCompliance && !isForEndorsement) ? remainingAmount : 0;
     // TES: (Liquidated + For Endorsement) / Disbursed
     // STuFAPs: Liquidated / Disbursed
     const percentageNumerator = isStufapsProgram
