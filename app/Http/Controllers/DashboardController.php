@@ -57,6 +57,7 @@ class DashboardController extends Controller
         $userStats = match ($userRole) {
             'Regional Coordinator' => $this->getRCUserStats($user),
             'Accountant' => $this->getAccountantUserStats(),
+            'COA' => $this->getCOAUserStats(),
             'HEI' => $user->hei_id ? $this->getHEIUserStats($user->hei_id) : [],
             'STUFAPS Focal' => $this->getSTUFAPSFocalUserStats($user, $user->getScopedProgramIds()),
             default => ['my_liquidations' => 0, 'pending_action' => 0, 'completed' => 0, 'total_amount' => 0],
@@ -64,7 +65,8 @@ class DashboardController extends Controller
 
         $totalStats = match ($userRole) {
             'Regional Coordinator' => $this->getTotalStats($user->region_id, null, true),
-            'Accountant' => $this->getTotalStats(),
+            'Accountant' => $this->getTotalStats(endorsedOnly: true),
+            'COA' => $this->getTotalStats(coaEndorsedOnly: true),
             'HEI' => $user->hei_id ? $this->getHEITotalStats($user->hei_id) : [],
             'STUFAPS Focal' => $this->getTotalStats(null, $user->getParentScopedProgramIds()),
             default => [],
@@ -80,7 +82,8 @@ class DashboardController extends Controller
             'summaryPerAY' => Inertia::defer(function () use ($user, $userRole) {
                 return match ($userRole) {
                     'Regional Coordinator' => $this->getSummaryPerAY(null, $user->region_id, null, true),
-                    'Accountant' => $this->getSummaryPerAY(),
+                    'Accountant' => $this->getSummaryPerAY(endorsedOnly: true),
+                    'COA' => $this->getSummaryPerAY(coaEndorsedOnly: true),
                     'HEI' => $user->hei_id ? $this->getSummaryPerAY($user->hei_id) : [],
                     'STUFAPS Focal' => $this->getSummaryPerAY(null, null, $user->getParentScopedProgramIds()),
                     default => [],
@@ -89,7 +92,8 @@ class DashboardController extends Controller
             'summaryPerHEI' => Inertia::defer(function () use ($user, $userRole) {
                 return match ($userRole) {
                     'Regional Coordinator' => $this->getSummaryPerHEI($user->region_id, null, true),
-                    'Accountant' => $this->getSummaryPerHEI(),
+                    'Accountant' => $this->getSummaryPerHEI(endorsedOnly: true),
+                    'COA' => $this->getSummaryPerHEI(coaEndorsedOnly: true),
                     'STUFAPS Focal' => $this->getSummaryPerHEI(null, $user->getParentScopedProgramIds()),
                     default => [],
                 };
@@ -97,7 +101,8 @@ class DashboardController extends Controller
             'statusDistribution' => Inertia::defer(function () use ($user, $userRole) {
                 return match ($userRole) {
                     'Regional Coordinator' => $this->getLiquidationStatusDistribution(null, $user->region_id, null, true),
-                    'Accountant' => $this->getLiquidationStatusDistribution(),
+                    'Accountant' => $this->getLiquidationStatusDistribution(endorsedOnly: true),
+                    'COA' => $this->getLiquidationStatusDistribution(coaEndorsedOnly: true),
                     'HEI' => $user->hei_id ? $this->getLiquidationStatusDistribution($user->hei_id) : [],
                     'STUFAPS Focal' => $this->getLiquidationStatusDistribution(null, null, $user->getParentScopedProgramIds()),
                     default => [],
@@ -107,7 +112,8 @@ class DashboardController extends Controller
             'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates($user, $userRole), 'charts'),
             'fundSourceData' => Inertia::defer(function () use ($user, $userRole, $canViewFundSource) {
                 return match ($userRole) {
-                    'Accountant' => $canViewFundSource ? $this->computeFundSourceData() : null,
+                    'Accountant' => $canViewFundSource ? $this->computeFundSourceData(endorsedOnly: true) : null,
+                    'COA' => $canViewFundSource ? $this->computeFundSourceData(coaEndorsedOnly: true) : null,
                     'HEI' => $user->hei_id ? $this->computeFundSourceData($user->hei_id) : null,
                     default => null,
                 };
@@ -164,7 +170,7 @@ class DashboardController extends Controller
     /**
      * Compute fund-source-specific dashboard data (UniFAST vs STuFAPs).
      */
-    private function computeFundSourceData(?string $heiId = null, ?string $regionId = null): array
+    private function computeFundSourceData(?string $heiId = null, ?string $regionId = null, bool $endorsedOnly = false, bool $coaEndorsedOnly = false): array
     {
         $fs = $this->getFundSourceProgramIds();
         $empty = [
@@ -177,21 +183,27 @@ class DashboardController extends Controller
         foreach (['unifast', 'stufaps'] as $source) {
             $ids = $fs[$source];
             $result[$source] = [
-                'totalStats' => !empty($ids) ? $this->getTotalStats($regionId, $ids, false, $heiId) : $empty,
-                'summaryPerAY' => !empty($ids) ? $this->getSummaryPerAY($heiId, $regionId, $ids) : [],
-                'statusDistribution' => !empty($ids) ? $this->getLiquidationStatusDistribution($heiId, $regionId, $ids) : [],
+                'totalStats' => !empty($ids) ? $this->getTotalStats($regionId, $ids, false, $heiId, $endorsedOnly, $coaEndorsedOnly) : $empty,
+                'summaryPerAY' => !empty($ids) ? $this->getSummaryPerAY($heiId, $regionId, $ids, false, $endorsedOnly, $coaEndorsedOnly) : [],
+                'statusDistribution' => !empty($ids) ? $this->getLiquidationStatusDistribution($heiId, $regionId, $ids, false, $endorsedOnly, $coaEndorsedOnly) : [],
             ];
         }
 
         return $result;
     }
 
-    private function getSummaryPerAY(?string $heiId = null, ?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false)
+    private function getSummaryPerAY(?string $heiId = null, ?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false)
     {
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id');
         $this->applyBaseExclusions($query);
+
+        if ($coaEndorsedOnly) {
+            $query->whereNotNull('liquidations.coa_endorsed_at');
+        } elseif ($endorsedOnly) {
+            $query->whereNotNull('liquidations.reviewed_at');
+        }
 
         if ($heiId) {
             $query->where('liquidations.hei_id', $heiId);
@@ -239,13 +251,19 @@ class DashboardController extends Controller
     /**
      * Get summary per HEI with joins to liquidation_financials.
      */
-    private function getSummaryPerHEI(?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false)
+    private function getSummaryPerHEI(?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false)
     {
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id')
             ->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id');
         $this->applyBaseExclusions($query);
+
+        if ($coaEndorsedOnly) {
+            $query->whereNotNull('liquidations.coa_endorsed_at');
+        } elseif ($endorsedOnly) {
+            $query->whereNotNull('liquidations.reviewed_at');
+        }
 
         if ($regionId) {
             $query->where('heis.region_id', $regionId);
@@ -301,12 +319,18 @@ class DashboardController extends Controller
     /**
      * Get total stats with joins to liquidation_financials.
      */
-    private function getTotalStats(?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, ?string $heiId = null): array
+    private function getTotalStats(?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, ?string $heiId = null, bool $endorsedOnly = false, bool $coaEndorsedOnly = false): array
     {
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id');
         $this->applyBaseExclusions($query);
+
+        if ($coaEndorsedOnly) {
+            $query->whereNotNull('liquidations.coa_endorsed_at');
+        } elseif ($endorsedOnly) {
+            $query->whereNotNull('liquidations.reviewed_at');
+        }
 
         if ($heiId) {
             $query->where('liquidations.hei_id', $heiId);
@@ -343,6 +367,12 @@ class DashboardController extends Controller
             ->whereNotNull('date_submitted')
             ->whereNull('coa_endorsed_at');
 
+        if ($coaEndorsedOnly) {
+            $pendingQuery->whereNotNull('coa_endorsed_at');
+        } elseif ($endorsedOnly) {
+            $pendingQuery->whereNotNull('reviewed_at');
+        }
+
         if ($heiId) {
             $pendingQuery->where('hei_id', $heiId);
         }
@@ -373,6 +403,19 @@ class DashboardController extends Controller
             'for_compliance' => $stats->for_compliance ?? 0,
             'pending_review' => $pendingReview,
         ];
+
+        // For Accountant: add completed count (endorsed to COA)
+        if ($endorsedOnly) {
+            $completedQuery = Liquidation::excludeVoided()
+                ->whereNotNull('reviewed_at')
+                ->whereNotNull('coa_endorsed_at');
+
+            if ($heiId) $completedQuery->where('hei_id', $heiId);
+            if ($regionId) $completedQuery->whereHas('hei', fn($q) => $q->where('region_id', $regionId));
+            if ($programIds) $completedQuery->whereIn('program_id', $programIds);
+
+            $result['completed'] = $completedQuery->count();
+        }
 
         // For HEI users: also compute pending_action (not submitted OR returned by RC)
         if ($heiId) {
@@ -474,12 +517,18 @@ class DashboardController extends Controller
     /**
      * Get liquidation status distribution (using liquidation_statuses lookup table).
      */
-    private function getLiquidationStatusDistribution(?string $heiId = null, ?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false)
+    private function getLiquidationStatusDistribution(?string $heiId = null, ?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false)
     {
         $query = Liquidation::join('liquidation_statuses', 'liquidations.liquidation_status_id', '=', 'liquidation_statuses.id')
             ->excludeVoided()
             ->select('liquidation_statuses.name as status')
             ->selectRaw('COUNT(*) as count');
+
+        if ($coaEndorsedOnly) {
+            $query->whereNotNull('liquidations.coa_endorsed_at');
+        } elseif ($endorsedOnly) {
+            $query->whereNotNull('liquidations.reviewed_at');
+        }
 
         if ($heiId) {
             $query->where('liquidations.hei_id', $heiId);
@@ -590,6 +639,28 @@ class DashboardController extends Controller
             'my_liquidations' => $myLiquidations,
             'pending_action' => $pendingAction,
             'completed' => $completed,
+            'total_amount' => $stats->total_amount ?? 0,
+        ];
+    }
+
+    /**
+     * Get COA user stats.
+     */
+    private function getCOAUserStats(): array
+    {
+        $query = DB::table('liquidations')
+            ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
+            ->whereNotNull('liquidations.coa_endorsed_at');
+        $this->applyBaseExclusions($query);
+        $stats = $query->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_amount')
+            ->first();
+
+        $myLiquidations = Liquidation::excludeVoided()->whereNotNull('coa_endorsed_at')->count();
+
+        return [
+            'my_liquidations' => $myLiquidations,
+            'pending_action' => 0,
+            'completed' => 0,
             'total_amount' => $stats->total_amount ?? 0,
         ];
     }
@@ -749,6 +820,15 @@ class DashboardController extends Controller
                 ->map(fn ($liq) => $this->formatRecentLiquidation($liq));
         }
 
+        if ($userRole === 'COA') {
+            return Liquidation::with(['hei:id,name', 'financial', 'semester', 'academicYear', 'liquidationStatus'])
+                ->whereNotNull('coa_endorsed_at') // Endorsed by Accountant to COA
+                ->orderBy('created_at', 'desc')
+                ->limit(10)
+                ->get()
+                ->map(fn ($liq) => $this->formatRecentLiquidation($liq));
+        }
+
         if ($userRole === 'HEI' && $user->hei_id) {
             return Liquidation::with(['hei:id,name', 'financial', 'semester', 'academicYear', 'liquidationStatus'])
                 ->where('hei_id', $user->hei_id)
@@ -784,6 +864,8 @@ class DashboardController extends Controller
 
         $regionId = ($userRole === 'Regional Coordinator') ? $user->region_id : null;
         $heiId = ($userRole === 'HEI' && $user->hei_id) ? $user->hei_id : null;
+        $endorsedOnly = ($userRole === 'Accountant');
+        $coaEndorsedOnly = ($userRole === 'COA');
         // Summary pages show all sibling sub-programs (consolidated STUFAPS view)
         $programIds = ($userRole === 'STUFAPS Focal') ? $user->getParentScopedProgramIds() : null;
 
@@ -800,7 +882,7 @@ class DashboardController extends Controller
         }
 
         $excludeSubPrograms = ($userRole === 'Regional Coordinator');
-        $data = $this->getSummaryPerAY($heiId, $regionId, $programIds, $excludeSubPrograms);
+        $data = $this->getSummaryPerAY($heiId, $regionId, $programIds, $excludeSubPrograms, $endorsedOnly, $coaEndorsedOnly);
 
         // Get programs for filter dropdown (scoped for STUFAPS Focal)
         $programs = $this->getProgramsForFilter($user, $userRole);
@@ -822,6 +904,8 @@ class DashboardController extends Controller
         $userRole = $user->role?->name;
 
         $regionId = ($userRole === 'Regional Coordinator') ? $user->region_id : null;
+        $endorsedOnly = ($userRole === 'Accountant');
+        $coaEndorsedOnly = ($userRole === 'COA');
         // Summary pages show all sibling sub-programs (consolidated STUFAPS view)
         $programIds = ($userRole === 'STUFAPS Focal') ? $user->getParentScopedProgramIds() : null;
 
@@ -837,7 +921,7 @@ class DashboardController extends Controller
         }
 
         $excludeSubPrograms = ($userRole === 'Regional Coordinator');
-        $data = ($userRole === 'HEI') ? [] : $this->getSummaryPerHEI($regionId, $programIds, $excludeSubPrograms);
+        $data = ($userRole === 'HEI') ? [] : $this->getSummaryPerHEI($regionId, $programIds, $excludeSubPrograms, $endorsedOnly, $coaEndorsedOnly);
 
         $programs = $this->getProgramsForFilter($user, $userRole);
 
@@ -904,6 +988,10 @@ class DashboardController extends Controller
             $query->whereDoesntHave('program', fn($q) => $q->whereNotNull('parent_id'));
         } elseif ($user && $userRole === 'HEI' && $user->hei_id) {
             $query->where('hei_id', $user->hei_id);
+        } elseif ($user && $userRole === 'Accountant') {
+            $query->whereNotNull('reviewed_at');
+        } elseif ($user && $userRole === 'COA') {
+            $query->whereNotNull('coa_endorsed_at');
         } elseif ($user && $userRole === 'STUFAPS Focal') {
             $programIds = $user->getParentScopedProgramIds();
             if ($programIds) {

@@ -136,6 +136,13 @@ class PermissionSeeder extends Seeder
             'view_summary_ay', 'view_summary_hei',
         ]);
 
+        $this->createExampleRole('COA', 'Commission on Audit — view-only access to endorsed liquidations', [
+            'view_hei',
+            'view_liquidation', 'review_liquidation',
+            'view_reports', 'view_dashboard', 'view_fund_source_filter',
+            'view_summary_ay', 'view_summary_hei',
+        ]);
+
         $this->createExampleRole('HEI', 'Higher Education Institution user', [
             'view_liquidation', 'edit_liquidation',
             'view_summary_ay', 'view_fund_source_filter',

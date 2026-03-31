@@ -134,9 +134,12 @@ export default function Show({
 
     // ── Derived values ──
     const isHEIUser = userRole === 'HEI';
+    const isAccountant = userRole === 'Accountant';
+    const isCOA = userRole === 'COA';
+    const isViewOnly = isAccountant || isCOA;
     const canSubmit = permissions.submit;
     const canReview = permissions.review;
-    const canEditDetails = permissions.edit || permissions.review;
+    const canEditDetails = (permissions.edit || permissions.review) && !isViewOnly;
     const canEdit = canSubmit;
     const hasBeenReturned = (liquidation.review_history?.length ?? 0) > 0;
 
@@ -214,16 +217,10 @@ export default function Show({
         });
     }, [liquidation.id]);
 
-    const handleEndorseToAccounting = useCallback((data: {
-        reviewRemarks: string; receiverName: string; documentLocation: string;
-        transmittalRefNo: string; numberOfFolders: string; folderLocationNumber: string; groupTransmittal: string;
-    }) => {
+    const handleEndorseToAccounting = useCallback((data: { reviewRemarks: string }) => {
         setIsProcessing(true);
         router.post(route('liquidation.endorse-to-accounting', liquidation.id), {
-            review_remarks: data.reviewRemarks, receiver_name: data.receiverName,
-            document_location: data.documentLocation, transmittal_reference_no: data.transmittalRefNo,
-            number_of_folders: data.numberOfFolders ? parseInt(data.numberOfFolders) : null,
-            folder_location_number: data.folderLocationNumber, group_transmittal: data.groupTransmittal,
+            review_remarks: data.reviewRemarks,
         }, {
             onSuccess: () => { setIsProcessing(false); setIsEndorseModalOpen(false); },
             onError: () => setIsProcessing(false),
@@ -277,7 +274,11 @@ export default function Show({
                     liquidation={liquidation}
                     isHEIUser={isHEIUser}
                     canEdit={canEdit}
+                    canReview={canReview}
+                    userRole={userRole}
                     onEditClick={() => setIsEditModalOpen(true)}
+                    onEndorseClick={() => setIsEndorseModalOpen(true)}
+                    onEndorseToCOAClick={() => setIsEndorseToCOAModalOpen(true)}
                 />
 
                 {/* Details + Workflow Stepper */}
@@ -291,6 +292,7 @@ export default function Show({
                             totalDisbursements={totalDisbursements}
                             latestRcNote={latestRcNote ?? undefined}
                             isStufapsProgram={isStufapsProgram}
+                            userRole={userRole}
                         />
                     </div>
                     <div className="lg:col-span-4 flex flex-col">
@@ -316,6 +318,7 @@ export default function Show({
                     liquidationId={liquidation.id}
                     initialEntries={liquidation.tracking_entries ?? []}
                     isHEIUser={isHEIUser}
+                    readOnly={isViewOnly}
                     regionalCoordinators={regionalCoordinators}
                     documentLocations={documentLocations}
                     avatarMap={avatarMap}
@@ -331,6 +334,7 @@ export default function Show({
                     totalDisbursements={totalDisbursements}
                     totalGrantees={totalGrantees}
                     isHEIUser={isHEIUser}
+                    readOnly={isViewOnly}
                     latestLiquidationStatus={latestLiquidationStatus ?? undefined}
                     onTotalLiquidatedChange={debouncedSetTotalLiquidated}
                     updatedAt={liquidation.updated_at}
@@ -373,7 +377,6 @@ export default function Show({
                 onClose={() => setIsEndorseModalOpen(false)}
                 onSubmit={handleEndorseToAccounting}
                 isProcessing={isProcessing}
-                accountants={accountants}
             />
             <ReturnToHEIModal
                 isOpen={isReturnModalOpen}

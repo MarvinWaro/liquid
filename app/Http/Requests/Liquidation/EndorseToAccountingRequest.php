@@ -16,8 +16,8 @@ class EndorseToAccountingRequest extends FormRequest
         $user = $this->user();
         $liquidation = $this->route('liquidation');
 
-        // Only Regional Coordinator or Super Admin can endorse
-        if ($user->role->name !== 'Regional Coordinator' && !$user->isSuperAdmin()) {
+        // Only Regional Coordinator, STUFAPS Focal, or Super Admin can endorse
+        if (!in_array($user->role->name, ['Regional Coordinator', 'STUFAPS Focal']) && !$user->isSuperAdmin()) {
             return false;
         }
 
@@ -34,24 +34,6 @@ class EndorseToAccountingRequest extends FormRequest
     {
         return [
             'review_remarks' => 'nullable|string',
-            'receiver_name' => 'nullable|string|max:255',
-            'document_location' => 'nullable|string|max:255',
-            'transmittal_reference_no' => 'required|string|max:255',
-            'number_of_folders' => 'nullable|integer',
-            'folder_location_number' => 'nullable|string|max:255',
-            'group_transmittal' => 'nullable|string|max:255',
-        ];
-    }
-
-    /**
-     * Get custom error messages.
-     *
-     * @return array<string, string>
-     */
-    public function messages(): array
-    {
-        return [
-            'transmittal_reference_no.required' => 'Transmittal reference number is required for endorsement.',
         ];
     }
 
@@ -62,8 +44,8 @@ class EndorseToAccountingRequest extends FormRequest
     {
         $user = $this->user();
 
-        if ($user->role->name !== 'Regional Coordinator' && !$user->isSuperAdmin()) {
-            abort(403, 'Only Regional Coordinator can endorse to accounting.');
+        if (!in_array($user->role->name, ['Regional Coordinator', 'STUFAPS Focal']) && !$user->isSuperAdmin()) {
+            abort(403, 'Only Regional Coordinator or STUFAPS Focal can endorse to accounting.');
         }
 
         abort(403, 'This liquidation is not available for Regional Coordinator review.');

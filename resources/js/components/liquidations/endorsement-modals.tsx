@@ -28,17 +28,8 @@ interface User {
 interface EndorseToAccountingModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSubmit: (data: {
-        reviewRemarks: string;
-        receiverName: string;
-        documentLocation: string;
-        transmittalRefNo: string;
-        numberOfFolders: string;
-        folderLocationNumber: string;
-        groupTransmittal: string;
-    }) => void;
+    onSubmit: (data: { reviewRemarks: string }) => void;
     isProcessing: boolean;
-    accountants: User[];
 }
 
 export const EndorseToAccountingModal = memo(function EndorseToAccountingModal({
@@ -46,121 +37,28 @@ export const EndorseToAccountingModal = memo(function EndorseToAccountingModal({
     onClose,
     onSubmit,
     isProcessing,
-    accountants,
 }: EndorseToAccountingModalProps) {
-    const [receiverName, setReceiverName] = useState('');
-    const [documentLocation, setDocumentLocation] = useState('');
-    const [transmittalRefNo, setTransmittalRefNo] = useState('');
-    const [numberOfFolders, setNumberOfFolders] = useState('');
-    const [folderLocationNumber, setFolderLocationNumber] = useState('');
-    const [groupTransmittal, setGroupTransmittal] = useState('');
     const [reviewRemarks, setReviewRemarks] = useState('');
 
     const handleClose = () => {
-        setReceiverName('');
-        setDocumentLocation('');
-        setTransmittalRefNo('');
-        setNumberOfFolders('');
-        setFolderLocationNumber('');
-        setGroupTransmittal('');
         setReviewRemarks('');
         onClose();
     };
 
     const handleSubmit = () => {
-        onSubmit({
-            reviewRemarks,
-            receiverName,
-            documentLocation,
-            transmittalRefNo,
-            numberOfFolders,
-            folderLocationNumber,
-            groupTransmittal,
-        });
+        onSubmit({ reviewRemarks });
     };
 
     return (
         <Dialog open={isOpen} onOpenChange={handleClose}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-md">
                 <DialogHeader>
                     <DialogTitle>Endorse to Accounting</DialogTitle>
                     <DialogDescription>
-                        Complete the endorsement details to forward this liquidation to the Accounting department
+                        Forward this liquidation to the Accounting department for review
                     </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="receiver">Receiver (Accountant)</Label>
-                            <Select value={receiverName} onValueChange={setReceiverName}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select accountant" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {accountants.map((accountant) => (
-                                        <SelectItem key={accountant.id} value={accountant.name}>
-                                            {accountant.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label htmlFor="doc-location">Document Location</Label>
-                            <Input
-                                id="doc-location"
-                                placeholder="e.g., Shelf 1B R1"
-                                value={documentLocation}
-                                onChange={(e) => setDocumentLocation(e.target.value)}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="transmittal-ref">Transmittal Reference Number *</Label>
-                        <Input
-                            id="transmittal-ref"
-                            placeholder="e.g., TES-2026-01210"
-                            value={transmittalRefNo}
-                            onChange={(e) => setTransmittalRefNo(e.target.value)}
-                            required
-                        />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="num-folders">Number of Folders</Label>
-                            <Input
-                                id="num-folders"
-                                type="number"
-                                placeholder="e.g., 2"
-                                value={numberOfFolders}
-                                onChange={(e) => setNumberOfFolders(e.target.value)}
-                            />
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label htmlFor="folder-location">Folder Location Number</Label>
-                            <Input
-                                id="folder-location"
-                                placeholder="e.g., 2/UniFAST R12-CMFCI"
-                                value={folderLocationNumber}
-                                onChange={(e) => setFolderLocationNumber(e.target.value)}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="group-transmittal">Group Transmittal</Label>
-                        <Input
-                            id="group-transmittal"
-                            placeholder="e.g., Transmittal No. 2026-0001"
-                            value={groupTransmittal}
-                            onChange={(e) => setGroupTransmittal(e.target.value)}
-                        />
-                    </div>
-
                     <div className="space-y-2">
                         <Label htmlFor="endorse-remarks">Review Remarks (Optional)</Label>
                         <Textarea
@@ -168,7 +66,7 @@ export const EndorseToAccountingModal = memo(function EndorseToAccountingModal({
                             placeholder="Add any review comments or recommendations..."
                             value={reviewRemarks}
                             onChange={(e) => setReviewRemarks(e.target.value)}
-                            rows={3}
+                            rows={4}
                             className="max-h-[200px] resize-none"
                         />
                     </div>
@@ -183,7 +81,7 @@ export const EndorseToAccountingModal = memo(function EndorseToAccountingModal({
                     </Button>
                     <Button
                         onClick={handleSubmit}
-                        disabled={isProcessing || !transmittalRefNo.trim()}
+                        disabled={isProcessing}
                     >
                         {isProcessing ? 'Endorsing...' : 'Endorse to Accounting'}
                     </Button>

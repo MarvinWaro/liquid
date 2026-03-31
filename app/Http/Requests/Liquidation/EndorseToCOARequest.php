@@ -21,7 +21,7 @@ class EndorseToCOARequest extends FormRequest
             return false;
         }
 
-        return $liquidation->isPendingAccountantReview();
+        return $liquidation->reviewed_at !== null && $liquidation->coa_endorsed_at === null;
     }
 
     /**

@@ -24,6 +24,7 @@ interface DocumentTrackingTableProps {
     liquidationId: number;
     initialEntries: TrackingEntry[];
     isHEIUser: boolean;
+    readOnly?: boolean;
     regionalCoordinators: LiquidationUser[];
     documentLocations: string[];
     avatarMap: Record<string, string>;
@@ -36,6 +37,7 @@ export default function DocumentTrackingTable({
     liquidationId,
     initialEntries,
     isHEIUser,
+    readOnly = false,
     regionalCoordinators,
     documentLocations,
     avatarMap,
@@ -43,6 +45,7 @@ export default function DocumentTrackingTable({
     updatedAt,
     isStufapsProgram = false,
 }: DocumentTrackingTableProps) {
+    const canModify = !isHEIUser && !readOnly;
     const [entries, setEntries] = useState<TrackingEntry[]>(
         initialEntries.length > 0 ? initialEntries : [createEmptyTrackingEntry()]
     );
@@ -112,7 +115,7 @@ export default function DocumentTrackingTable({
                                 <CardDescription className="text-xs">Track document submissions and review status</CardDescription>
                             </div>
                         </div>
-                        {!isHEIUser && (
+                        {canModify && (
                             <Button size="sm" onClick={save} disabled={isSaving} className="h-8 text-xs px-3 bg-foreground text-background hover:bg-foreground/90">
                                 <Save className="h-3.5 w-3.5 mr-1.5" />
                                 {isSaving ? 'Saving...' : 'Save'}
@@ -134,17 +137,17 @@ export default function DocumentTrackingTable({
                                     <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">RC Note</th>
                                     <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Endorsement</th>
                                     <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Liquidation</th>
-                                    {!isHEIUser && <th className="px-3 py-2.5 w-8"></th>}
+                                    {canModify && <th className="px-3 py-2.5 w-8"></th>}
                                 </tr>
                             </thead>
-                            <tbody className={isHEIUser ? 'pointer-events-none opacity-60' : ''}>
+                            <tbody className={!canModify ? 'pointer-events-none opacity-60' : ''}>
                                 {entries.map((entry, index) => {
                                     return (
                                         <TrackingRow
                                             key={entry.id || `new-${index}`}
                                             entry={entry}
                                             index={index}
-                                            isHEIUser={isHEIUser}
+                                            readOnly={!canModify}
                                             canDelete={canDelete}
                                             regionalCoordinators={regionalCoordinators}
                                             documentLocations={documentLocations}
@@ -158,7 +161,7 @@ export default function DocumentTrackingTable({
                             </tbody>
                         </table>
                     </div>
-                    {!isHEIUser && (
+                    {canModify && (
                         <Button size="sm" onClick={addEntry} className="mt-4 h-8 text-xs px-3 bg-foreground text-background hover:bg-foreground/90">
                             <Plus className="h-3.5 w-3.5 mr-1.5" />
                             Add Entry
@@ -175,7 +178,7 @@ export default function DocumentTrackingTable({
 interface TrackingRowProps {
     entry: TrackingEntry;
     index: number;
-    isHEIUser: boolean;
+    readOnly: boolean;
     canDelete: boolean;
     regionalCoordinators: LiquidationUser[];
     documentLocations: string[];
@@ -188,7 +191,7 @@ interface TrackingRowProps {
 const TrackingRow = React.memo(function TrackingRow({
     entry,
     index,
-    isHEIUser,
+    readOnly,
     canDelete,
     regionalCoordinators,
     documentLocations,
@@ -253,7 +256,7 @@ const TrackingRow = React.memo(function TrackingRow({
                     </SelectContent>
                 </Select>
             </td>
-            {!isHEIUser && (
+            {!readOnly && (
                 <td className="px-3 py-2">
                     {canDelete && (
                         <DeleteRowButton isFilled={isTrackingEntryFilled(entry)} onDelete={() => removeEntry(index)} />

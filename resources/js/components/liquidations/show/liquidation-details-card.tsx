@@ -26,6 +26,7 @@ interface LiquidationDetailsCardProps {
     liquidation: Liquidation;
     canEditDetails: boolean;
     isHEIUser: boolean;
+    userRole?: string;
     runningDataTotalLiquidated: number;
     totalDisbursements: number;
     latestRcNote?: string;
@@ -54,6 +55,7 @@ export default function LiquidationDetailsCard({
     liquidation,
     canEditDetails,
     isHEIUser,
+    userRole,
     runningDataTotalLiquidated,
     totalDisbursements,
     latestRcNote,
@@ -338,6 +340,40 @@ export default function LiquidationDetailsCard({
                                         </FieldBlock>
                                     )}
                                 </div>
+
+                                {/* Accountant sees RC → Accountant endorsement info */}
+                                {userRole === 'Accountant' && liquidation.reviewed_by_name && (
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 mt-4 pt-4 border-t border-dashed">
+                                        <FieldBlock label="Endorsed to Accounting By">
+                                            <DisplayValue>{liquidation.reviewed_by_name}</DisplayValue>
+                                        </FieldBlock>
+                                        <FieldBlock label="Date Endorsed to Accounting">
+                                            <DisplayValue>{liquidation.reviewed_at ? new Date(liquidation.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</DisplayValue>
+                                        </FieldBlock>
+                                        {liquidation.rc_endorsement_remarks && (
+                                            <FieldBlock label="RC Remarks">
+                                                <p className="text-sm text-foreground italic">{liquidation.rc_endorsement_remarks}</p>
+                                            </FieldBlock>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* COA / Admin sees Accountant → COA endorsement info */}
+                                {['COA', 'Admin', 'Super Admin'].includes(userRole ?? '') && liquidation.accountant_reviewed_by_name && (
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 mt-4 pt-4 border-t border-dashed">
+                                        <FieldBlock label="Endorsed to COA By">
+                                            <DisplayValue>{liquidation.accountant_reviewed_by_name}</DisplayValue>
+                                        </FieldBlock>
+                                        <FieldBlock label="Date Endorsed to COA">
+                                            <DisplayValue>{liquidation.accountant_reviewed_at ? new Date(liquidation.accountant_reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</DisplayValue>
+                                        </FieldBlock>
+                                        {liquidation.accountant_endorsement_remarks && (
+                                            <FieldBlock label="Accountant Remarks">
+                                                <p className="text-sm text-foreground italic">{liquidation.accountant_endorsement_remarks}</p>
+                                            </FieldBlock>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </ContextMenuTrigger>

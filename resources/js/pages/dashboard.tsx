@@ -370,11 +370,22 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                 { id: 'stat-for-compliance', title: 'For Compliance', value: formatCurrency(activeTotalStats.for_compliance), subtitle: 'Returned for compliance', icon: <ShieldAlert className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-violet-600 dark:text-violet-400' },
             );
         } else if (userRole === 'Accountant') {
+            const filtered = fundSourceFilter !== 'all';
+            const endorsed = filtered ? activeTotalStats.total_liquidations : userStats.my_liquidations;
+            const totalAmt = filtered ? activeTotalStats.total_disbursed : userStats.total_amount;
+
             defs.push(
-                { id: 'stat-my-liquidations', title: 'My Liquidations', value: userStats.my_liquidations, subtitle: 'Total reports in my queue', icon: <FileText className="h-4 w-4 text-muted-foreground" /> },
-                { id: 'stat-pending-action', title: 'Pending Action', value: userStats.pending_action, subtitle: 'Requires your attention', icon: <Clock className="h-4 w-4 text-muted-foreground" /> },
-                { id: 'stat-completed', title: 'Completed', value: userStats.completed, subtitle: 'Successfully processed', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" /> },
-                { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(userStats.total_amount), subtitle: 'Received from CHED', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-my-liquidations', title: 'Endorsed to Accounting', value: endorsed, subtitle: 'Total endorsed by RC', icon: <FileText className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(totalAmt), subtitle: 'Endorsed amount from CHED', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
+            );
+        } else if (userRole === 'COA') {
+            const filtered = fundSourceFilter !== 'all';
+            const endorsed = filtered ? activeTotalStats.total_liquidations : userStats.my_liquidations;
+            const totalAmt = filtered ? activeTotalStats.total_disbursed : userStats.total_amount;
+
+            defs.push(
+                { id: 'stat-my-liquidations', title: 'Endorsed to COA', value: endorsed, subtitle: 'Total endorsed by Accountant', icon: <FileText className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(totalAmt), subtitle: 'Endorsed amount', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
             );
         } else {
             // When fund source filter is active, use filtered totalStats for numeric values
@@ -435,7 +446,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
         return cards;
     }, [isAdmin, userRole, statCardDefs, chartData.length, barChartData.length, recentLiquidations]);
 
-    const storageKey = `dashboard-layout-v3-${isAdmin ? 'admin' : userRole || 'default'}`;
+    const storageKey = `dashboard-layout-v6-${isAdmin ? 'admin' : userRole || 'default'}`;
     const { layout, updateOrder, toggleVisibility, cycleExpand, showCard, resetLayout, hiddenCardIds } = useDashboardLayout(
         cardConfigs.map(c => c.id),
         storageKey,
@@ -954,7 +965,7 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
             case 'overview-stats':
                 return <GraduationCap className="h-4 w-4 text-muted-foreground" />;
             case 'liquidation-progress':
-                if (isAdmin || userRole === 'Regional Coordinator' || userRole === 'Accountant') {
+                if (isAdmin || userRole === 'Regional Coordinator' || userRole === 'Accountant' || userRole === 'COA') {
                     return (
                         <div className="flex items-center gap-2">
                             <Filter className="h-4 w-4 text-muted-foreground" />

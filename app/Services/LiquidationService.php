@@ -32,7 +32,7 @@ class LiquidationService
      */
     public function getPaginatedLiquidations(User $user, array $filters = []): LengthAwarePaginator
     {
-        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus'])
+        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus', 'trackingEntries'])
             ->orderBy('control_no', 'asc');
 
         $this->applyRoleFilter($query, $user);
@@ -76,11 +76,17 @@ class LiquidationService
                 // No programs assigned — show nothing
                 $query->whereRaw('1 = 0');
             }
-        } elseif (!$user->isSuperAdmin() && !in_array($roleName, ['Accountant', 'Admin', 'HEI'])) {
+        } elseif ($roleName === 'Accountant') {
+            // Accountants only see liquidations endorsed to accounting by RC/STUFAPS Focal
+            $query->whereNotNull('reviewed_at');
+        } elseif ($roleName === 'COA') {
+            // COA only sees liquidations endorsed to COA by Accountant
+            $query->whereNotNull('coa_endorsed_at');
+        } elseif (!$user->isSuperAdmin() && !in_array($roleName, ['Admin', 'HEI'])) {
             // Fallback for other non-admin roles: show only their own created liquidations
             $query->where('created_by', $user->id);
         }
-        // Accountants, Admins, Super Admins: see all liquidations (no additional filter)
+        // Admins, Super Admins: see all liquidations (no additional filter)
     }
 
     /**
@@ -323,14 +329,22 @@ class LiquidationService
             $liquidation = Liquidation::lockForUpdate()->findOrFail($liquidation->id);
 
             // State guards
-            if (!$liquidation->date_submitted) {
-                throw new \InvalidArgumentException('Liquidation has not been submitted for review yet.');
+            if ($liquidation->reviewed_at) {
+                throw new \InvalidArgumentException('This liquidation has already been endorsed to Accounting.');
             }
             if ($liquidation->coa_endorsed_at) {
                 throw new \InvalidArgumentException('This liquidation has already been endorsed to COA.');
             }
 
-            $liquidation->createTransmittal($data, $user);
+            // Auto-set date_submitted for RC-created entries that were never submitted by HEI
+            if (!$liquidation->date_submitted) {
+                $liquidation->date_submitted = now();
+            }
+
+            // Only create transmittal if transmittal data is provided
+            if (!empty($data['transmittal_reference_no'])) {
+                $liquidation->createTransmittal($data, $user);
+            }
 
             if (!empty($data['review_remarks'])) {
                 $liquidation->reviews()->create([

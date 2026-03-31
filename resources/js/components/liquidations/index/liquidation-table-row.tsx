@@ -3,6 +3,7 @@ import { Link } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { TableCell, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -11,7 +12,7 @@ import {
     PopoverTrigger,
 } from '@/components/ui/popover';
 import { Label } from '@/components/ui/label';
-import { Eye, Ban, RotateCcw } from 'lucide-react';
+import { Eye, Ban, RotateCcw, Send } from 'lucide-react';
 import type { Liquidation } from './types';
 import { getDocumentStatusColor, getLiquidationStatusColor } from './types';
 
@@ -19,16 +20,24 @@ interface LiquidationTableRowProps {
     liquidation: Liquidation;
     index: number;
     canVoid: boolean;
+    canReview: boolean;
+    isSelected: boolean;
+    onSelect: (id: number, checked: boolean) => void;
     onVoid: (liquidation: Liquidation) => void;
     onRestore: (liquidation: Liquidation) => void;
+    onEndorse: (liquidation: Liquidation) => void;
 }
 
 export const LiquidationTableRow = React.memo(function LiquidationTableRow({
     liquidation,
     index,
     canVoid,
+    canReview,
+    isSelected,
+    onSelect,
     onVoid,
     onRestore,
+    onEndorse,
 }: LiquidationTableRowProps) {
     const [voidConfirmInput, setVoidConfirmInput] = useState('');
     const [voidPopoverOpen, setVoidPopoverOpen] = useState(false);
@@ -36,9 +45,15 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
     const [restorePopoverOpen, setRestorePopoverOpen] = useState(false);
 
     return (
-        <TableRow className={`transition-colors hover:bg-muted/50 ${liquidation.is_voided ? 'opacity-50' : ''}`}>
-            <TableCell className="font-medium text-center pl-4 py-3">
-                {index + 1}
+        <TableRow className={`transition-colors hover:bg-muted/50 ${liquidation.is_voided ? 'opacity-50' : ''} ${isSelected ? 'bg-muted/30' : ''}`}>
+            <TableCell className="pl-4 py-3 w-[40px]">
+                {!liquidation.is_voided && !liquidation.is_endorsed && canReview && (
+                    <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={(checked) => onSelect(liquidation.id, !!checked)}
+                        aria-label={`Select ${liquidation.dv_control_no}`}
+                    />
+                )}
             </TableCell>
             <TableCell className="py-3">
                 {liquidation.program ? (
@@ -144,6 +159,21 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
                         </TooltipTrigger>
                         <TooltipContent>View details</TooltipContent>
                     </Tooltip>
+                    {canReview && !liquidation.is_voided && !liquidation.is_endorsed && (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                    onClick={() => onEndorse(liquidation)}
+                                >
+                                    <Send className="h-4 w-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Endorse to Accounting</TooltipContent>
+                        </Tooltip>
+                    )}
                     {canVoid && !liquidation.is_voided && (
                         <Popover
                             open={voidPopoverOpen}

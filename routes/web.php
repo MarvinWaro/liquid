@@ -110,6 +110,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('liquidation/{liquidation}/restore', [LiquidationController::class, 'restore'])->name('liquidation.restore');
 
     // Liquidation Workflow Routes
+    Route::post('liquidation/bulk-endorse-to-accounting', [LiquidationController::class, 'bulkEndorseToAccounting'])->name('liquidation.bulk-endorse-to-accounting');
     Route::post('liquidation/{liquidation}/submit', [LiquidationController::class, 'submit'])->name('liquidation.submit');
     Route::post('liquidation/{liquidation}/endorse-to-accounting', [LiquidationController::class, 'endorseToAccounting'])->name('liquidation.endorse-to-accounting');
     Route::post('liquidation/{liquidation}/return-to-hei', [LiquidationController::class, 'returnToHEI'])->name('liquidation.return-to-hei');

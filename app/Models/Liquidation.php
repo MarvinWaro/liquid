@@ -372,7 +372,7 @@ class Liquidation extends Model
             return null;
         }
 
-        return $this->date_submitted->diffInDays($dueDate, false);
+        return (int) $this->date_submitted->diffInDays($dueDate, false);
     }
 
     // ========================================
@@ -457,6 +457,32 @@ class Liquidation extends Model
             ->first();
 
         return $latestReview?->remarks;
+    }
+
+    /**
+     * Get the RC endorsement remarks (when RC endorsed to Accounting).
+     */
+    public function getRcEndorsementRemarks(): ?string
+    {
+        $review = $this->reviews()
+            ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_RC_ENDORSEMENT))
+            ->orderBy('performed_at', 'desc')
+            ->first();
+
+        return $review?->remarks;
+    }
+
+    /**
+     * Get the Accountant endorsement remarks (when Accountant endorsed to COA).
+     */
+    public function getAccountantEndorsementRemarks(): ?string
+    {
+        $review = $this->reviews()
+            ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_ACCOUNTANT_ENDORSEMENT))
+            ->orderBy('performed_at', 'desc')
+            ->first();
+
+        return $review?->remarks;
     }
 
     // ========================================

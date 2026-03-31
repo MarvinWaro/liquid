@@ -24,10 +24,12 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet } from 'lucide-react';
+import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
 import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
 import { ImportPreviewDialog } from '@/components/liquidations/import-preview-dialog';
+import { EndorseToAccountingModal } from '@/components/liquidations/endorsement-modals';
 import { toast } from '@/lib/toast';
 import { type BreadcrumbItem } from '@/types';
 
@@ -81,6 +83,12 @@ export default function Index({ liquidations, programs, createPrograms, academic
         imported: number;
         errors: { row: number; seq: string; uii: string; program: string; error: string }[];
     } | null>(null);
+
+    // Selection state for bulk endorsement (ids are UUIDs at runtime)
+    const [selectedIds, setSelectedIds] = useState<Set<number | string>>(new Set());
+    const [isEndorseModalOpen, setIsEndorseModalOpen] = useState(false);
+    const [endorseTarget, setEndorseTarget] = useState<Liquidation | null>(null);
+    const [isEndorsing, setIsEndorsing] = useState(false);
 
     const isRC = userRole === 'Regional Coordinator';
     const isHEI = userRole === 'HEI';
@@ -152,6 +160,56 @@ export default function Index({ liquidations, programs, createPrograms, academic
             onError: () => toast.error('Failed to restore liquidation.'),
         });
     }, []);
+
+    const handleSelect = useCallback((id: number, checked: boolean) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            checked ? next.add(id) : next.delete(id);
+            return next;
+        });
+    }, []);
+
+    const handleSelectAll = useCallback((checked: boolean) => {
+        if (!liquidations?.data) return;
+        if (checked) {
+            const ids = liquidations.data.filter(l => !l.is_voided && !l.is_endorsed).map(l => l.id);
+            setSelectedIds(new Set(ids));
+        } else {
+            setSelectedIds(new Set());
+        }
+    }, [liquidations?.data]);
+
+    const handleEndorseSingle = useCallback((liquidation: Liquidation) => {
+        setEndorseTarget(liquidation);
+        setIsEndorseModalOpen(true);
+    }, []);
+
+    const handleBulkEndorseClick = useCallback(() => {
+        setEndorseTarget(null);
+        setIsEndorseModalOpen(true);
+    }, []);
+
+    const handleEndorseSubmit = useCallback((data: { reviewRemarks: string }) => {
+        setIsEndorsing(true);
+        const payload = { review_remarks: data.reviewRemarks };
+
+        if (endorseTarget) {
+            // Single endorse
+            router.post(route('liquidation.endorse-to-accounting', endorseTarget.id), payload, {
+                onSuccess: () => { setIsEndorsing(false); setIsEndorseModalOpen(false); setEndorseTarget(null); router.reload(); },
+                onError: () => setIsEndorsing(false),
+            });
+        } else {
+            // Bulk endorse
+            router.post(route('liquidation.bulk-endorse-to-accounting'), {
+                ...payload,
+                liquidation_ids: Array.from(selectedIds),
+            }, {
+                onSuccess: () => { setIsEndorsing(false); setIsEndorseModalOpen(false); setSelectedIds(new Set()); router.reload(); },
+                onError: () => setIsEndorsing(false),
+            });
+        }
+    }, [endorseTarget, selectedIds]);
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -341,6 +399,31 @@ export default function Index({ liquidations, programs, createPrograms, academic
                             </DialogContent>
                         </Dialog>
 
+                        {/* Endorse to Accounting Modal */}
+                        <EndorseToAccountingModal
+                            isOpen={isEndorseModalOpen}
+                            onClose={() => { setIsEndorseModalOpen(false); setEndorseTarget(null); }}
+                            onSubmit={handleEndorseSubmit}
+                            isProcessing={isEndorsing}
+                        />
+
+                        {/* Bulk Selection Action Bar */}
+                        {selectedIds.size > 0 && (
+                            <div className="flex items-center gap-3 px-4 py-3 mb-4 rounded-lg border bg-muted/50 animate-in fade-in-0 slide-in-from-top-2">
+                                <span className="text-sm font-medium">
+                                    {selectedIds.size} selected
+                                </span>
+                                <Button size="sm" className="h-8 text-xs gap-1.5" onClick={handleBulkEndorseClick}>
+                                    <Send className="h-3.5 w-3.5" />
+                                    Endorse to Accounting
+                                </Button>
+                                <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setSelectedIds(new Set())}>
+                                    <X className="h-3.5 w-3.5 mr-1" />
+                                    Clear
+                                </Button>
+                            </div>
+                        )}
+
                         <CardContent className="pt-6 px-0">
                             {/* Extracted filter components */}
                             <LiquidationFilters
@@ -361,8 +444,12 @@ export default function Index({ liquidations, programs, createPrograms, academic
                                 <LiquidationTable
                                     liquidations={liquidations!}
                                     permissions={permissions}
+                                    selectedIds={selectedIds}
+                                    onSelect={handleSelect}
+                                    onSelectAll={handleSelectAll}
                                     onVoid={handleVoid}
                                     onRestore={handleRestore}
+                                    onEndorse={handleEndorseSingle}
                                 />
                             </Deferred>
                         </CardContent>
@@ -378,15 +465,27 @@ export default function Index({ liquidations, programs, createPrograms, academic
 const LiquidationTable = React.memo(function LiquidationTable({
     liquidations,
     permissions,
+    selectedIds,
+    onSelect,
+    onSelectAll,
     onVoid,
     onRestore,
+    onEndorse,
 }: {
     liquidations: NonNullable<Props['liquidations']>;
     permissions: Props['permissions'];
+    selectedIds: Set<number | string>;
+    onSelect: (id: number, checked: boolean) => void;
+    onSelectAll: (checked: boolean) => void;
     onVoid: (l: Liquidation) => void;
     onRestore: (l: Liquidation) => void;
+    onEndorse: (l: Liquidation) => void;
 }) {
     if (!liquidations?.data) return <LiquidationTableSkeleton />;
+
+    const selectableCount = liquidations.data.filter(l => !l.is_voided).length;
+    const allSelected = selectableCount > 0 && selectedIds.size >= selectableCount;
+    const someSelected = selectedIds.size > 0 && !allSelected;
 
     return (
         <>
@@ -394,7 +493,15 @@ const LiquidationTable = React.memo(function LiquidationTable({
                 <Table>
                     <TableHeader>
                         <TableRow className="border-b hover:bg-transparent">
-                            <TableHead className="h-9 w-[50px] pl-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">SEQ</TableHead>
+                            <TableHead className="h-9 w-[40px] pl-4">
+                                {permissions.review && (
+                                    <Checkbox
+                                        checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                                        onCheckedChange={(checked) => onSelectAll(!!checked)}
+                                        aria-label="Select all"
+                                    />
+                                )}
+                            </TableHead>
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Program</TableHead>
                             <TableHead className="h-9 max-w-[300px] text-xs font-medium tracking-wider text-muted-foreground uppercase">HEI</TableHead>
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Period</TableHead>
@@ -428,8 +535,12 @@ const LiquidationTable = React.memo(function LiquidationTable({
                                     liquidation={liquidation}
                                     index={index}
                                     canVoid={permissions.void}
+                                    canReview={permissions.review}
+                                    isSelected={selectedIds.has(liquidation.id)}
+                                    onSelect={onSelect}
                                     onVoid={onVoid}
                                     onRestore={onRestore}
+                                    onEndorse={onEndorse}
                                 />
                             ))
                         )}

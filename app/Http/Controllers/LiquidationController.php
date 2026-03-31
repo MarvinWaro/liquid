@@ -104,6 +104,11 @@ class LiquidationController extends Controller
                     ->orderBy('name')
                     ->get(['id', 'name', 'uii'])
             ),
+            'accountants' => Inertia::defer(fn () =>
+                User::whereHas('role', fn ($q) => $q->where('name', 'Accountant'))
+                    ->orderBy('name')
+                    ->get(['id', 'name'])
+            ),
         ]);
     }
 
@@ -174,6 +179,46 @@ class LiquidationController extends Controller
 
         return redirect()->route('liquidation.index')
             ->with('success', 'Liquidation endorsed to Accounting successfully.');
+    }
+
+    /**
+     * Regional Coordinator bulk endorses multiple liquidations to Accounting.
+     */
+    public function bulkEndorseToAccounting(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        $roleName = $user->role?->name;
+        if (!in_array($roleName, ['Regional Coordinator', 'STUFAPS Focal', 'Super Admin'])) {
+            abort(403, 'Unauthorized.');
+        }
+
+        $validated = $request->validate([
+            'liquidation_ids' => 'required|array|min:1',
+            'liquidation_ids.*' => 'required|string|exists:liquidations,id',
+            'review_remarks' => 'nullable|string',
+        ]);
+
+        $ids = $validated['liquidation_ids'];
+        $data = collect($validated)->except('liquidation_ids')->toArray();
+        $succeeded = 0;
+        $errors = [];
+
+        foreach ($ids as $id) {
+            try {
+                $liquidation = Liquidation::findOrFail($id);
+                $this->liquidationService->endorseToAccounting($liquidation, $user, $data);
+                $succeeded++;
+            } catch (\Exception $e) {
+                $errors[] = $id;
+            }
+        }
+
+        $message = "{$succeeded} liquidation(s) endorsed to Accounting successfully.";
+        if (!empty($errors)) {
+            $message .= ' ' . count($errors) . ' failed.';
+        }
+
+        return redirect()->route('liquidation.index')->with('success', $message);
     }
 
     /**
@@ -1313,8 +1358,8 @@ class LiquidationController extends Controller
             return;
         }
 
-        // Accountants and Admins can view all liquidations
-        if (in_array($roleName, ['Accountant', 'Admin', 'Super Admin'])) {
+        // Accountants, COA, and Admins can view all liquidations
+        if (in_array($roleName, ['Accountant', 'COA', 'Admin', 'Super Admin'])) {
             return;
         }
 
@@ -1380,6 +1425,7 @@ class LiquidationController extends Controller
             'liquidation_status' => $liquidationStatus,
             'liquidation_status_code' => $liquidation->liquidationStatus?->code ?? 'UNLIQUIDATED',
             'is_voided' => $liquidation->isVoided(),
+            'is_endorsed' => $liquidation->reviewed_at !== null,
             'percentage_liquidation' => $percentageLiquidation,
             'lapsing_period' => $financial?->lapsing_period ?? 0,
         ];
@@ -1512,6 +1558,11 @@ class LiquidationController extends Controller
             'document_status' => $liquidation->documentStatus?->name ?? 'N/A',
             'liquidation_status' => $liquidation->liquidationStatus?->name ?? 'Unliquidated',
             'date_submitted' => $liquidation->date_submitted?->format('Y-m-d H:i:s'),
+            'coa_endorsed_at' => $liquidation->coa_endorsed_at?->format('Y-m-d H:i:s'),
+            'accountant_reviewed_by_name' => $liquidation->accountantReviewer?->name,
+            'accountant_reviewed_at' => $liquidation->accountant_reviewed_at?->format('Y-m-d H:i:s'),
+            'rc_endorsement_remarks' => $liquidation->getRcEndorsementRemarks(),
+            'accountant_endorsement_remarks' => $liquidation->getAccountantEndorsementRemarks(),
             'updated_at' => $liquidation->updated_at?->toIso8601String(),
             'created_by_name' => $liquidation->creator?->name,
             'beneficiaries' => $liquidation->beneficiaries->map(fn ($b) => [
