@@ -110,6 +110,7 @@ class Liquidation extends Model
 
         // Workflow tracking
         'created_by',
+        'import_batch_id',
 
         // RC Review (current state)
         'reviewed_by',
@@ -224,6 +225,11 @@ class Liquidation extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function importBatch(): BelongsTo
+    {
+        return $this->belongsTo(ImportBatch::class, 'import_batch_id');
     }
 
     /**

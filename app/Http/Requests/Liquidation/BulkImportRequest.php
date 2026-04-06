@@ -29,7 +29,7 @@ class BulkImportRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'file' => 'required|file|mimes:xlsx,xls|max:10240',
+            'file' => 'required|file|mimes:xlsx,xls|max:51200',
         ];
     }
 
@@ -43,7 +43,7 @@ class BulkImportRequest extends FormRequest
         return [
             'file.required' => 'Please select an Excel file to import.',
             'file.mimes' => 'Please upload an Excel file (.xlsx or .xls).',
-            'file.max' => 'The file size must not exceed 10MB.',
+            'file.max' => 'The file size must not exceed 50MB.',
         ];
     }
 

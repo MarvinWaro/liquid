@@ -594,19 +594,21 @@ export function BulkEntryModal({
             else if (!row.date_fund_released) errors[i] = 'Date of Fund Released is required.';
             else if (!row.academic_year_id) errors[i] = 'Academic Year is required.';
             else if (!row.semester) errors[i] = 'Semester is required.';
-            else if (!row.dv_control_no.trim()) errors[i] = 'Control No. is required.';
-            else if (row.dv_control_no.trim() !== row.dv_control_no) errors[i] = 'Control No. has leading/trailing spaces.';
-            else if (!SUFFIX_REGEX.test(row.dv_control_no)) errors[i] = 'Control No. format invalid. Use: YYYY-NNNN (e.g., 2026-0001).';
-            else {
-                const fullControlNo = getProgramPrefix(row.program_id) + row.dv_control_no;
-                if (seenControlNos.has(fullControlNo)) {
-                    errors[i] = `Control No. "${fullControlNo}" is duplicated with Row ${(seenControlNos.get(fullControlNo)!) + 1}.`;
-                } else if (!row.total_disbursements) {
-                    errors[i] = 'Total Disbursements is required.';
-                } else {
-                    seenControlNos.set(fullControlNo, i);
+            else if (!row.total_disbursements) errors[i] = 'Total Disbursements is required.';
+            else if (row.dv_control_no.trim()) {
+                // Validate format only when user provides a control number
+                if (row.dv_control_no.trim() !== row.dv_control_no) errors[i] = 'Control No. has leading/trailing spaces.';
+                else if (!SUFFIX_REGEX.test(row.dv_control_no)) errors[i] = 'Control No. format invalid. Use: YYYY-NNNN (e.g., 2026-0001).';
+                else {
+                    const fullControlNo = getProgramPrefix(row.program_id) + row.dv_control_no;
+                    if (seenControlNos.has(fullControlNo)) {
+                        errors[i] = `Control No. "${fullControlNo}" is duplicated with Row ${(seenControlNos.get(fullControlNo)!) + 1}.`;
+                    } else {
+                        seenControlNos.set(fullControlNo, i);
+                    }
                 }
             }
+            // If control no is empty, it will be auto-generated server-side
         });
         setRowErrors(errors);
         return Object.keys(errors).length === 0;
@@ -622,7 +624,9 @@ export function BulkEntryModal({
         const entries = rows.map(row => ({
             program_id: row.program_id,
             uii: row.uii.trim(),
-            dv_control_no: getProgramPrefix(row.program_id) + row.dv_control_no.trim(),
+            dv_control_no: row.dv_control_no.trim()
+                ? getProgramPrefix(row.program_id) + row.dv_control_no.trim()
+                : null,
             date_fund_released: row.date_fund_released,
             due_date: row.due_date || null,
             academic_year_id: row.academic_year_id,
@@ -821,7 +825,7 @@ export function BulkEntryModal({
                                                         className="h-full border-0 shadow-none focus-visible:ring-0 text-xs font-mono px-1"
                                                         value={row.dv_control_no}
                                                         onChange={e => updateRow(index, 'dv_control_no', e.target.value.toUpperCase())}
-                                                        placeholder={row.program_id ? '2026-0001' : '--'}
+                                                        placeholder={row.program_id ? 'Auto' : '--'}
                                                         disabled={!row.program_id}
                                                     />
                                                 </div>

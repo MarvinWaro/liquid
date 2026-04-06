@@ -50,7 +50,7 @@ class StoreLiquidationRequest extends FormRequest
             'semester' => 'required|string|max:50',
             'batch_no' => 'nullable|string|max:50',
             'dv_control_no' => [
-                'required',
+                'nullable',
                 'string',
                 'max:100',
                 'regex:/^[A-Za-z0-9\-]+$/',
