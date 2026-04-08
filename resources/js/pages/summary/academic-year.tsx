@@ -111,8 +111,10 @@ export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], fi
         return `${parseFloat(percentage.toString()).toFixed(2)}%`;
     };
 
-    const formatNumber = (value: number | null | undefined) => {
-        return (value ?? 0).toLocaleString();
+    const formatNumber = (value: number | string | null | undefined) => {
+        const num = parseFloat(String(value ?? 0));
+        if (isNaN(num)) return '0';
+        return Math.round(num).toLocaleString('en-US');
     };
 
     return (
@@ -234,7 +236,7 @@ export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], fi
                             </div>
                         </div>
                     ) : (
-                        <div className="rounded-lg border bg-card">
+                        <div className="rounded-lg border bg-card overflow-hidden [&_td]:border-r [&_td]:border-border/40 [&_th]:border-r [&_th]:border-border/40 [&_td:last-child]:border-r-0 [&_th:last-child]:border-r-0">
                             <Table>
                                 <TableHeader>
                                     <TableRow className="border-b hover:bg-transparent">

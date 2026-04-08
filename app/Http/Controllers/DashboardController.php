@@ -36,12 +36,12 @@ class DashboardController extends Controller
             'totalStats' => $this->getTotalStats(),
 
             // Deferred — queries run only after initial paint is sent to browser
-            'summaryPerAY' => Inertia::defer(fn () => $this->getSummaryPerAY(), 'charts'),
-            'summaryPerHEI' => Inertia::defer(fn () => $this->getSummaryPerHEI(), 'charts'),
-            'statusDistribution' => Inertia::defer(fn () => $this->getLiquidationStatusDistribution(), 'charts'),
-            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates(), 'charts'),
-            'fundSourceData' => Inertia::defer(fn () => $this->computeFundSourceData(), 'charts'),
-            'overviewStats' => Inertia::defer(fn () => $this->getOverviewStats(), 'charts'),
+            'summaryPerAY' => Inertia::defer(fn () => $this->getSummaryPerAY(), 'charts-1'),
+            'summaryPerHEI' => Inertia::defer(fn () => $this->getSummaryPerHEI(), 'charts-2'),
+            'statusDistribution' => Inertia::defer(fn () => $this->getLiquidationStatusDistribution(), 'charts-3'),
+            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates(), 'charts-4'),
+            'fundSourceData' => Inertia::defer(fn () => $this->computeFundSourceData(), 'charts-5'),
+            'overviewStats' => Inertia::defer(fn () => $this->getOverviewStats(), 'charts-6'),
         ]);
     }
 
@@ -88,7 +88,7 @@ class DashboardController extends Controller
                     'STUFAPS Focal' => $this->getSummaryPerAY(null, null, $user->getParentScopedProgramIds()),
                     default => [],
                 };
-            }, 'charts'),
+            }, 'charts-1'),
             'summaryPerHEI' => Inertia::defer(function () use ($user, $userRole) {
                 return match ($userRole) {
                     'Regional Coordinator' => $this->getSummaryPerHEI($user->region_id, null, true),
@@ -97,7 +97,7 @@ class DashboardController extends Controller
                     'STUFAPS Focal' => $this->getSummaryPerHEI(null, $user->getParentScopedProgramIds()),
                     default => [],
                 };
-            }, 'charts'),
+            }, 'charts-2'),
             'statusDistribution' => Inertia::defer(function () use ($user, $userRole) {
                 return match ($userRole) {
                     'Regional Coordinator' => $this->getLiquidationStatusDistribution(null, $user->region_id, null, true),
@@ -107,9 +107,9 @@ class DashboardController extends Controller
                     'STUFAPS Focal' => $this->getLiquidationStatusDistribution(null, null, $user->getParentScopedProgramIds()),
                     default => [],
                 };
-            }, 'charts'),
-            'recentLiquidations' => Inertia::defer(fn () => $this->getRecentLiquidations($user, $userRole), 'charts'),
-            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates($user, $userRole), 'charts'),
+            }, 'charts-3'),
+            'recentLiquidations' => Inertia::defer(fn () => $this->getRecentLiquidations($user, $userRole), 'charts-4'),
+            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates($user, $userRole), 'charts-5'),
             'fundSourceData' => Inertia::defer(function () use ($user, $userRole, $canViewFundSource) {
                 return match ($userRole) {
                     'Accountant' => $canViewFundSource ? $this->computeFundSourceData(endorsedOnly: true) : null,
@@ -117,7 +117,7 @@ class DashboardController extends Controller
                     'HEI' => $user->hei_id ? $this->computeFundSourceData($user->hei_id) : null,
                     default => null,
                 };
-            }, 'charts'),
+            }, 'charts-6'),
         ]);
     }
 
@@ -284,7 +284,7 @@ class DashboardController extends Controller
         // For Compliance / For Endorsement = categorize the remaining by RC note
         return $query
             ->leftJoin('document_statuses', 'liquidations.document_status_id', '=', 'document_statuses.id')
-            ->select('liquidations.hei_id', 'heis.name as hei_name')
+            ->select('liquidations.hei_id', 'heis.name as hei_name', 'heis.uii as hei_uii')
             ->selectRaw('COALESCE(SUM(liquidation_financials.number_of_grantees), 0) as total_grantees')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursements')
             ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) as total_amount_liquidated')
@@ -294,12 +294,12 @@ class DashboardController extends Controller
             ->selectRaw('ROUND((COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_liquidation')
             ->selectRaw('ROUND(COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_compliance')
             ->selectRaw('ROUND((COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN document_statuses.code IN ("COMPLETE", "PARTIAL") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_submission')
-            ->groupBy('liquidations.hei_id', 'heis.name')
+            ->groupBy('liquidations.hei_id', 'heis.name', 'heis.uii')
             ->get()
             ->map(function ($item) {
                 return [
                     'hei_id' => $item->hei_id,
-                    'hei' => ['id' => $item->hei_id, 'name' => $item->hei_name],
+                    'hei' => ['id' => $item->hei_id, 'name' => $item->hei_name, 'uii' => $item->hei_uii],
                     'total_grantees' => $item->total_grantees,
                     'total_disbursements' => $item->total_disbursements,
                     'total_amount_liquidated' => $item->total_amount_liquidated,
@@ -554,7 +554,7 @@ class DashboardController extends Controller
      */
     private function getRCUserStats($user): array
     {
-        // Get sub-program IDs to exclude from RC stats
+        // Get sub-program IDs to exclude from RC stats (STUFAPS sub-programs belong to STUFAPS Focal)
         $subProgramIds = Program::whereNotNull('parent_id')->pluck('id')->all();
 
         $query = DB::table('liquidations')
@@ -567,6 +567,11 @@ class DashboardController extends Controller
 
         $query->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id');
 
+        if ($user->region_id) {
+            $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
+                ->where('heis.region_id', $user->region_id);
+        }
+
         $stats = $query->where(function ($q) use ($user) {
                 $q->where('liquidations.created_by', $user->id)
                   ->orWhere('liquidations.reviewed_by', $user->id);
@@ -577,7 +582,7 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(CASE WHEN rc_note_statuses.code IN ("FULLY_ENDORSED", "PARTIALLY_ENDORSED") THEN COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as total_unliquidated')
             ->first();
 
-        // Pending action = submitted but not reviewed by RC (in RC's region), excluding sub-programs
+        // Pending action = submitted but not reviewed, in RC's region, excluding sub-programs
         $pendingActionQuery = Liquidation::excludeVoided()
             ->whereNotNull('date_submitted')
             ->whereNull('reviewed_at');
@@ -589,7 +594,7 @@ class DashboardController extends Controller
         }
         $pendingAction = $pendingActionQuery->count();
 
-        // Completed = endorsed to accounting (reviewed by RC, in RC's region), excluding sub-programs
+        // Completed = endorsed to accounting, in RC's region, excluding sub-programs
         $completedQuery = Liquidation::excludeVoided()->whereNotNull('reviewed_at');
         if ($user->region_id) {
             $completedQuery->whereHas('hei', fn($q) => $q->where('region_id', $user->region_id));

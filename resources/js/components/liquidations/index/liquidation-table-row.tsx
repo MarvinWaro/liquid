@@ -16,6 +16,7 @@ import { Eye, Ban, RotateCcw, Send } from 'lucide-react';
 import type { Liquidation } from './types';
 import { getDocumentStatusColor, getLiquidationStatusColor } from './types';
 
+
 interface LiquidationTableRowProps {
     liquidation: Liquidation;
     index: number;
@@ -80,7 +81,7 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
             </TableCell>
             {/* Combined: Academic Year + Semester */}
             <TableCell className="py-3">
-                <div className="text-sm">{liquidation.academic_year || '-'}</div>
+                <div className="text-sm">{(liquidation.academic_year || '-').replace('Academic Year', 'A.Y.')}</div>
                 <div className="text-xs text-muted-foreground">{liquidation.semester || '-'}</div>
             </TableCell>
             {/* Combined: Fund Released + Due Date */}

@@ -18,6 +18,7 @@ use App\Models\DocumentRequirement;
 use App\Models\DocumentStatus;
 use App\Models\ImportBatch;
 use App\Models\Liquidation;
+use App\Models\Notification;
 use App\Models\LiquidationDocument;
 use App\Models\LiquidationReview;
 use App\Models\LiquidationRunningData;
@@ -101,6 +102,11 @@ class LiquidationController extends Controller
                 $this->liquidationService
                     ->getPaginatedLiquidations($user, $filters)
                     ->through(fn ($liquidation) => $this->formatLiquidationForList($liquidation))
+            ),
+
+            // Summary stats for the table header
+            'tableSummary' => Inertia::defer(fn () =>
+                $this->liquidationService->getTableSummary($user, $filters)
             ),
 
             // Deferred — only needed when user opens create/bulk modals
@@ -219,13 +225,31 @@ class LiquidationController extends Controller
             abort(403, 'Unauthorized.');
         }
 
+        $selectAll = (bool) $request->input('select_all', false);
+
         $validated = $request->validate([
-            'liquidation_ids' => 'required|array|min:1',
-            'liquidation_ids.*' => 'required|string|exists:liquidations,id',
+            'liquidation_ids' => $selectAll ? 'nullable|array' : 'required|array|min:1',
+            'liquidation_ids.*' => 'string|exists:liquidations,id',
             'review_remarks' => 'nullable|string',
         ]);
 
-        $ids = $validated['liquidation_ids'];
+        // When "select all pages" was used, resolve all eligible IDs server-side
+        if ($selectAll) {
+            $query = Liquidation::excludeVoided()
+                ->whereNull('reviewed_at')
+                ->whereNotNull('date_submitted');
+            if ($roleName === 'Regional Coordinator' && $user->region_id) {
+                $query->whereHas('hei', fn ($q) => $q->where('region_id', $user->region_id));
+                $query->whereDoesntHave('program', fn ($q) => $q->whereNotNull('parent_id'));
+            } elseif ($roleName === 'STUFAPS Focal') {
+                $scopedIds = $user->getParentScopedProgramIds();
+                if ($scopedIds) $query->whereIn('program_id', $scopedIds);
+            }
+            $ids = $query->pluck('id')->toArray();
+        } else {
+            $ids = $validated['liquidation_ids'];
+        }
+
         $data = collect($validated)->except('liquidation_ids')->toArray();
         $succeeded = 0;
         $errors = [];
@@ -361,7 +385,7 @@ class LiquidationController extends Controller
             'entries.*.date_fund_released'     => 'required|date',
             'entries.*.due_date'               => 'nullable|date',
             'entries.*.academic_year_id'       => 'required|exists:academic_years,id',
-            'entries.*.semester'               => 'required|string|max:50',
+            'entries.*.semester'               => 'nullable|string|max:50',
             'entries.*.batch_no'               => 'nullable|string|max:50',
             'entries.*.number_of_grantees'     => 'nullable|integer|min:0',
             'entries.*.total_disbursements'    => 'required|numeric|min:0',
@@ -442,6 +466,7 @@ class LiquidationController extends Controller
 
         $validatedRows  = [];
         $importableRows = [];
+        $seenControlNos = []; // track within-file duplicates
 
         foreach ($allRows as $index => $row) {
             if (empty(array_filter($row, fn($cell) => $cell !== null && $cell !== ''))) {
@@ -457,8 +482,27 @@ class LiquidationController extends Controller
             $parsed['row'] = $index + 1;
             $parsed['seq'] = $seq;
 
+            // Within-file duplicate control_no detection (DB check only catches existing records,
+            // not duplicates within the same uploaded file)
+            $controlNoInFile = $parsed['control_no'] ?? '';
+            if (!empty($controlNoInFile)) {
+                if (isset($seenControlNos[$controlNoInFile])) {
+                    $parsed['valid'] = false;
+                    $parsed['errors'][] = "Control No '{$controlNoInFile}' (col J) appears more than once in this file (first seen at row {$seenControlNos[$controlNoInFile]}).";
+                } else {
+                    $seenControlNos[$controlNoInFile] = $parsed['row'];
+                }
+            }
+
             // Separate importable data from display data before sending to frontend
-            $importable = $parsed['importable'];
+            $importable = $parsed['valid'] ? $parsed['importable'] : null;
+            if ($importable !== null) {
+                // Attach row context so import-time errors can include useful info
+                $importable['row_no']       = $index + 1;
+                $importable['seq']          = $seq;
+                $importable['program_code'] = $parsed['program'];
+                $importable['uii']          = $parsed['uii'];
+            }
             unset($parsed['importable']);
             $validatedRows[] = $parsed;
 
@@ -500,9 +544,12 @@ class LiquidationController extends Controller
      */
     public function bulkImportLiquidations(Request $request): JsonResponse
     {
+        // Bulk import can take several minutes for large files — lift PHP's default 30s limit
+        set_time_limit(300);
+
         $user = $request->user();
 
-        if (!in_array($user->role->name, ['Regional Coordinator', 'Admin', 'STUFAPS Focal']) && !$user->isSuperAdmin()) {
+        if (!in_array($user->role?->name, ['Regional Coordinator', 'Admin', 'STUFAPS Focal']) && !$user->isSuperAdmin()) {
             abort(403, 'Unauthorized action.');
         }
 
@@ -528,48 +575,121 @@ class LiquidationController extends Controller
             abort(403, 'Import token does not belong to the current user.');
         }
 
-        $rows     = $cached['rows'];
-        $imported = 0;
-        $errors   = [];
+        $rows      = $cached['rows'];
+        $totalRows = count($rows);
+        $imported  = 0;
+        $errors    = [];
 
         // Create import batch record for traceability / undo
         $batch = ImportBatch::create([
             'user_id'        => $user->id,
             'file_name'      => $cached['file_name'] ?? 'unknown.xlsx',
-            'total_rows'     => count($rows),
+            'total_rows'     => $totalRows,
             'imported_count' => 0,
             'status'         => 'active',
         ]);
 
+        // Publish initial progress so the frontend can start polling immediately
+        $progressKey = "import_progress_{$token}";
+        $progressTtl = now()->addMinutes(15);
+        Cache::put($progressKey, [
+            'processed' => 0,
+            'total'     => $totalRows,
+            'imported'  => 0,
+            'errors'    => 0,
+            'done'      => false,
+        ], $progressTtl);
+
+        $processed = 0;
+
         // Process in chunks: smaller transactions = faster, more resilient
         foreach (array_chunk($rows, self::IMPORT_CHUNK_SIZE) as $chunk) {
-            DB::transaction(function () use ($chunk, $user, $batch, &$imported, &$errors) {
+            DB::transaction(function () use ($chunk, $user, $batch, &$imported, &$errors, &$processed) {
                 foreach ($chunk as $rowData) {
+                    $processed++;
                     try {
                         $this->insertImportRow($rowData, $user, $batch->id);
                         $imported++;
+                    } catch (\Illuminate\Database\QueryException $e) {
+                        $isDuplicate = ($e->errorInfo[1] ?? null) === 1062;
+                        $errors[] = [
+                            'row'      => $rowData['row_no'] ?? null,
+                            'seq'      => $rowData['seq'] ?? null,
+                            'program'  => $rowData['program_code'] ?? null,
+                            'uii'      => $rowData['uii'] ?? null,
+                            'hei_name' => $rowData['hei_name'] ?? '',
+                            'error'    => $isDuplicate
+                                ? 'Already exists — this record was likely imported in a previous batch.'
+                                : 'Database error — the record could not be saved.',
+                        ];
                     } catch (\Exception $e) {
                         $errors[] = [
-                            'control_no' => $rowData['explicit_control_no'] ?? 'auto',
-                            'hei_name'   => $rowData['hei_name'] ?? '',
-                            'error'      => $e->getMessage(),
+                            'row'      => $rowData['row_no'] ?? null,
+                            'seq'      => $rowData['seq'] ?? null,
+                            'program'  => $rowData['program_code'] ?? null,
+                            'uii'      => $rowData['uii'] ?? null,
+                            'hei_name' => $rowData['hei_name'] ?? '',
+                            'error'    => $e->getMessage(),
                         ];
                     }
                 }
             });
+
+            // Persist progress after each chunk — frontend polls this
+            $batch->update(['imported_count' => $imported]);
+            Cache::put($progressKey, [
+                'processed' => $processed,
+                'total'     => $totalRows,
+                'imported'  => $imported,
+                'errors'    => count($errors),
+                'done'      => false,
+            ], $progressTtl);
         }
 
-        // Update batch with actual imported count
-        $batch->update(['imported_count' => $imported]);
+        // Mark done so frontend knows to stop polling
+        Cache::put($progressKey, [
+            'processed' => $totalRows,
+            'total'     => $totalRows,
+            'imported'  => $imported,
+            'errors'    => count($errors),
+            'done'      => true,
+        ], now()->addMinutes(5));
 
         // One-time token — clear regardless of outcome
         Cache::forget($cacheKey);
 
         if ($imported > 0) {
             ActivityLog::log('bulk_imported', "Bulk imported {$imported} liquidation(s) (batch: {$batch->id})", null, 'Liquidation');
+
+            // Single batch-level notification (not per-row) to avoid thousands of DB inserts
+            NotificationService::dispatch(
+                'bulk_imported',
+                "Bulk imported {$imported} liquidation record(s) from {$batch->file_name}",
+                null,
+                'Liquidation'
+            );
         }
 
         return $this->formatImportResponse($imported, $errors);
+    }
+
+    /**
+     * Return the current progress of an in-flight bulk import.
+     * The frontend polls this every second while the import is running.
+     */
+    public function importProgress(Request $request): JsonResponse
+    {
+        $token = $request->input('token');
+        if (!$token) {
+            return response()->json(['found' => false], 422);
+        }
+
+        $progress = Cache::get("import_progress_{$token}");
+        if (!$progress) {
+            return response()->json(['found' => false]);
+        }
+
+        return response()->json(['found' => true, ...$progress]);
     }
 
     /**
@@ -579,14 +699,17 @@ class LiquidationController extends Controller
     {
         $user = $request->user();
 
-        if (!in_array($user->role->name, ['Regional Coordinator', 'Admin', 'STUFAPS Focal']) && !$user->isSuperAdmin()) {
+        if (!in_array($user->role?->name, ['Regional Coordinator', 'Admin', 'STUFAPS Focal']) && !$user->isSuperAdmin()) {
             abort(403, 'Unauthorized action.');
         }
 
-        $batches = ImportBatch::where('user_id', $user->id)
-            ->orderByDesc('created_at')
-            ->limit(20)
-            ->get()
+        // Admin/Super Admin see all batches; others see only their own
+        $query = ImportBatch::orderByDesc('created_at')->limit(20);
+        if (!$user->isSuperAdmin() && $user->role?->name !== 'Admin') {
+            $query->where('user_id', $user->id);
+        }
+
+        $batches = $query->get()
             ->map(fn (ImportBatch $b) => [
                 'id'             => $b->id,
                 'file_name'      => $b->file_name,
@@ -595,6 +718,7 @@ class LiquidationController extends Controller
                 'status'         => $b->status,
                 'created_at'     => $b->created_at->format('M d, Y h:i A'),
                 'undone_at'      => $b->undone_at?->format('M d, Y h:i A'),
+                'imported_by'    => $b->user?->name ?? 'Unknown',
             ]);
 
         return response()->json(['batches' => $batches]);
@@ -630,22 +754,44 @@ class LiquidationController extends Controller
             ->count();
 
         $deletedCount = 0;
+        $deletedIds = [];
 
         foreach ($deletable->chunk(self::IMPORT_CHUNK_SIZE) as $chunk) {
-            DB::transaction(function () use ($chunk, &$deletedCount) {
+            DB::transaction(function () use ($chunk, &$deletedCount, &$deletedIds) {
                 foreach ($chunk as $liquidation) {
-                    // Delete related financial record and documents
-                    $liquidation->financial()->delete();
+                    $deletedIds[] = $liquidation->id;
+                    // Hard-delete related records and the liquidation itself
+                    // (forceDelete so control numbers are freed for reuse)
+                    $liquidation->financial()->forceDelete();
                     $liquidation->documents()->each(function ($doc) {
                         if (!$doc->is_gdrive && $doc->file_path) {
                             Storage::disk('public')->delete($doc->file_path);
                         }
-                        $doc->delete();
+                        $doc->forceDelete();
                     });
-                    $liquidation->delete();
+                    $liquidation->forceDelete();
                     $deletedCount++;
                 }
             });
+        }
+
+        // Also clean up any previously soft-deleted records from this batch
+        // (left over from old undo code that used soft-delete instead of forceDelete)
+        $orphaned = Liquidation::onlyTrashed()
+            ->where('import_batch_id', $batchId)
+            ->get();
+        foreach ($orphaned as $orphan) {
+            $deletedIds[] = $orphan->id;
+            $orphan->financial()->forceDelete();
+            $orphan->documents()->each(fn ($doc) => $doc->forceDelete());
+            $orphan->forceDelete();
+        }
+
+        // Clean up notifications for deleted liquidations
+        if (!empty($deletedIds)) {
+            Notification::where('action', 'bulk_imported')
+                ->whereIn('subject_id', $deletedIds)
+                ->delete();
         }
 
         $batch->update([
@@ -1441,8 +1587,8 @@ class LiquidationController extends Controller
     {
         $user = $request->user();
 
-        if (!in_array($user->role->name, ['Regional Coordinator', 'Admin']) && !$user->isSuperAdmin()) {
-            abort(403, 'Only Regional Coordinators can download this template.');
+        if (!in_array($user->role?->name, ['Regional Coordinator', 'Admin', 'STUFAPS Focal']) && !$user->isSuperAdmin()) {
+            abort(403, 'Unauthorized action.');
         }
 
         $templatePath = base_path('materials/RC-LIQUIDATION_TEMPLATE-ENTRY.xlsx');
@@ -1868,7 +2014,7 @@ class LiquidationController extends Controller
         if (empty($programCode))      $errors[] = 'Program (col B) is required.';
         if (empty($uii))              $errors[] = 'UII (col C) is required.';
         if (empty($academicYearCode)) $errors[] = 'Academic Year (col G) is required.';
-        if (empty($semesterRaw))      $errors[] = 'Semester (col H) is required.';
+        // Semester is optional — some rows may leave it blank
 
         if (!$dateFundReleased) {
             $errors[] = 'Date of Fund Released (col E) is required and must be a valid date with a 4-digit year.';
@@ -1905,7 +2051,8 @@ class LiquidationController extends Controller
             $errors[] = "UII '{$uii}' (col C) not found in the system.";
         } else {
             $heiName = $hei->name;
-            if ($user->role->name === 'Regional Coordinator' && $user->region_id && $hei->region_id !== $user->region_id) {
+            $roleName = $user->role?->name;
+            if ($roleName === 'Regional Coordinator' && $user->region_id && $hei->region_id !== $user->region_id) {
                 $errors[] = "HEI '{$uii}' does not belong to your assigned region.";
             }
         }
@@ -1914,9 +2061,12 @@ class LiquidationController extends Controller
             $errors[] = "Program '{$programCode}' (col B) not found. Use a valid program code.";
         }
 
-        $semesterId = $this->liquidationService->findSemesterId($semesterRaw);
-        if (!$semesterId) {
-            $errors[] = "Semester '{$semesterRaw}' (col H) is invalid. Use: 1ST, 2ND, SUM, First Semester, Second Semester, or Summer.";
+        $semesterId = null;
+        if (!empty($semesterRaw)) {
+            $semesterId = $this->liquidationService->findSemesterId($semesterRaw);
+            if (!$semesterId) {
+                $errors[] = "Semester '{$semesterRaw}' (col H) is invalid. Use: 1ST, 2ND, SUM, First Semester, Second Semester, or Summer.";
+            }
         }
 
         $academicYear = \App\Models\AcademicYear::findByCode($academicYearCode);
@@ -1936,6 +2086,30 @@ class LiquidationController extends Controller
             }
             if (Liquidation::where('control_no', $dvControlNo)->exists()) {
                 $errors[] = "Control No '{$dvControlNo}' (col J) already exists.";
+            }
+        }
+
+        // ── Potential duplicate check (auto control numbers only) ─────────────
+        // When the control number is not provided, we cannot check for an exact
+        // control_no match. Instead, detect records that share the same key
+        // business identifiers — these almost certainly represent a re-import.
+        if (empty($dvControlNo) && $hei && $program && $academicYear && $dateFundReleased) {
+            $fundReleasedStr = \Carbon\Carbon::instance($dateFundReleased)->format('Y-m-d');
+            $dupQuery = Liquidation::where('hei_id', $hei->id)
+                ->where('program_id', $program->id)
+                ->where('academic_year_id', $academicYear->id)
+                ->whereHas('financial', fn ($q) => $q->where('date_fund_released', $fundReleasedStr));
+
+            if ($semesterId) {
+                $dupQuery->where('semester_id', $semesterId);
+            }
+            if (!empty($batchNo)) {
+                $dupQuery->where('batch_no', $batchNo);
+            }
+
+            $existing = $dupQuery->select('control_no')->first();
+            if ($existing) {
+                $errors[] = "A record already exists for this disbursement (control no: {$existing->control_no}). This row would create a duplicate — remove it from the file.";
             }
         }
 
@@ -2062,7 +2236,8 @@ class LiquidationController extends Controller
             $controlNo = $this->liquidationService->generateControlNo($data['program_id'], $fundYear);
         } else {
             // Re-check: another import may have taken this number since validate step
-            if (Liquidation::where('control_no', $controlNo)->lockForUpdate()->exists()) {
+            // Include soft-deleted records — MySQL unique constraint covers all rows
+            if (Liquidation::withTrashed()->where('control_no', $controlNo)->lockForUpdate()->exists()) {
                 throw new \RuntimeException("Control No '{$controlNo}' was already taken. Please re-validate.");
             }
         }
@@ -2090,12 +2265,7 @@ class LiquidationController extends Controller
             'amount_liquidated'  => $data['amount_liquidated'],
         ]);
 
-        NotificationService::dispatch(
-            'bulk_imported',
-            'Bulk imported liquidation ' . $controlNo . ' for ' . $data['hei_name'],
-            $liquidation,
-            'Liquidation'
-        );
+        // Notification is sent once per batch (not per row) to avoid 1,200+ queries during bulk import
     }
 
     /**

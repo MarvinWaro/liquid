@@ -160,14 +160,13 @@ class LiquidationFinancial extends Model
             : $liquidation->trackingEntries()->whereNotNull('date_received')->latest('date_received')->first();
         $submissionDate = $lastEntry?->date_received ?? $liquidation->date_submitted;
 
-        if (!$submissionDate) {
-            return 0;
-        }
+        // If not yet submitted, fall back to today (live overdue counter)
+        $referenceDate = $submissionDate ?? now();
 
-        $diff = (int) $submissionDate->diffInDays($dueDate, false);
+        $diff = (int) $referenceDate->diffInDays($dueDate, false);
 
-        // If submission is before due date (positive diff), return 0
-        // If submission is after due date (negative diff), return the days overdue
+        // If reference date is before due date (positive diff), return 0
+        // If reference date is after due date (negative diff), return the days overdue
         return $diff < 0 ? abs($diff) : 0;
     }
 

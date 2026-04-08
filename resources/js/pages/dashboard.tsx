@@ -28,17 +28,12 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import {
-    Tooltip as UITooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Label, Sector } from 'recharts';
 import type { PieSectorDataItem } from 'recharts/types/polar/Pie';
-import { DollarSign, FileText, CheckCircle, Clock, AlertCircle, Filter, Search, ChevronLeft, ChevronRight, Building2, Users, GraduationCap, Send, ShieldAlert } from 'lucide-react';
+import { DollarSign, FileText, CheckCircle, Clock, AlertCircle, Filter, Search, Building2, Users, GraduationCap, Send, ShieldAlert } from 'lucide-react';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import { SortableDashboard, DashboardCard, DashboardToolbar } from '@/components/sortable-dashboard';
+import { DashboardCalendar } from '@/components/dashboard-calendar';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -250,11 +245,6 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
         return calendarDueDates.filter(d => d.fund_source === fundSourceFilter);
     }, [fundSourceFilter, calendarDueDates]);
 
-    // Calendar state
-    const [calendarDate, setCalendarDate] = useState(() => {
-        const now = new Date();
-        return { year: now.getFullYear(), month: now.getMonth() };
-    });
 
     // ---------- Utility functions ----------
 
@@ -425,26 +415,21 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
             cards.push({ id: sc.id, title: sc.title, colSpan: statColSpan });
         }
 
-        // Overview stats (Admin/Super Admin only)
-        if (overviewStats) {
-            cards.push({ id: 'overview-stats', title: 'Overview', colSpan: 4 });
-        }
-
-        // Charts
-        if (barChartData.length > 0) {
+        // Charts — always include while loading so skeletons render inside cards
+        if (chartsLoading || barChartData.length > 0) {
             cards.push({ id: 'liquidation-progress', title: 'Liquidation Progress per Academic Year', colSpan: 8 });
         }
-        if (chartData.length > 0) {
+        if (chartsLoading || chartData.length > 0) {
             cards.push({ id: 'status-distribution', title: 'Status Distribution', colSpan: 4 });
         }
 
         // Recent liquidations
-        if (!isAdmin && recentLiquidations && recentLiquidations.length > 0) {
+        if (!isAdmin && (chartsLoading || (recentLiquidations && recentLiquidations.length > 0))) {
             cards.push({ id: 'recent-liquidations', title: 'Recent Liquidations', colSpan: 12 });
         }
 
         return cards;
-    }, [isAdmin, userRole, statCardDefs, chartData.length, barChartData.length, recentLiquidations]);
+    }, [isAdmin, userRole, statCardDefs, chartData.length, barChartData.length, recentLiquidations, chartsLoading]);
 
     const storageKey = `dashboard-layout-v6-${isAdmin ? 'admin' : userRole || 'default'}`;
     const { layout, updateOrder, toggleVisibility, cycleExpand, showCard, resetLayout, hiddenCardIds } = useDashboardLayout(
@@ -682,171 +667,6 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
         </Table>
     );
 
-    // ---------- Calendar helpers ----------
-
-    const dueDatesByDay = useMemo(() => {
-        const map: Record<string, CalendarDueDate[]> = {};
-        for (const item of activeCalendarDueDates) {
-            if (!map[item.due_date]) map[item.due_date] = [];
-            map[item.due_date].push(item);
-        }
-        return map;
-    }, [activeCalendarDueDates]);
-
-    const calendarGrid = useMemo(() => {
-        const { year, month } = calendarDate;
-        const firstDay = new Date(year, month, 1).getDay();
-        const daysInMonth = new Date(year, month + 1, 0).getDate();
-        const days: (number | null)[] = [];
-        for (let i = 0; i < firstDay; i++) days.push(null);
-        for (let d = 1; d <= daysInMonth; d++) days.push(d);
-        return days;
-    }, [calendarDate]);
-
-    const navigateMonth = useCallback((dir: -1 | 1) => {
-        setCalendarDate(prev => {
-            let m = prev.month + dir;
-            let y = prev.year;
-            if (m < 0) { m = 11; y--; }
-            if (m > 11) { m = 0; y++; }
-            return { year: y, month: m };
-        });
-    }, []);
-
-    const todayStr = useMemo(() => {
-        const now = new Date();
-        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    }, []);
-
-    const completedStatuses = ['fully liquidated', 'voided'];
-
-    // Sorted due dates list: overdue first (nearest overdue at top), then upcoming (nearest first)
-    const sortedDueDates = useMemo(() => {
-        return [...activeCalendarDueDates]
-            .filter(d => {
-                const status = d.status.toLowerCase();
-                return !completedStatuses.includes(status);
-            })
-            .sort((a, b) => {
-                const aOverdue = a.due_date < todayStr;
-                const bOverdue = b.due_date < todayStr;
-                if (aOverdue && !bOverdue) return -1;
-                if (!aOverdue && bOverdue) return 1;
-                return a.due_date.localeCompare(b.due_date);
-            });
-    }, [activeCalendarDueDates, todayStr]);
-
-    const renderCalendar = () => {
-        const { year, month } = calendarDate;
-        const monthName = new Date(year, month).toLocaleString('en-US', { month: 'long', year: 'numeric' });
-
-        return (
-            <div className="flex flex-col h-full">
-                {/* Month navigation */}
-                <div className="flex items-center justify-between mb-4">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigateMonth(-1)}>
-                        <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <span className="text-sm font-semibold tracking-tight">{monthName}</span>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigateMonth(1)}>
-                        <ChevronRight className="h-4 w-4" />
-                    </Button>
-                </div>
-
-                {/* Day headers */}
-                <div className="grid grid-cols-7 gap-1 mb-1">
-                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                        <div key={d} className="text-center text-[11px] font-medium text-muted-foreground py-1">{d}</div>
-                    ))}
-                </div>
-
-                {/* Day cells — larger, with red bg for due dates */}
-                <div className="grid grid-cols-7 gap-1">
-                    {calendarGrid.map((day, idx) => {
-                        if (day === null) return <div key={`e-${idx}`} className="h-10" />;
-                        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                        const dues = dueDatesByDay[dateStr];
-                        const count = dues?.length || 0;
-                        const isToday = dateStr === todayStr;
-                        const hasDue = count > 0;
-                        const isOverdue = hasDue && dateStr <= todayStr && dues!.some(d => !completedStatuses.includes(d.status.toLowerCase()));
-
-                        return (
-                            <TooltipProvider key={dateStr} delayDuration={200}>
-                                <UITooltip>
-                                    <TooltipTrigger asChild>
-                                        <div
-                                            className={`h-10 w-full flex items-center justify-center rounded-lg text-sm font-medium transition-all cursor-default
-                                                ${isToday && !hasDue ? 'ring-2 ring-primary font-bold' : ''}
-                                                ${hasDue
-                                                    ? isOverdue
-                                                        ? 'bg-red-500 text-white font-bold shadow-sm'
-                                                        : 'bg-red-100 text-red-700 font-bold dark:bg-red-900/50 dark:text-red-300'
-                                                    : 'text-foreground hover:bg-muted/50'
-                                                }
-                                                ${isToday && hasDue ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : ''}
-                                            `}
-                                        >
-                                            {day}
-                                        </div>
-                                    </TooltipTrigger>
-                                    {count > 0 && (
-                                        <TooltipContent side="bottom" className="text-xs max-w-[200px]">
-                                            <p className="font-semibold">{count} due date{count > 1 ? 's' : ''}</p>
-                                            {dues!.slice(0, 3).map(d => (
-                                                <p key={d.id} className="text-muted-foreground">{d.program_code} — {d.control_no}</p>
-                                            ))}
-                                            {count > 3 && <p className="text-muted-foreground">+{count - 3} more</p>}
-                                        </TooltipContent>
-                                    )}
-                                </UITooltip>
-                            </TooltipProvider>
-                        );
-                    })}
-                </div>
-
-                {/* Legend */}
-                <div className="flex items-center gap-4 mt-4 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-red-500" /> Overdue</span>
-                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-red-100 dark:bg-red-900/50" /> Upcoming</span>
-                </div>
-
-                {/* Due dates list below calendar */}
-                {sortedDueDates.length > 0 && (
-                    <div className="mt-4 border-t pt-4">
-                        <p className="text-xs font-semibold mb-3 text-muted-foreground uppercase tracking-wider">Upcoming Due Dates</p>
-                        <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                            {sortedDueDates.map(item => {
-                                const isOverdue = item.due_date <= todayStr;
-                                const dueDate = new Date(item.due_date + 'T00:00:00');
-                                const diffDays = Math.ceil((dueDate.getTime() - new Date(todayStr + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24));
-                                const urgencyLabel = isOverdue
-                                    ? `${Math.abs(diffDays)} day${Math.abs(diffDays) !== 1 ? 's' : ''} overdue`
-                                    : diffDays === 0 ? 'Due today'
-                                    : `${diffDays} day${diffDays !== 1 ? 's' : ''} left`;
-
-                                return (
-                                    <div key={item.id} className={`rounded-lg border p-2.5 text-xs transition-colors ${isOverdue ? 'border-red-200 bg-red-50/50 dark:border-red-800/40 dark:bg-red-950/20' : ''}`}>
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="font-mono font-bold text-foreground">{item.control_no}</span>
-                                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${isOverdue ? 'bg-red-500 text-white' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'}`}>
-                                                {urgencyLabel}
-                                            </span>
-                                        </div>
-                                        <p className="text-muted-foreground truncate">{item.program_code} — {item.hei_name || 'N/A'}</p>
-                                        <p className="text-muted-foreground/70 text-[10px]">
-                                            Due: {dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                            {item.academic_year && ` • ${item.academic_year}`}
-                                        </p>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-            </div>
-        );
-    };
 
     // ---------- Overview stats card (Admin/Super Admin only) ----------
 
@@ -930,22 +750,99 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
 
     // ---------- Card renderer & header actions maps ----------
 
+    // Skeleton renderers for deferred chart cards
+    const renderSkeletonBarChart = () => (
+        <div className="space-y-4">
+            <div className="flex items-center gap-3">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="h-3 w-22" />
+            </div>
+            <div className="flex items-end gap-2 h-[240px]">
+                {[0.55, 0.75, 0.45, 0.65, 0.85, 0.5, 0.7].map((h, i) => (
+                    <Skeleton key={i} className="flex-1 rounded-sm" style={{ height: `${h * 100}%` }} />
+                ))}
+            </div>
+            <div className="flex justify-center gap-4">
+                {[1, 2, 3, 4].map(i => (
+                    <div key={i} className="flex items-center gap-1.5">
+                        <Skeleton className="h-2.5 w-2.5 rounded-sm" />
+                        <Skeleton className="h-3 w-20" />
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+
+    const renderSkeletonPieChart = () => (
+        <div className="flex flex-col items-center gap-4">
+            <Skeleton className="h-[180px] w-[180px] rounded-full" />
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 w-full px-2">
+                {[1, 2, 3, 4, 5, 6].map(i => (
+                    <div key={i} className="flex items-center gap-1.5">
+                        <Skeleton className="h-2.5 w-2.5 rounded-sm shrink-0" />
+                        <Skeleton className="h-3 flex-1" />
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+
+    const renderSkeletonOverviewStats = () => (
+        <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+                {[1, 2, 3].map(i => <Skeleton key={i} className="h-20 rounded-lg" />)}
+            </div>
+            <Skeleton className="h-28 rounded-lg" />
+            <Skeleton className="h-28 rounded-lg" />
+        </div>
+    );
+
+    const renderSkeletonRecentLiquidations = () => (
+        <div>
+            <div className="flex gap-4 px-6 py-2 border-b">
+                {[28, 0, 20, 24, 16, 20].map((w, i) => (
+                    <Skeleton key={i} className={`h-3 ${w ? `w-${w}` : 'flex-1'}`} />
+                ))}
+            </div>
+            {[1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="flex gap-4 px-6 py-3.5 border-b last:border-0">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-4 flex-1" />
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                    <Skeleton className="h-4 w-20" />
+                </div>
+            ))}
+        </div>
+    );
+
     // Build card renderers including individual stat cards
     const cardRenderers: Record<string, () => React.ReactNode> = {
-        'status-distribution': renderStatusDistribution,
-        'liquidation-progress': renderLiquidationProgress,
-        'recent-liquidations': renderRecentLiquidations,
-        ...(overviewStats ? { 'overview-stats': renderOverviewStats } : {}),
+        'status-distribution': chartsLoading ? renderSkeletonPieChart : renderStatusDistribution,
+        'liquidation-progress': chartsLoading ? renderSkeletonBarChart : renderLiquidationProgress,
+        'recent-liquidations': chartsLoading ? renderSkeletonRecentLiquidations : renderRecentLiquidations,
+        'overview-stats': chartsLoading ? renderSkeletonOverviewStats : renderOverviewStats,
     };
 
     // Add stat card renderers dynamically
     for (const sc of statCardDefs) {
-        cardRenderers[sc.id] = () => (
-            <>
-                <div className={`text-2xl font-bold ${sc.valueClass || ''}`}>{sc.value}</div>
-                <p className="text-xs text-muted-foreground">{sc.subtitle}</p>
-            </>
-        );
+        const captured = sc;
+        cardRenderers[sc.id] = chartsLoading
+            ? () => (
+                <div className="space-y-2 py-1">
+                    <Skeleton className="h-7 w-28" />
+                    <Skeleton className="h-3 w-40" />
+                </div>
+            )
+            : () => (
+                <>
+                    <div className={`text-2xl font-bold ${captured.valueClass || ''}`}>{captured.value}</div>
+                    <p className="text-xs text-muted-foreground">{captured.subtitle}</p>
+                </>
+            );
     }
 
     // Stat card icon lookup for header actions
@@ -1071,23 +968,6 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                     })}
                             </SortableDashboard>
 
-                            {/* Skeleton placeholders while deferred chart data loads */}
-                            {chartsLoading && (
-                                <div className="grid grid-cols-12 gap-4 mt-4">
-                                    <div className="col-span-8">
-                                        <div className="rounded-xl border bg-card p-6 space-y-4">
-                                            <Skeleton className="h-4 w-48" />
-                                            <Skeleton className="h-[200px] w-full rounded-lg" />
-                                        </div>
-                                    </div>
-                                    <div className="col-span-4">
-                                        <div className="rounded-xl border bg-card p-6 space-y-4">
-                                            <Skeleton className="h-4 w-32" />
-                                            <Skeleton className="h-[200px] w-full rounded-full mx-auto max-w-[200px]" />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
                         </div>
 
                         {/* Right: Calendar Sidebar */}
@@ -1099,10 +979,29 @@ export default function Dashboard({ isAdmin, summaryPerAY, summaryPerHEI, status
                                 <CardContent>
                                     {chartsLoading ? (
                                         <div className="space-y-3">
-                                            <Skeleton className="h-[250px] w-full rounded-lg" />
-                                            <Skeleton className="h-4 w-32" />
+                                            {/* Month nav */}
+                                            <div className="flex items-center justify-between mb-4">
+                                                <Skeleton className="h-8 w-8 rounded-md" />
+                                                <Skeleton className="h-4 w-32" />
+                                                <Skeleton className="h-8 w-8 rounded-md" />
+                                            </div>
+                                            {/* Day headers */}
+                                            <div className="grid grid-cols-7 gap-1 mb-1">
+                                                {[...Array(7)].map((_, i) => <Skeleton key={i} className="h-3 rounded" />)}
+                                            </div>
+                                            {/* Calendar grid */}
+                                            <div className="grid grid-cols-7 gap-1">
+                                                {[...Array(35)].map((_, i) => <Skeleton key={i} className="h-10 rounded-lg" />)}
+                                            </div>
+                                            {/* Legend */}
+                                            <div className="flex items-center gap-4 mt-4">
+                                                <Skeleton className="h-3 w-20" />
+                                                <Skeleton className="h-3 w-20" />
+                                            </div>
                                         </div>
-                                    ) : renderCalendar()}
+                                    ) : (
+                                        <DashboardCalendar dueDates={activeCalendarDueDates} />
+                                    )}
                                 </CardContent>
                             </Card>
                         </div>

@@ -28,6 +28,36 @@ class LiquidationService
     private const CACHE_TTL = 3600;
 
     /**
+     * Get summary stats for the liquidation table (total records, disbursed, liquidated, unliquidated).
+     */
+    public function getTableSummary(User $user, array $filters = []): array
+    {
+        $query = Liquidation::join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id');
+
+        $this->applyRoleFilter($query, $user);
+
+        $isFilteringVoided = ($filters['liquidation_status'] ?? '') === 'voided';
+        if (!$isFilteringVoided) {
+            $query->excludeVoided();
+        }
+
+        $this->applyFilters($query, $filters);
+
+        $stats = $query->selectRaw('COUNT(*) as total_records')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursed')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_liquidated')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received - liquidation_financials.amount_liquidated), 0) as total_unliquidated')
+            ->first();
+
+        return [
+            'total_records' => (int) ($stats->total_records ?? 0),
+            'total_disbursed' => (float) ($stats->total_disbursed ?? 0),
+            'total_liquidated' => (float) ($stats->total_liquidated ?? 0),
+            'total_unliquidated' => (float) ($stats->total_unliquidated ?? 0),
+        ];
+    }
+
+    /**
      * Get paginated liquidations based on user role.
      */
     public function getPaginatedLiquidations(User $user, array $filters = []): LengthAwarePaginator
@@ -59,11 +89,10 @@ class LiquidationService
         if ($roleName === 'HEI' && $user->hei_id) {
             $query->where('hei_id', $user->hei_id);
         } elseif ($roleName === 'Regional Coordinator' && $user->region_id) {
-            // RCs see only liquidations from HEIs in their region, excluding STUFAPS sub-programs
+            // RCs see liquidations from HEIs in their region, excluding STUFAPS sub-programs
             $query->whereHas('hei', function (Builder $q) use ($user) {
                 $q->where('region_id', $user->region_id);
             });
-            // Exclude STUFAPS sub-program liquidations (programs with a parent_id)
             $query->whereDoesntHave('program', function (Builder $q) {
                 $q->whereNotNull('parent_id');
             });
@@ -176,7 +205,7 @@ class LiquidationService
                 }
             }
 
-            $semesterId = $this->findSemesterId($data['semester']);
+            $semesterId = !empty($data['semester']) ? $this->findSemesterId($data['semester']) : null;
 
             // Determine document status ID - default to NONE if not provided
             $documentStatusCode = !empty($data['document_status']) ? $data['document_status'] : 'NONE';
@@ -524,8 +553,11 @@ class LiquidationService
         $prefix = $programCode . '-' . $year . '-';
         $prefixLen = strlen($prefix) + 1; // +1 for 1-based SUBSTRING
 
-        // Get all occupied sequence numbers for this prefix, sorted ascending
-        $occupied = Liquidation::where('control_no', 'like', $prefix . '%')
+        // Get all occupied sequence numbers for this prefix, sorted ascending.
+        // Include soft-deleted records — their control numbers are still reserved
+        // in the unique index and cannot be reused.
+        $occupied = Liquidation::withTrashed()
+            ->where('control_no', 'like', $prefix . '%')
             ->lockForUpdate()
             ->selectRaw('CAST(SUBSTRING(control_no, ' . $prefixLen . ') AS UNSIGNED) as seq')
             ->orderBy('seq')

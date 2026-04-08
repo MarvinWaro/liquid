@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -71,6 +71,7 @@ interface ImportBatchRecord {
     status: 'active' | 'undone';
     created_at: string;
     undone_at: string | null;
+    imported_by?: string;
 }
 
 interface ImportPreviewDialogProps {
@@ -78,6 +79,7 @@ interface ImportPreviewDialogProps {
     onClose: () => void;
     onImportComplete: (result: { imported: number; errors: any[] }) => void;
     initialFile?: File | null;
+    initialShowHistory?: boolean;
 }
 
 // --- Component ------------------------------------------------------------
@@ -87,12 +89,15 @@ export function ImportPreviewDialog({
     onClose,
     onImportComplete,
     initialFile,
+    initialShowHistory,
 }: ImportPreviewDialogProps) {
     const ROWS_PER_PAGE = 100;
 
     const [step, setStep] = useState<'idle' | 'validating' | 'preview' | 'importing'>('idle');
     const [rows, setRows] = useState<ValidatedRow[]>([]);
     const [summary, setSummary] = useState({ total: 0, valid: 0, errors: 0 });
+    const [uploadProgress, setUploadProgress] = useState(0); // 0-100
+    const [uploadPhase, setUploadPhase] = useState<'uploading' | 'processing'>('uploading');
     const [selectedRow, setSelectedRow] = useState<ValidatedRow | null>(null);
     const [detailOpen, setDetailOpen] = useState(false);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -101,6 +106,25 @@ export function ImportPreviewDialog({
     const [rowFilter, setRowFilter] = useState<'all' | 'valid' | 'errors'>('all');
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const processedFileRef = React.useRef<File | null>(null);
+
+    // Import progress polling
+    const [importProgress, setImportProgress] = useState<{
+        processed: number;
+        total: number;
+        imported: number;
+        errors: number;
+    } | null>(null);
+    const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    const stopPolling = useCallback(() => {
+        if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+        }
+    }, []);
+
+    // Clean up polling on unmount
+    useEffect(() => () => stopPolling(), [stopPolling]);
 
     // Import history state
     const [showHistory, setShowHistory] = useState(false);
@@ -136,7 +160,16 @@ export function ImportPreviewDialog({
         }
     }, [isOpen, initialFile]);
 
+    // Auto-open history when opened via "Import History" menu
+    React.useEffect(() => {
+        if (isOpen && initialShowHistory && !showHistory) {
+            setShowHistory(true);
+            fetchBatches();
+        }
+    }, [isOpen, initialShowHistory]);
+
     const reset = useCallback(() => {
+        stopPolling();
         setStep('idle');
         setRows([]);
         setSummary({ total: 0, valid: 0, errors: 0 });
@@ -146,10 +179,13 @@ export function ImportPreviewDialog({
         setImportToken(null);
         setCurrentPage(1);
         setRowFilter('all');
+        setUploadProgress(0);
+        setUploadPhase('uploading');
         setShowHistory(false);
         setConfirmUndoId(null);
+        setImportProgress(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
-    }, []);
+    }, [stopPolling]);
 
     const handleClose = () => {
         reset();
@@ -165,6 +201,8 @@ export function ImportPreviewDialog({
 
     const validateFile = async (file: File) => {
         setStep('validating');
+        setUploadProgress(0);
+        setUploadPhase('uploading');
         setSelectedRow(null);
         setDetailOpen(false);
 
@@ -174,6 +212,13 @@ export function ImportPreviewDialog({
         try {
             const response = await axios.post(route('liquidation.validate-import'), formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
+                onUploadProgress: (e) => {
+                    if (e.total) {
+                        const pct = Math.round((e.loaded / e.total) * 100);
+                        setUploadProgress(pct);
+                        if (pct >= 100) setUploadPhase('processing');
+                    }
+                },
             });
 
             if (response.data.success) {
@@ -200,14 +245,37 @@ export function ImportPreviewDialog({
     const handleImport = async () => {
         if (!importToken || summary.valid === 0) return;
 
+        const token = importToken;
         setStep('importing');
+        setImportProgress({ processed: 0, total: summary.valid, imported: 0, errors: 0 });
+
+        // Poll progress every 500ms while the import runs server-side
+        pollIntervalRef.current = setInterval(async () => {
+            try {
+                const res = await axios.get(route('liquidation.import-progress'), {
+                    params: { token },
+                });
+                if (res.data.found) {
+                    setImportProgress({
+                        processed: res.data.processed ?? 0,
+                        total: res.data.total ?? summary.valid,
+                        imported: res.data.imported ?? 0,
+                        errors: res.data.errors ?? 0,
+                    });
+                    if (res.data.done) stopPolling();
+                }
+            } catch {
+                // silently ignore poll failures — the main request will still resolve
+            }
+        }, 1500);
 
         try {
             // Send the server-side token — no file re-upload needed
             const response = await axios.post(route('liquidation.bulk-import'), {
-                import_token: importToken,
+                import_token: token,
             });
 
+            stopPolling();
             const imported = response.data.imported ?? 0;
             const errors = response.data.errors ?? [];
 
@@ -218,6 +286,7 @@ export function ImportPreviewDialog({
             onImportComplete({ imported, errors });
             handleClose();
         } catch (error: any) {
+            stopPolling();
             const errors = error.response?.data?.errors ?? [];
             const imported = error.response?.data?.imported ?? 0;
             onImportComplete({ imported, errors });
@@ -273,7 +342,7 @@ export function ImportPreviewDialog({
         <Dialog open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
             <DialogContent className="max-w-[90vw] sm:max-w-[90vw] w-[1400px] max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
                 {/* Header */}
-                <DialogHeader className="px-6 pt-6 pb-4 shrink-0 border-b">
+                <DialogHeader className="px-6 pt-6 pb-4 shrink-0 border-b pr-14">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
                             {showHistory ? (
@@ -368,6 +437,7 @@ export function ImportPreviewDialog({
                                                 </div>
                                                 <div className="flex items-center gap-4 text-xs text-muted-foreground">
                                                     <span>{batch.imported_count} of {batch.total_rows} imported</span>
+                                                    {batch.imported_by && <span>by {batch.imported_by}</span>}
                                                     <span>{batch.created_at}</span>
                                                     {batch.undone_at && (
                                                         <span className="text-orange-600 dark:text-orange-400">
@@ -428,24 +498,92 @@ export function ImportPreviewDialog({
                         </div>
                     )}
 
-                    {/* Validating spinner */}
+                    {/* Validating with progress */}
                     {!showHistory && step === 'validating' && (
-                        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-10">
+                        <div className="flex-1 flex flex-col items-center justify-center gap-5 p-10">
                             <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                            <p className="text-sm text-muted-foreground">Validating your file...</p>
+                            <div className="w-full max-w-sm space-y-2">
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-muted-foreground">
+                                        {uploadPhase === 'uploading' ? 'Uploading file...' : 'Processing rows...'}
+                                    </span>
+                                    <span className="font-mono text-xs text-muted-foreground">
+                                        {uploadPhase === 'uploading' ? `${uploadProgress}%` : ''}
+                                    </span>
+                                </div>
+                                <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                                    {uploadPhase === 'uploading' ? (
+                                        <div
+                                            className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
+                                            style={{ width: `${uploadProgress}%` }}
+                                        />
+                                    ) : (
+                                        <div className="h-full w-full rounded-full bg-primary/30 relative overflow-hidden">
+                                            <div className="absolute inset-0 bg-primary animate-progress-indeterminate" />
+                                        </div>
+                                    )}
+                                </div>
+                                <p className="text-xs text-center text-muted-foreground">
+                                    {uploadPhase === 'uploading'
+                                        ? 'Uploading your Excel file to the server...'
+                                        : 'Validating each row — this may take a moment for large files.'
+                                    }
+                                </p>
+                            </div>
                         </div>
                     )}
 
-                    {/* Importing spinner */}
+                    {/* Importing — progress bar */}
                     {!showHistory && step === 'importing' && (
-                        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-10">
-                            <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                            <p className="text-sm text-muted-foreground">
-                                Importing {summary.valid} record(s)...
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                                Large files are processed in batches — please do not close this window.
-                            </p>
+                        <div className="flex-1 flex flex-col items-center justify-center gap-6 p-10 max-w-md mx-auto w-full">
+                            <div className="flex flex-col items-center gap-2">
+                                <Loader2 className="h-9 w-9 animate-spin text-primary" />
+                                <p className="text-sm font-medium">Importing records…</p>
+                                <p className="text-xs text-muted-foreground text-center">
+                                    Processing in batches — please keep this window open.
+                                </p>
+                            </div>
+
+                            {/* Progress bar */}
+                            {importProgress && importProgress.total > 0 && (() => {
+                                const pct = Math.round((importProgress.processed / importProgress.total) * 100);
+                                return (
+                                    <div className="w-full space-y-2">
+                                        <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
+                                            <div
+                                                className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
+                                                style={{ width: `${pct}%` }}
+                                            />
+                                        </div>
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                            <span>
+                                                {importProgress.processed.toLocaleString()} / {importProgress.total.toLocaleString()} rows
+                                            </span>
+                                            <span className="font-semibold text-foreground">{pct}%</span>
+                                        </div>
+                                        <div className="flex gap-4 text-xs pt-1">
+                                            <span className="text-emerald-600 dark:text-emerald-400">
+                                                ✓ {importProgress.imported.toLocaleString()} saved
+                                            </span>
+                                            {importProgress.errors > 0 && (
+                                                <span className="text-red-500">
+                                                    ✗ {importProgress.errors.toLocaleString()} skipped
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Indeterminate bar while waiting for first poll */}
+                            {(!importProgress || importProgress.total === 0) && (
+                                <div className="w-full space-y-2">
+                                    <div className="w-full bg-muted rounded-full h-3 overflow-hidden relative">
+                                        <div className="absolute inset-y-0 left-0 bg-primary/70 rounded-full animate-progress-indeterminate" />
+                                    </div>
+                                    <p className="text-xs text-muted-foreground text-center">Initializing…</p>
+                                </div>
+                            )}
                         </div>
                     )}
 

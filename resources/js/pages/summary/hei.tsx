@@ -49,6 +49,7 @@ interface HEISummary {
     hei: {
         id: string;
         name: string;
+        uii?: string;
     };
     total_grantees: number;
     total_disbursements: number;
@@ -87,11 +88,21 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
     };
     const [searchQuery, setSearchQuery] = useState<string>('');
     const [showChart, setShowChart] = useState(false);
+    const [page, setPage] = useState(1);
+    const PAGE_SIZE = 25;
 
     const filtered = summaryPerHEI.filter(item => {
         if (!searchQuery.trim()) return true;
-        return item.hei?.name.toLowerCase().includes(searchQuery.toLowerCase());
+        const q = searchQuery.toLowerCase();
+        return (
+            item.hei?.name.toLowerCase().includes(q) ||
+            (item.hei?.uii ?? '').toLowerCase().includes(q)
+        );
     });
+
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    const currentPage = Math.min(page, totalPages);
+    const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
     const selectedProgram = programs.find(p => p.id === filters?.program);
 
@@ -115,8 +126,10 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
         return `${parseFloat(percentage.toString()).toFixed(2)}%`;
     };
 
-    const formatNumber = (value: number | null | undefined) => {
-        return (value ?? 0).toLocaleString();
+    const formatNumber = (value: number | string | null | undefined) => {
+        const num = parseFloat(String(value ?? 0));
+        if (isNaN(num)) return '0';
+        return Math.round(num).toLocaleString('en-US');
     };
 
     return (
@@ -169,7 +182,7 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
                             <Input
                                 placeholder="Search HEI..."
                                 value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
                                 className="w-[200px] h-9 text-xs"
                             />
                             <Button
@@ -237,12 +250,12 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
                             </div>
                         </div>
                     ) : (
-                        <div className="rounded-lg border bg-card">
+                        <div className="rounded-lg border bg-card overflow-hidden [&_td]:border-r [&_td]:border-border/40 [&_th]:border-r [&_th]:border-border/40 [&_td:last-child]:border-r-0 [&_th:last-child]:border-r-0">
                             <Table>
                                 <TableHeader>
                                     <TableRow className="border-b hover:bg-transparent">
                                         <TableHead className="h-9 pl-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">No.</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Name of HEI</TableHead>
+                                        <TableHead className="h-9 min-w-[200px] text-xs font-medium tracking-wider text-muted-foreground uppercase">Name of HEI</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase text-right">Grantees</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Disbursements</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Amount Liquidated</TableHead>
@@ -263,10 +276,29 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        filtered.map((row, index) => (
+                                        paginated.map((row, index) => (
                                             <TableRow key={row.hei_id}>
-                                                <TableCell className="pl-6 font-medium">{index + 1}</TableCell>
-                                                <TableCell className="font-medium">{row.hei?.name || 'N/A'}</TableCell>
+                                                <TableCell className="pl-6 font-medium text-muted-foreground text-xs">
+                                                    {(currentPage - 1) * PAGE_SIZE + index + 1}
+                                                </TableCell>
+                                                <TableCell className="max-w-[220px] py-2.5">
+                                                    <TooltipProvider>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <div className="cursor-default">
+                                                                    <div className="font-medium text-sm truncate">{row.hei?.name || 'N/A'}</div>
+                                                                    {row.hei?.uii && (
+                                                                        <div className="text-xs text-muted-foreground font-mono">{row.hei.uii}</div>
+                                                                    )}
+                                                                </div>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent side="right" className="max-w-xs">
+                                                                <p className="font-medium">{row.hei?.name || 'N/A'}</p>
+                                                                {row.hei?.uii && <p className="text-xs text-muted-foreground font-mono">{row.hei.uii}</p>}
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </TooltipProvider>
+                                                </TableCell>
                                                 <TableCell className="font-mono text-right">{formatNumber(row.total_grantees)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.total_disbursements)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.total_amount_liquidated)}</TableCell>
@@ -282,6 +314,38 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
                                     )}
                                 </TableBody>
                             </Table>
+
+                            {/* Pagination footer */}
+                            {filtered.length > PAGE_SIZE && (
+                                <div className="flex items-center justify-between px-6 py-3 border-t text-sm text-muted-foreground">
+                                    <span>
+                                        Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} HEIs
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 px-2.5 text-xs"
+                                            disabled={currentPage === 1}
+                                            onClick={() => setPage(p => Math.max(1, p - 1))}
+                                        >
+                                            Previous
+                                        </Button>
+                                        <span className="px-2 text-xs">
+                                            Page {currentPage} of {totalPages}
+                                        </span>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 px-2.5 text-xs"
+                                            disabled={currentPage === totalPages}
+                                            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                        >
+                                            Next
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

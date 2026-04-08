@@ -16,7 +16,7 @@ class BulkImportRequest extends FormRequest
         $user = $this->user();
 
         return $user && (
-            in_array($user->role->name, ['Regional Coordinator', 'Admin', 'STUFAPS Focal']) ||
+            in_array($user->role?->name, ['Regional Coordinator', 'Admin', 'STUFAPS Focal']) ||
             $user->isSuperAdmin()
         );
     }

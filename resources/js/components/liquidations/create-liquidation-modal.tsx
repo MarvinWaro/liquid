@@ -512,7 +512,7 @@ export function CreateLiquidationModal({
 
                         {/* Semester */}
                         <div className="space-y-2">
-                            <Label htmlFor="semester">Semester *</Label>
+                            <Label htmlFor="semester">Semester</Label>
                             <Select
                                 value={formData.semester}
                                 onValueChange={(value) => handleInputChange('semester', value)}
