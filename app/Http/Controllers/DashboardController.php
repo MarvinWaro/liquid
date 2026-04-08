@@ -239,6 +239,8 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)), 0) as unliquidated_amount')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_compliance')
+            ->selectRaw('COALESCE(SUM(CASE WHEN document_statuses.code IN ("COMPLETE", "PARTIAL") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as unliquidated_with_submission')
+            ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN document_statuses.code IN ("COMPLETE", "PARTIAL") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as total_with_submission')
             ->selectRaw('ROUND((COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_liquidation')
             ->selectRaw('ROUND(COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_compliance')
             ->selectRaw('ROUND((COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN document_statuses.code IN ("COMPLETE", "PARTIAL") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_submission')
@@ -291,8 +293,13 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
             ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)), 0) as unliquidated_amount')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_compliance')
+            // Submission columns: unliquidated portion where documents have been submitted (COMPLETE or PARTIAL)
+            ->selectRaw('COALESCE(SUM(CASE WHEN document_statuses.code IN ("COMPLETE", "PARTIAL") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as unliquidated_with_submission')
+            // Total With Submission = Liquidated + Unliquidated With Submission (matches spreadsheet =D+E)
+            ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN document_statuses.code IN ("COMPLETE", "PARTIAL") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as total_with_submission')
             ->selectRaw('ROUND((COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_liquidation')
             ->selectRaw('ROUND(COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_compliance')
+            // % Submission = Total With Submission / Total Disbursements (matches spreadsheet =F/C)
             ->selectRaw('ROUND((COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN document_statuses.code IN ("COMPLETE", "PARTIAL") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as percentage_submission')
             ->groupBy('liquidations.hei_id', 'heis.name', 'heis.uii')
             ->get()
@@ -306,6 +313,8 @@ class DashboardController extends Controller
                     'for_endorsement' => $item->for_endorsement,
                     'unliquidated_amount' => $item->unliquidated_amount,
                     'for_compliance' => $item->for_compliance,
+                    'unliquidated_with_submission' => $item->unliquidated_with_submission,
+                    'total_with_submission' => $item->total_with_submission,
                     'percentage_liquidation' => $item->percentage_liquidation,
                     'percentage_compliance' => $item->percentage_compliance,
                     'percentage_submission' => $item->percentage_submission,

@@ -51,6 +51,8 @@ interface AYSummary {
     unliquidated_amount: number;
     for_endorsement: number;
     for_compliance: number;
+    unliquidated_with_submission: number;
+    total_with_submission: number;
     percentage_liquidation: number;
     percentage_compliance: number;
     percentage_submission: number;
@@ -74,11 +76,12 @@ export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], fi
     // TES formula: (Liquidated + For Endorsement) / Disbursed
     const isStufapsFocal = userRole === 'STUFAPS Focal';
     const computePercentLiquidation = (row: AYSummary) => {
-        if (!row.total_disbursements) return 0;
-        const numerator = isStufapsFocal
-            ? row.liquidated_amount
-            : row.liquidated_amount + row.for_endorsement;
-        return (numerator / row.total_disbursements) * 100;
+        const disbursements = Number(row.total_disbursements) || 0;
+        if (!disbursements) return 0;
+        const liquidated = Number(row.liquidated_amount) || 0;
+        const endorsed = Number(row.for_endorsement) || 0;
+        const numerator = isStufapsFocal ? liquidated : liquidated + endorsed;
+        return (numerator / disbursements) * 100;
     };
     const [ayFilter, setAYFilter] = useState<string>('all');
     const [showChart, setShowChart] = useState(false);
@@ -249,13 +252,14 @@ export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], fi
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Compliance</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Liquidation</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Compliance</TableHead>
+                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Amount With Submission</TableHead>
                                         <TableHead className="h-9 pr-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Submission</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {filtered.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
+                                            <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
                                                 No data available.
                                             </TableCell>
                                         </TableRow>
@@ -266,12 +270,28 @@ export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], fi
                                                 <TableCell className="font-mono text-right">{formatNumber(row.total_grantees)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.total_disbursements)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.liquidated_amount)}</TableCell>
-                                                <TableCell className="font-mono text-red-500">{formatCurrency(row.total_disbursements - row.liquidated_amount)}</TableCell>
+                                                <TableCell className="font-mono text-red-500">{formatCurrency(Number(row.total_disbursements) - Number(row.liquidated_amount))}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.for_endorsement)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.for_compliance)}</TableCell>
-                                                <TableCell>{formatPercentage(computePercentLiquidation(row))}</TableCell>
-                                                <TableCell>{formatPercentage(row.percentage_compliance)}</TableCell>
-                                                <TableCell className="pr-6">{formatPercentage(row.percentage_submission)}</TableCell>
+                                                <TableCell className={
+                                                    computePercentLiquidation(row) >= 100 ? 'text-green-600 font-medium'
+                                                    : computePercentLiquidation(row) >= 75 ? 'text-blue-600 font-medium'
+                                                    : computePercentLiquidation(row) >= 50 ? 'text-orange-500 font-medium'
+                                                    : 'text-red-500 font-medium'
+                                                }>{formatPercentage(computePercentLiquidation(row))}</TableCell>
+                                                <TableCell className={
+                                                    (Number(row.percentage_compliance) || 0) >= 100 ? 'text-green-600 font-medium'
+                                                    : (Number(row.percentage_compliance) || 0) >= 75 ? 'text-blue-600 font-medium'
+                                                    : (Number(row.percentage_compliance) || 0) >= 50 ? 'text-orange-500 font-medium'
+                                                    : 'text-red-500 font-medium'
+                                                }>{formatPercentage(row.percentage_compliance)}</TableCell>
+                                                <TableCell className="font-mono">{formatCurrency(Number(row.total_with_submission))}</TableCell>
+                                                <TableCell className={`pr-6 ${
+                                                    (Number(row.percentage_submission) || 0) >= 100 ? 'text-green-600 font-medium'
+                                                    : (Number(row.percentage_submission) || 0) >= 75 ? 'text-blue-600 font-medium'
+                                                    : (Number(row.percentage_submission) || 0) >= 50 ? 'text-orange-500 font-medium'
+                                                    : 'text-red-500 font-medium'
+                                                }`}>{formatPercentage(row.percentage_submission)}</TableCell>
                                             </TableRow>
                                         ))
                                     )}
