@@ -112,6 +112,8 @@ export function CreateLiquidationModal({
 }: CreateLiquidationModalProps) {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [heiPopoverOpen, setHeiPopoverOpen] = useState(false);
+    const [fundReleasedCalOpen, setFundReleasedCalOpen] = useState(false);
+    const [dueDateCalOpen, setDueDateCalOpen] = useState(false);
     const [heiSearch, setHeiSearch] = useState('');
     const [selectedHei, setSelectedHei] = useState<HEIOption | null>(null);
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -166,6 +168,7 @@ export function CreateLiquidationModal({
             setSelectedHei(null);
             setHeiSearch('');
             setFieldErrors({});
+            setControlNoManuallyEdited(false);
         }
     }, [isOpen]);
 
@@ -194,12 +197,47 @@ export function CreateLiquidationModal({
         return program ? `${program.code}-` : '';
     }, [formData.program_id, programs]);
 
+    // Auto-fetch next control number when program + date_fund_released are set
+    const [isAutoFillingControlNo, setIsAutoFillingControlNo] = useState(false);
+    const [controlNoManuallyEdited, setControlNoManuallyEdited] = useState(false);
+
+    useEffect(() => {
+        if (!formData.program_id || !formData.date_fund_released || controlNoManuallyEdited) return;
+
+        const year = new Date(formData.date_fund_released + 'T00:00:00').getFullYear();
+        if (isNaN(year)) return;
+
+        const controller = new AbortController();
+        setIsAutoFillingControlNo(true);
+
+        axios.get(route('liquidation.next-control-no'), {
+            params: { program_id: formData.program_id, year },
+            signal: controller.signal,
+        })
+        .then(res => {
+            const fullControlNo = res.data.control_no as string;
+            // Strip the program prefix to get just the suffix (e.g., "2026-0001")
+            const prefix = controlNoPrefix;
+            const suffix = fullControlNo.startsWith(prefix) ? fullControlNo.slice(prefix.length) : fullControlNo;
+            setFormData(prev => ({ ...prev, dv_control_no: suffix }));
+        })
+        .catch(() => {})
+        .finally(() => setIsAutoFillingControlNo(false));
+
+        return () => controller.abort();
+    }, [formData.program_id, formData.date_fund_released, controlNoManuallyEdited, controlNoPrefix]);
+
     const handleInputChange = (field: string, value: string) => {
         setFormData(prev => {
             const updated = { ...prev, [field]: value };
-            // Reset control no suffix when program changes
+            // Reset control no and auto-fill flag when program changes
             if (field === 'program_id') {
                 updated.dv_control_no = '';
+                setControlNoManuallyEdited(false);
+            }
+            // Reset auto-fill flag when date changes
+            if (field === 'date_fund_released') {
+                setControlNoManuallyEdited(false);
             }
             // Auto-compute due date based on program type
             const shouldRecomputeDueDate = field === 'date_fund_released' || field === 'program_id';
@@ -238,7 +276,9 @@ export function CreateLiquidationModal({
         try {
             const submitData = {
                 ...formData,
-                dv_control_no: controlNoPrefix + formData.dv_control_no,
+                dv_control_no: formData.dv_control_no.trim()
+                    ? controlNoPrefix + formData.dv_control_no.trim()
+                    : null,
             };
             const response = await axios.post(route('liquidation.store'), submitData);
 
@@ -315,14 +355,19 @@ export function CreateLiquidationModal({
                                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                     </Button>
                                 </PopoverTrigger>
-                                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                                <PopoverContent
+                                    className="w-[--radix-popover-trigger-width] p-0"
+                                    align="start"
+                                    onWheel={(e) => e.stopPropagation()}
+                                    onTouchMove={(e) => e.stopPropagation()}
+                                >
                                     <Command shouldFilter={false}>
                                         <CommandInput
                                             placeholder="Type UII or school name..."
                                             value={heiSearch}
                                             onValueChange={setHeiSearch}
                                         />
-                                        <CommandList>
+                                        <CommandList className="max-h-[200px] overflow-y-auto overscroll-contain">
                                             <CommandEmpty>No HEI found.</CommandEmpty>
                                             <CommandGroup>
                                                 {filteredHeis.map((hei) => (
@@ -373,7 +418,7 @@ export function CreateLiquidationModal({
                         {/* Date of Fund Released */}
                         <div className="space-y-2">
                             <Label>Date of Fund Released *</Label>
-                            <Popover>
+                            <Popover open={fundReleasedCalOpen} onOpenChange={setFundReleasedCalOpen}>
                                 <PopoverTrigger asChild>
                                     <Button
                                         variant="outline"
@@ -393,7 +438,10 @@ export function CreateLiquidationModal({
                                     <Calendar
                                         mode="single"
                                         selected={formData.date_fund_released ? parse(formData.date_fund_released, 'yyyy-MM-dd', new Date()) : undefined}
-                                        onSelect={(date) => handleInputChange('date_fund_released', date ? format(date, 'yyyy-MM-dd') : '')}
+                                        onSelect={(date) => {
+                                            handleInputChange('date_fund_released', date ? format(date, 'yyyy-MM-dd') : '');
+                                            setFundReleasedCalOpen(false);
+                                        }}
                                         initialFocus
                                     />
                                 </PopoverContent>
@@ -406,7 +454,7 @@ export function CreateLiquidationModal({
                         {/* Due Date */}
                         <div className="space-y-2">
                             <Label>Due Date</Label>
-                            <Popover>
+                            <Popover open={dueDateCalOpen} onOpenChange={setDueDateCalOpen}>
                                 <PopoverTrigger asChild>
                                     <Button
                                         variant="outline"
@@ -426,7 +474,10 @@ export function CreateLiquidationModal({
                                     <Calendar
                                         mode="single"
                                         selected={formData.due_date ? parse(formData.due_date, 'yyyy-MM-dd', new Date()) : undefined}
-                                        onSelect={(date) => handleInputChange('due_date', date ? format(date, 'yyyy-MM-dd') : '')}
+                                        onSelect={(date) => {
+                                            handleInputChange('due_date', date ? format(date, 'yyyy-MM-dd') : '');
+                                            setDueDateCalOpen(false);
+                                        }}
                                         initialFocus
                                     />
                                 </PopoverContent>
@@ -461,7 +512,7 @@ export function CreateLiquidationModal({
 
                         {/* Semester */}
                         <div className="space-y-2">
-                            <Label htmlFor="semester">Semester *</Label>
+                            <Label htmlFor="semester">Semester</Label>
                             <Select
                                 value={formData.semester}
                                 onValueChange={(value) => handleInputChange('semester', value)}
@@ -502,7 +553,7 @@ export function CreateLiquidationModal({
 
                         {/* Control No */}
                         <div className="space-y-2">
-                            <Label htmlFor="dv_control_no">Control No. *</Label>
+                            <Label htmlFor="dv_control_no">Control No.</Label>
                             <div className={`flex items-center rounded-md border bg-background font-mono text-sm ${fieldErrors.dv_control_no ? 'border-red-500' : 'border-input'}`}>
                                 {controlNoPrefix && (
                                     <span className="px-3 py-2 text-muted-foreground bg-muted border-r border-input rounded-l-md select-none">
@@ -512,12 +563,19 @@ export function CreateLiquidationModal({
                                 <Input
                                     id="dv_control_no"
                                     value={formData.dv_control_no}
-                                    onChange={(e) => handleInputChange('dv_control_no', e.target.value.toUpperCase())}
-                                    placeholder={controlNoPrefix ? '2026-0001' : 'Select program first'}
+                                    onChange={(e) => {
+                                        setControlNoManuallyEdited(true);
+                                        handleInputChange('dv_control_no', e.target.value.toUpperCase());
+                                    }}
+                                    placeholder={!formData.program_id ? 'Select program first' : 'Auto-generated'}
                                     disabled={!formData.program_id}
                                     className="border-0 shadow-none focus-visible:ring-0 font-mono"
                                 />
+                                {isAutoFillingControlNo && (
+                                    <Loader2 className="h-4 w-4 animate-spin mr-2 text-muted-foreground" />
+                                )}
                             </div>
+                            <p className="text-xs text-muted-foreground">Leave blank to auto-generate from program &amp; date</p>
                             {fieldErrors.dv_control_no && (
                                 <p className="text-sm text-red-500">{fieldErrors.dv_control_no}</p>
                             )}

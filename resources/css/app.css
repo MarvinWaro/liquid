@@ -211,4 +211,15 @@
         font-feature-settings: "zero" 1;
         font-variant-numeric: slashed-zero;
     }
+
+    /* Indeterminate progress bar animation */
+    .animate-progress-indeterminate {
+        animation: progress-indeterminate 1.5s ease-in-out infinite;
+    }
+}
+
+@keyframes progress-indeterminate {
+    0% { transform: translateX(-100%); width: 40%; }
+    50% { transform: translateX(60%); width: 60%; }
+    100% { transform: translateX(200%); width: 40%; }
 }

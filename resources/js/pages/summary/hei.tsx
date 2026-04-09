@@ -49,6 +49,7 @@ interface HEISummary {
     hei: {
         id: string;
         name: string;
+        uii?: string;
     };
     total_grantees: number;
     total_disbursements: number;
@@ -56,6 +57,8 @@ interface HEISummary {
     for_endorsement: number;
     unliquidated_amount: number;
     for_compliance: number;
+    unliquidated_with_submission: number;
+    total_with_submission: number;
     percentage_liquidation: number;
     percentage_compliance: number;
     percentage_submission: number;
@@ -71,16 +74,38 @@ interface Props {
     summaryPerHEI: HEISummary[];
     programs: Program[];
     filters: { program: string };
+    userRole?: string;
 }
 
-export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters }: Props) {
+export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, userRole }: Props) {
+    // STuFAPs formula: Liquidated / Disbursed
+    // TES formula: (Liquidated + For Endorsement) / Disbursed
+    const isStufapsFocal = userRole === 'STUFAPS Focal';
+    const computePercentLiquidation = (row: HEISummary) => {
+        const disbursements = Number(row.total_disbursements) || 0;
+        if (!disbursements) return 0;
+        const liquidated = Number(row.total_amount_liquidated) || 0;
+        const endorsed = Number(row.for_endorsement) || 0;
+        const numerator = isStufapsFocal ? liquidated : liquidated + endorsed;
+        return (numerator / disbursements) * 100;
+    };
     const [searchQuery, setSearchQuery] = useState<string>('');
     const [showChart, setShowChart] = useState(false);
+    const [page, setPage] = useState(1);
+    const PAGE_SIZE = 25;
 
     const filtered = summaryPerHEI.filter(item => {
         if (!searchQuery.trim()) return true;
-        return item.hei?.name.toLowerCase().includes(searchQuery.toLowerCase());
+        const q = searchQuery.toLowerCase();
+        return (
+            item.hei?.name.toLowerCase().includes(q) ||
+            (item.hei?.uii ?? '').toLowerCase().includes(q)
+        );
     });
+
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    const currentPage = Math.min(page, totalPages);
+    const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
     const selectedProgram = programs.find(p => p.id === filters?.program);
 
@@ -104,8 +129,10 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters }:
         return `${parseFloat(percentage.toString()).toFixed(2)}%`;
     };
 
-    const formatNumber = (value: number | null | undefined) => {
-        return (value ?? 0).toLocaleString();
+    const formatNumber = (value: number | string | null | undefined) => {
+        const num = parseFloat(String(value ?? 0));
+        if (isNaN(num)) return '0';
+        return Math.round(num).toLocaleString('en-US');
     };
 
     return (
@@ -158,7 +185,7 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters }:
                             <Input
                                 placeholder="Search HEI..."
                                 value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
                                 className="w-[200px] h-9 text-xs"
                             />
                             <Button
@@ -204,7 +231,7 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters }:
                                 <h3 className="text-sm font-semibold mb-4">Liquidation Rates & Grantees</h3>
                                 <ResponsiveContainer width="100%" height={300}>
                                     <ComposedChart
-                                        data={filtered.map(r => ({ ...r, name: r.hei?.name?.substring(0, 30) || 'N/A' }))}
+                                        data={filtered.map(r => ({ ...r, name: r.hei?.name?.substring(0, 30) || 'N/A', computed_pct_liquidation: computePercentLiquidation(r) }))}
                                         margin={{ top: 5, right: 30, left: 20, bottom: 60 }}
                                     >
                                         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -219,25 +246,27 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters }:
                                         />
                                         <Legend wrapperStyle={{ fontSize: 12 }} />
                                         <Bar yAxisId="right" dataKey="total_grantees" name="Grantees" fill="#0ea5e9" radius={[4, 4, 0, 0]} opacity={0.4} />
-                                        <Line yAxisId="left" type="monotone" dataKey="percentage_liquidation" name="% Liquidation" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} />
+                                        <Line yAxisId="left" type="monotone" dataKey="computed_pct_liquidation" name="% Liquidation" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} />
                                         <Line yAxisId="left" type="monotone" dataKey="percentage_submission" name="% Submission" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} />
                                     </ComposedChart>
                                 </ResponsiveContainer>
                             </div>
                         </div>
                     ) : (
-                        <div className="rounded-lg border bg-card">
+                        <div className="rounded-lg border bg-card overflow-hidden [&_td]:border-r [&_td]:border-border/40 [&_th]:border-r [&_th]:border-border/40 [&_td:last-child]:border-r-0 [&_th:last-child]:border-r-0">
                             <Table>
                                 <TableHeader>
                                     <TableRow className="border-b hover:bg-transparent">
                                         <TableHead className="h-9 pl-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">No.</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Name of HEI</TableHead>
+                                        <TableHead className="h-9 min-w-[200px] text-xs font-medium tracking-wider text-muted-foreground uppercase">Name of HEI</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase text-right">Grantees</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Disbursements</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Amount Liquidated</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Endorsement</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated Amount</TableHead>
+                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated (net of endorsement)</TableHead>
+                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated (not submitted)</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Compliance</TableHead>
+                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Amount With Submission</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Liquidation</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Compliance</TableHead>
                                         <TableHead className="h-9 pr-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Submission</TableHead>
@@ -246,29 +275,97 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters }:
                                 <TableBody>
                                     {filtered.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
+                                            <TableCell colSpan={13} className="text-center py-12 text-muted-foreground">
                                                 {searchQuery ? 'No matching HEIs found.' : 'No data available.'}
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        filtered.map((row, index) => (
+                                        paginated.map((row, index) => (
                                             <TableRow key={row.hei_id}>
-                                                <TableCell className="pl-6 font-medium">{index + 1}</TableCell>
-                                                <TableCell className="font-medium">{row.hei?.name || 'N/A'}</TableCell>
+                                                <TableCell className="pl-6 font-medium text-muted-foreground text-xs">
+                                                    {(currentPage - 1) * PAGE_SIZE + index + 1}
+                                                </TableCell>
+                                                <TableCell className="max-w-[220px] py-2.5">
+                                                    <TooltipProvider>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <div className="cursor-default">
+                                                                    <div className="font-medium text-sm truncate">{row.hei?.name || 'N/A'}</div>
+                                                                    {row.hei?.uii && (
+                                                                        <div className="text-xs text-muted-foreground font-mono">{row.hei.uii}</div>
+                                                                    )}
+                                                                </div>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent side="right" className="max-w-xs">
+                                                                <p className="font-medium">{row.hei?.name || 'N/A'}</p>
+                                                                {row.hei?.uii && <p className="text-xs text-muted-foreground font-mono">{row.hei.uii}</p>}
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </TooltipProvider>
+                                                </TableCell>
                                                 <TableCell className="font-mono text-right">{formatNumber(row.total_grantees)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.total_disbursements)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.total_amount_liquidated)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.for_endorsement)}</TableCell>
-                                                <TableCell className="font-mono text-red-500">{formatCurrency(row.unliquidated_amount)}</TableCell>
+                                                <TableCell className="font-mono text-red-500">{formatCurrency(Number(row.total_disbursements) - Number(row.total_amount_liquidated) - Number(row.for_endorsement))}</TableCell>
+                                                <TableCell className="font-mono text-red-500">{formatCurrency(Number(row.total_disbursements) - Number(row.total_amount_liquidated))}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.for_compliance)}</TableCell>
-                                                <TableCell>{formatPercentage(row.percentage_liquidation)}</TableCell>
-                                                <TableCell>{formatPercentage(row.percentage_compliance)}</TableCell>
-                                                <TableCell className="pr-6">{formatPercentage(row.percentage_submission)}</TableCell>
+                                                <TableCell className="font-mono">{formatCurrency(Number(row.total_with_submission))}</TableCell>
+                                                <TableCell className={
+                                                    computePercentLiquidation(row) >= 100 ? 'text-green-600 font-medium'
+                                                    : computePercentLiquidation(row) >= 75 ? 'text-blue-600 font-medium'
+                                                    : computePercentLiquidation(row) >= 50 ? 'text-orange-500 font-medium'
+                                                    : 'text-red-500 font-medium'
+                                                }>{formatPercentage(computePercentLiquidation(row))}</TableCell>
+                                                <TableCell className={
+                                                    (row.percentage_compliance ?? 0) >= 100 ? 'text-green-600 font-medium'
+                                                    : (row.percentage_compliance ?? 0) >= 75 ? 'text-blue-600 font-medium'
+                                                    : (row.percentage_compliance ?? 0) >= 50 ? 'text-orange-500 font-medium'
+                                                    : 'text-red-500 font-medium'
+                                                }>{formatPercentage(row.percentage_compliance)}</TableCell>
+                                                <TableCell className={`pr-6 ${
+                                                    (row.percentage_submission ?? 0) >= 100 ? 'text-green-600 font-medium'
+                                                    : (row.percentage_submission ?? 0) >= 75 ? 'text-blue-600 font-medium'
+                                                    : (row.percentage_submission ?? 0) >= 50 ? 'text-orange-500 font-medium'
+                                                    : 'text-red-500 font-medium'
+                                                }`}>{formatPercentage(row.percentage_submission)}</TableCell>
                                             </TableRow>
                                         ))
                                     )}
                                 </TableBody>
                             </Table>
+
+                            {/* Pagination footer */}
+                            {filtered.length > PAGE_SIZE && (
+                                <div className="flex items-center justify-between px-6 py-3 border-t text-sm text-muted-foreground">
+                                    <span>
+                                        Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} HEIs
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 px-2.5 text-xs"
+                                            disabled={currentPage === 1}
+                                            onClick={() => setPage(p => Math.max(1, p - 1))}
+                                        >
+                                            Previous
+                                        </Button>
+                                        <span className="px-2 text-xs">
+                                            Page {currentPage} of {totalPages}
+                                        </span>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 px-2.5 text-xs"
+                                            disabled={currentPage === totalPages}
+                                            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                        >
+                                            Next
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

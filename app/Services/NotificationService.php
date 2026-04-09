@@ -115,7 +115,9 @@ class NotificationService
         }
 
         // HEI users tied to this liquidation's institution
-        if ($liquidation->hei_id) {
+        // Skip internal workflow actions (endorsements between RC/Accountant/COA)
+        $internalActions = ['endorsed_to_accounting', 'endorsed_to_coa', 'returned_to_rc'];
+        if ($liquidation->hei_id && !in_array($action, $internalActions)) {
             $heiUsers = User::whereHas('role', fn ($q) => $q->where('name', 'HEI'))
                 ->where('hei_id', $liquidation->hei_id)
                 ->where('status', 'active')
@@ -150,12 +152,19 @@ class NotificationService
             ->get();
         $recipients = $recipients->merge($admins);
 
-        // For endorsement actions, also notify accountants
+        // For endorsement actions, also notify accountants and COA
         if (in_array($action, ['endorsed_to_accounting', 'endorsed_to_coa', 'returned_to_rc'])) {
             $accountants = User::whereHas('role', fn ($q) => $q->where('name', 'Accountant'))
                 ->where('status', 'active')
                 ->get();
             $recipients = $recipients->merge($accountants);
+        }
+
+        if ($action === 'endorsed_to_coa') {
+            $coaUsers = User::whereHas('role', fn ($q) => $q->where('name', 'COA'))
+                ->where('status', 'active')
+                ->get();
+            $recipients = $recipients->merge($coaUsers);
         }
 
         return $recipients;

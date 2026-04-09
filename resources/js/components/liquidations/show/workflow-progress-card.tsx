@@ -47,15 +47,14 @@ function getWorkflowSteps(liquidation: Liquidation, isHEIUser: boolean, avatarMa
         { label: 'COA Endorsement', description: 'Final Approval' },
     ];
 
-    const accountingCurrentStatuses = ['endorsed_to_accounting', 'returned_to_rc'];
-    const coaCurrentStatuses = ['endorsed_to_coa'];
-
-    if (coaCurrentStatuses.includes(normalizedStatus)) {
-        return { steps: rcSteps, currentStep: 4, isFullyCompleted: false, lastCompletedStep: undefined };
+    // Use timestamp fields as the primary workflow indicators
+    if (liquidation.coa_endorsed_at) {
+        return { steps: rcSteps, currentStep: 4, isFullyCompleted: true, lastCompletedStep: undefined };
     }
-    if (accountingCurrentStatuses.includes(normalizedStatus)) {
+    if (liquidation.reviewed_at) {
         return { steps: rcSteps, currentStep: 3, isFullyCompleted: false, lastCompletedStep: undefined };
     }
+
     if (normalizedStatus === 'fully_liquidated') {
         return { steps: rcSteps, currentStep: 2, isFullyCompleted: false, lastCompletedStep: 2 };
     }

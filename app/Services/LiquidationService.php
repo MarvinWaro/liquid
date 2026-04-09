@@ -28,11 +28,41 @@ class LiquidationService
     private const CACHE_TTL = 3600;
 
     /**
+     * Get summary stats for the liquidation table (total records, disbursed, liquidated, unliquidated).
+     */
+    public function getTableSummary(User $user, array $filters = []): array
+    {
+        $query = Liquidation::join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id');
+
+        $this->applyRoleFilter($query, $user);
+
+        $isFilteringVoided = ($filters['liquidation_status'] ?? '') === 'voided';
+        if (!$isFilteringVoided) {
+            $query->excludeVoided();
+        }
+
+        $this->applyFilters($query, $filters);
+
+        $stats = $query->selectRaw('COUNT(*) as total_records')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursed')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_liquidated')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received - liquidation_financials.amount_liquidated), 0) as total_unliquidated')
+            ->first();
+
+        return [
+            'total_records' => (int) ($stats->total_records ?? 0),
+            'total_disbursed' => (float) ($stats->total_disbursed ?? 0),
+            'total_liquidated' => (float) ($stats->total_liquidated ?? 0),
+            'total_unliquidated' => (float) ($stats->total_unliquidated ?? 0),
+        ];
+    }
+
+    /**
      * Get paginated liquidations based on user role.
      */
     public function getPaginatedLiquidations(User $user, array $filters = []): LengthAwarePaginator
     {
-        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus'])
+        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus', 'trackingEntries'])
             ->orderBy('control_no', 'asc');
 
         $this->applyRoleFilter($query, $user);
@@ -59,11 +89,10 @@ class LiquidationService
         if ($roleName === 'HEI' && $user->hei_id) {
             $query->where('hei_id', $user->hei_id);
         } elseif ($roleName === 'Regional Coordinator' && $user->region_id) {
-            // RCs see only liquidations from HEIs in their region, excluding STUFAPS sub-programs
+            // RCs see liquidations from HEIs in their region, excluding STUFAPS sub-programs
             $query->whereHas('hei', function (Builder $q) use ($user) {
                 $q->where('region_id', $user->region_id);
             });
-            // Exclude STUFAPS sub-program liquidations (programs with a parent_id)
             $query->whereDoesntHave('program', function (Builder $q) {
                 $q->whereNotNull('parent_id');
             });
@@ -76,11 +105,17 @@ class LiquidationService
                 // No programs assigned — show nothing
                 $query->whereRaw('1 = 0');
             }
-        } elseif (!$user->isSuperAdmin() && !in_array($roleName, ['Accountant', 'Admin', 'HEI'])) {
+        } elseif ($roleName === 'Accountant') {
+            // Accountants only see liquidations endorsed to accounting by RC/STUFAPS Focal
+            $query->whereNotNull('reviewed_at');
+        } elseif ($roleName === 'COA') {
+            // COA only sees liquidations endorsed to COA by Accountant
+            $query->whereNotNull('coa_endorsed_at');
+        } elseif (!$user->isSuperAdmin() && !in_array($roleName, ['Admin', 'HEI'])) {
             // Fallback for other non-admin roles: show only their own created liquidations
             $query->where('created_by', $user->id);
         }
-        // Accountants, Admins, Super Admins: see all liquidations (no additional filter)
+        // Admins, Super Admins: see all liquidations (no additional filter)
     }
 
     /**
@@ -170,14 +205,17 @@ class LiquidationService
                 }
             }
 
-            $semesterId = $this->findSemesterId($data['semester']);
+            $semesterId = !empty($data['semester']) ? $this->findSemesterId($data['semester']) : null;
 
             // Determine document status ID - default to NONE if not provided
             $documentStatusCode = !empty($data['document_status']) ? $data['document_status'] : 'NONE';
             $documentStatusId = DocumentStatus::findByCode($documentStatusCode)?->id;
 
             $liquidation = Liquidation::create([
-                'control_no'            => $data['dv_control_no'] ?? $this->generateControlNo($data['program_id']),
+                'control_no'            => $data['dv_control_no'] ?? $this->generateControlNo(
+                    $data['program_id'],
+                    !empty($data['date_fund_released']) ? (int) date('Y', strtotime($data['date_fund_released'])) : null,
+                ),
                 'hei_id'                => $hei->id,
                 'program_id'            => $data['program_id'],
                 'academic_year_id'      => $data['academic_year_id'],
@@ -323,14 +361,22 @@ class LiquidationService
             $liquidation = Liquidation::lockForUpdate()->findOrFail($liquidation->id);
 
             // State guards
-            if (!$liquidation->date_submitted) {
-                throw new \InvalidArgumentException('Liquidation has not been submitted for review yet.');
+            if ($liquidation->reviewed_at) {
+                throw new \InvalidArgumentException('This liquidation has already been endorsed to Accounting.');
             }
             if ($liquidation->coa_endorsed_at) {
                 throw new \InvalidArgumentException('This liquidation has already been endorsed to COA.');
             }
 
-            $liquidation->createTransmittal($data, $user);
+            // Auto-set date_submitted for RC-created entries that were never submitted by HEI
+            if (!$liquidation->date_submitted) {
+                $liquidation->date_submitted = now();
+            }
+
+            // Only create transmittal if transmittal data is provided
+            if (!empty($data['transmittal_reference_no'])) {
+                $liquidation->createTransmittal($data, $user);
+            }
 
             if (!empty($data['review_remarks'])) {
                 $liquidation->reviews()->create([
@@ -488,28 +534,45 @@ class LiquidationService
     }
 
     /**
-     * Generate a unique DV control number in the format CODE-YYYY-NNNN, scoped per program.
-     * Each program (TES, TDP, etc.) maintains its own independent sequence.
-     * e.g. TES-2026-0001, TDP-2026-0001
+     * Generate a unique control number in the format CODE-YYYY-NNNN, scoped per program + year.
+     * Each program+year combination maintains its own independent sequence.
+     * e.g. TES-2026-0001, TDP-2024-0003
+     *
+     * Uses SELECT ... FOR UPDATE to serialize concurrent calls.
+     * Must be invoked within a DB::transaction() so the lock is held until INSERT.
      */
-    public function generateControlNo(?string $programId = null): string
+    public function generateControlNo(string $programId, ?int $year = null): string
     {
-        $year = now()->year;
-        $programCode = $programId
-            ? Program::where('id', $programId)->value('code')
-            : null;
+        $year = $year ?? now()->year;
+        $programCode = Program::where('id', $programId)->value('code');
 
-        $prefix = $programCode
-            ? $programCode . '-' . $year . '-'
-            : $year . '-';
+        if (!$programCode) {
+            throw new \InvalidArgumentException('Program not found.');
+        }
 
-        $query = Liquidation::where('control_no', 'like', $prefix . '%');
+        $prefix = $programCode . '-' . $year . '-';
+        $prefixLen = strlen($prefix) + 1; // +1 for 1-based SUBSTRING
 
-        $last = $query
-            ->orderByRaw('CAST(SUBSTRING(control_no, ' . (strlen($prefix) + 1) . ') AS UNSIGNED) DESC')
-            ->value('control_no');
+        // Get all occupied sequence numbers for this prefix, sorted ascending.
+        // Include soft-deleted records — their control numbers are still reserved
+        // in the unique index and cannot be reused.
+        $occupied = Liquidation::withTrashed()
+            ->where('control_no', 'like', $prefix . '%')
+            ->lockForUpdate()
+            ->selectRaw('CAST(SUBSTRING(control_no, ' . $prefixLen . ') AS UNSIGNED) as seq')
+            ->orderBy('seq')
+            ->pluck('seq')
+            ->toArray();
 
-        $next = $last ? ((int) substr($last, strlen($prefix))) + 1 : 1;
+        // Find the first available gap starting from 1
+        $next = 1;
+        foreach ($occupied as $seq) {
+            if ($seq == $next) {
+                $next++;
+            } elseif ($seq > $next) {
+                break; // Found a gap
+            }
+        }
 
         return $prefix . str_pad((string) $next, 4, '0', STR_PAD_LEFT);
     }
@@ -616,40 +679,6 @@ class LiquidationService
     {
         return Cache::remember('heis_active', self::CACHE_TTL, function () {
             return HEI::where('status', 'active')->orderBy('name')->get(['id', 'name', 'code', 'uii']);
-        });
-    }
-
-    /**
-     * Generate a unique control number for bulk import.
-     * Format: CODE-LIQ-YYYY-NNNNN (e.g. TES-LIQ-2026-00001)
-     *
-     * Uses SELECT ... FOR UPDATE inside a transaction to serialize concurrent
-     * calls. Must be invoked within the same DB::transaction() that performs
-     * the INSERT so the lock is held until the row is committed.
-     */
-    public function generateControlNumber(?string $programId = null): string
-    {
-        return DB::transaction(function () use ($programId) {
-            $year = date('Y');
-            $programCode = $programId
-                ? Program::where('id', $programId)->value('code')
-                : null;
-
-            $prefix = $programCode
-                ? "{$programCode}-LIQ-{$year}-"
-                : "LIQ-{$year}-";
-
-            $query = Liquidation::where('control_no', 'like', $prefix . '%')
-                ->lockForUpdate();
-
-            $latestControlNo = $query->orderBy('control_no', 'desc')
-                ->value('control_no');
-
-            $newNumber = $latestControlNo
-                ? (int) substr($latestControlNo, strlen($prefix)) + 1
-                : 1;
-
-            return $prefix . str_pad((string) $newNumber, 5, '0', STR_PAD_LEFT);
         });
     }
 

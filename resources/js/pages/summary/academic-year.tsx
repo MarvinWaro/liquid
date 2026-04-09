@@ -51,6 +51,8 @@ interface AYSummary {
     unliquidated_amount: number;
     for_endorsement: number;
     for_compliance: number;
+    unliquidated_with_submission: number;
+    total_with_submission: number;
     percentage_liquidation: number;
     percentage_compliance: number;
     percentage_submission: number;
@@ -66,9 +68,21 @@ interface Props {
     summaryPerAY: AYSummary[];
     programs: Program[];
     filters: { program: string };
+    userRole?: string;
 }
 
-export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], filters }: Props) {
+export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], filters, userRole }: Props) {
+    // STuFAPs formula: Liquidated / Disbursed
+    // TES formula: (Liquidated + For Endorsement) / Disbursed
+    const isStufapsFocal = userRole === 'STUFAPS Focal';
+    const computePercentLiquidation = (row: AYSummary) => {
+        const disbursements = Number(row.total_disbursements) || 0;
+        if (!disbursements) return 0;
+        const liquidated = Number(row.liquidated_amount) || 0;
+        const endorsed = Number(row.for_endorsement) || 0;
+        const numerator = isStufapsFocal ? liquidated : liquidated + endorsed;
+        return (numerator / disbursements) * 100;
+    };
     const [ayFilter, setAYFilter] = useState<string>('all');
     const [showChart, setShowChart] = useState(false);
 
@@ -100,8 +114,10 @@ export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], fi
         return `${parseFloat(percentage.toString()).toFixed(2)}%`;
     };
 
-    const formatNumber = (value: number | null | undefined) => {
-        return (value ?? 0).toLocaleString();
+    const formatNumber = (value: number | string | null | undefined) => {
+        const num = parseFloat(String(value ?? 0));
+        if (isNaN(num)) return '0';
+        return Math.round(num).toLocaleString('en-US');
     };
 
     return (
@@ -180,7 +196,7 @@ export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], fi
                             <div className="rounded-lg border bg-card p-6">
                                 <h3 className="text-sm font-semibold mb-4">Financial Breakdown</h3>
                                 <ResponsiveContainer width="100%" height={350}>
-                                    <BarChart data={filtered} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                    <BarChart data={filtered.map(r => ({ ...r, total_unliquidated: r.total_disbursements - r.liquidated_amount }))} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                                         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                                         <XAxis dataKey="academic_year" className="text-xs" tick={{ fontSize: 11 }} />
                                         <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => `₱${(v / 1_000_000).toFixed(1)}M`} />
@@ -191,7 +207,7 @@ export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], fi
                                         <Legend wrapperStyle={{ fontSize: 12 }} />
                                         <Bar dataKey="total_disbursements" name="Total Disbursements" fill="#6366f1" radius={[4, 4, 0, 0]} />
                                         <Bar dataKey="liquidated_amount" name="Liquidated" fill="#22c55e" radius={[4, 4, 0, 0]} />
-                                        <Bar dataKey="unliquidated_amount" name="Unliquidated" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                                        <Bar dataKey="total_unliquidated" name="Unliquidated" fill="#ef4444" radius={[4, 4, 0, 0]} />
                                         <Bar dataKey="for_endorsement" name="For Endorsement" fill="#f59e0b" radius={[4, 4, 0, 0]} />
                                         <Bar dataKey="for_compliance" name="For Compliance" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
                                     </BarChart>
@@ -202,7 +218,7 @@ export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], fi
                             <div className="rounded-lg border bg-card p-6">
                                 <h3 className="text-sm font-semibold mb-4">Rates & Grantees</h3>
                                 <ResponsiveContainer width="100%" height={300}>
-                                    <ComposedChart data={filtered} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                    <ComposedChart data={filtered.map(r => ({ ...r, computed_pct_liquidation: computePercentLiquidation(r) }))} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                                         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                                         <XAxis dataKey="academic_year" className="text-xs" tick={{ fontSize: 11 }} />
                                         <YAxis yAxisId="left" className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
@@ -215,7 +231,7 @@ export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], fi
                                         />
                                         <Legend wrapperStyle={{ fontSize: 12 }} />
                                         <Bar yAxisId="right" dataKey="total_grantees" name="Grantees" fill="#0ea5e9" radius={[4, 4, 0, 0]} opacity={0.4} />
-                                        <Line yAxisId="left" type="monotone" dataKey="percentage_liquidation" name="% Liquidation" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} />
+                                        <Line yAxisId="left" type="monotone" dataKey="computed_pct_liquidation" name="% Liquidation" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} />
                                         <Line yAxisId="left" type="monotone" dataKey="percentage_compliance" name="% Compliance" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 4 }} />
                                         <Line yAxisId="left" type="monotone" dataKey="percentage_submission" name="% Submission" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} />
                                     </ComposedChart>
@@ -223,7 +239,7 @@ export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], fi
                             </div>
                         </div>
                     ) : (
-                        <div className="rounded-lg border bg-card">
+                        <div className="rounded-lg border bg-card overflow-hidden [&_td]:border-r [&_td]:border-border/40 [&_th]:border-r [&_th]:border-border/40 [&_td:last-child]:border-r-0 [&_th:last-child]:border-r-0">
                             <Table>
                                 <TableHeader>
                                     <TableRow className="border-b hover:bg-transparent">
@@ -236,13 +252,14 @@ export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], fi
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Compliance</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Liquidation</TableHead>
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Compliance</TableHead>
+                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Amount With Submission</TableHead>
                                         <TableHead className="h-9 pr-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Submission</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {filtered.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
+                                            <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
                                                 No data available.
                                             </TableCell>
                                         </TableRow>
@@ -253,12 +270,28 @@ export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], fi
                                                 <TableCell className="font-mono text-right">{formatNumber(row.total_grantees)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.total_disbursements)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.liquidated_amount)}</TableCell>
-                                                <TableCell className="font-mono text-red-500">{formatCurrency(row.unliquidated_amount)}</TableCell>
+                                                <TableCell className="font-mono text-red-500">{formatCurrency(Number(row.total_disbursements) - Number(row.liquidated_amount))}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.for_endorsement)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.for_compliance)}</TableCell>
-                                                <TableCell>{formatPercentage(row.percentage_liquidation)}</TableCell>
-                                                <TableCell>{formatPercentage(row.percentage_compliance)}</TableCell>
-                                                <TableCell className="pr-6">{formatPercentage(row.percentage_submission)}</TableCell>
+                                                <TableCell className={
+                                                    computePercentLiquidation(row) >= 100 ? 'text-green-600 font-medium'
+                                                    : computePercentLiquidation(row) >= 75 ? 'text-blue-600 font-medium'
+                                                    : computePercentLiquidation(row) >= 50 ? 'text-orange-500 font-medium'
+                                                    : 'text-red-500 font-medium'
+                                                }>{formatPercentage(computePercentLiquidation(row))}</TableCell>
+                                                <TableCell className={
+                                                    (Number(row.percentage_compliance) || 0) >= 100 ? 'text-green-600 font-medium'
+                                                    : (Number(row.percentage_compliance) || 0) >= 75 ? 'text-blue-600 font-medium'
+                                                    : (Number(row.percentage_compliance) || 0) >= 50 ? 'text-orange-500 font-medium'
+                                                    : 'text-red-500 font-medium'
+                                                }>{formatPercentage(row.percentage_compliance)}</TableCell>
+                                                <TableCell className="font-mono">{formatCurrency(Number(row.total_with_submission))}</TableCell>
+                                                <TableCell className={`pr-6 ${
+                                                    (Number(row.percentage_submission) || 0) >= 100 ? 'text-green-600 font-medium'
+                                                    : (Number(row.percentage_submission) || 0) >= 75 ? 'text-blue-600 font-medium'
+                                                    : (Number(row.percentage_submission) || 0) >= 50 ? 'text-orange-500 font-medium'
+                                                    : 'text-red-500 font-medium'
+                                                }`}>{formatPercentage(row.percentage_submission)}</TableCell>
                                             </TableRow>
                                         ))
                                     )}

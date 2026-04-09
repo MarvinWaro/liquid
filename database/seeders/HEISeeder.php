@@ -160,6 +160,12 @@ class HEISeeder extends Seeder
             ['uii' => '15036',   'name' => 'SPA COLLEGE',                                                              'type' => 'Private', 'region_id' => $barmm],
             ['uii' => '15043',   'name' => 'ST. BENEDICT COLLEGE OF MAGUINDANAO',                                      'type' => 'Private', 'region_id' => $barmm],
             ['uii' => '15012',   'name' => 'SULTAN KUDARAT ISLAMIC ACADEMY FOUNDATION COLLEGE',                        'type' => 'Private', 'region_id' => $barmm],
+            ['uii' => '15020',   'name' => 'BALABAGAN TRADE SCHOOL',                                                      'type' => 'Private', 'region_id' => $barmm],
+            ['uii' => '12099',   'name' => 'BUBONG MARZOK MEMORIAL FOUNDATION COLLEGE',                                   'type' => 'Private', 'region_id' => $barmm],
+            ['uii' => '15048',   'name' => 'REGIONAL MADRASAH GRADUATE ACADEMY',                                          'type' => 'SUC',     'region_id' => $barmm],
+            ['uii' => '15059',   'name' => 'UNIVERSITY OF SOUTHERN MINDANAO - BULUAN',                                    'type' => 'SUC',     'region_id' => $barmm],
+            ['uii' => '15017',   'name' => 'UPI AGRICULTURAL SCHOOL-PROVINCIAL TECHNICAL INSTITUTE OF AGRICULTURE',       'type' => 'Private', 'region_id' => $barmm],
+            ['uii' => '15086',   'name' => 'VMC ASIAN COLLEGE FOUNDATION, INC.',                                           'type' => 'Private', 'region_id' => $barmm],
         ];
 
         foreach ($heis as $hei) {

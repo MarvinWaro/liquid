@@ -110,6 +110,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('liquidation/{liquidation}/restore', [LiquidationController::class, 'restore'])->name('liquidation.restore');
 
     // Liquidation Workflow Routes
+    Route::post('liquidation/bulk-endorse-to-accounting', [LiquidationController::class, 'bulkEndorseToAccounting'])->name('liquidation.bulk-endorse-to-accounting');
     Route::post('liquidation/{liquidation}/submit', [LiquidationController::class, 'submit'])->name('liquidation.submit');
     Route::post('liquidation/{liquidation}/endorse-to-accounting', [LiquidationController::class, 'endorseToAccounting'])->name('liquidation.endorse-to-accounting');
     Route::post('liquidation/{liquidation}/return-to-hei', [LiquidationController::class, 'returnToHEI'])->name('liquidation.return-to-hei');
@@ -130,6 +131,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('liquidation/rc-template/download', [LiquidationController::class, 'downloadRCTemplate'])->name('liquidation.download-rc-template');
     Route::post('liquidation/validate-import', [LiquidationController::class, 'validateImport'])->name('liquidation.validate-import');
     Route::post('liquidation/bulk-import', [LiquidationController::class, 'bulkImportLiquidations'])->name('liquidation.bulk-import');
+    Route::get('liquidation/import-progress', [LiquidationController::class, 'importProgress'])->name('liquidation.import-progress');
+    Route::get('liquidation/import-batches', [LiquidationController::class, 'importBatches'])->name('liquidation.import-batches');
+    Route::post('liquidation/import-batches/{batchId}/undo', [LiquidationController::class, 'undoImportBatch'])->name('liquidation.undo-import-batch');
     Route::post('liquidation/bulk-store', [LiquidationController::class, 'bulkStore'])->name('liquidation.bulk-store');
 
     // Liquidation Tracking Entry Routes

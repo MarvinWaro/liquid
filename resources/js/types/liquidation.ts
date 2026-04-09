@@ -150,6 +150,11 @@ export interface Liquidation {
     document_status?: string;
     liquidation_status?: string;
     date_submitted?: string | null;
+    coa_endorsed_at?: string | null;
+    accountant_reviewed_by_name?: string | null;
+    accountant_reviewed_at?: string | null;
+    rc_endorsement_remarks?: string | null;
+    accountant_endorsement_remarks?: string | null;
     updated_at?: string | null;
     created_by_name?: string | null;
     document_completeness?: DocumentCompleteness;
@@ -181,6 +186,7 @@ export interface ShowPageProps {
     documentRequirements: DocumentRequirement[];
     permissions: ShowPagePermissions;
     userRole: string;
+    isStufapsProgram: boolean;
     commentCounts: Record<string, number>;
 }
 

@@ -139,23 +139,32 @@ class LiquidationCommentController extends Controller
      */
     public function mentionableUsers(Request $request, Liquidation $liquidation): JsonResponse
     {
-        $liquidation->loadMissing('hei');
+        $liquidation->loadMissing(['hei', 'program']);
         $currentUserId = $request->user()->id;
+        $isSTUFAPSProgram = $liquidation->program && $liquidation->program->parent_id;
 
         $users = User::where('status', 'active')
             ->where('id', '!=', $currentUserId)
-            ->where(function ($q) use ($liquidation) {
+            ->where(function ($q) use ($liquidation, $isSTUFAPSProgram) {
                 // HEI users for this liquidation's institution
                 $q->where('hei_id', $liquidation->hei_id);
-                // RCs for the same region
-                if ($liquidation->hei?->region_id) {
+                // For STUFAPS sub-programs: show STUFAPS Focals assigned to the program
+                if ($isSTUFAPSProgram) {
                     $q->orWhere(function ($sub) use ($liquidation) {
-                        $sub->whereHas('role', fn ($r) => $r->where('name', 'Regional Coordinator'))
-                            ->where('region_id', $liquidation->hei->region_id);
+                        $sub->whereHas('role', fn ($r) => $r->where('name', 'STUFAPS Focal'))
+                            ->whereHas('programs', fn ($r) => $r->where('programs.id', $liquidation->program_id));
                     });
+                } else {
+                    // For non-STUFAPS: show RCs for the same region
+                    if ($liquidation->hei?->region_id) {
+                        $q->orWhere(function ($sub) use ($liquidation) {
+                            $sub->whereHas('role', fn ($r) => $r->where('name', 'Regional Coordinator'))
+                                ->where('region_id', $liquidation->hei->region_id);
+                        });
+                    }
                 }
                 // Accountants and admins
-                $q->orWhereHas('role', fn ($r) => $r->whereIn('name', ['Accountant', 'Admin', 'Super Admin']));
+                $q->orWhereHas('role', fn ($r) => $r->whereIn('name', ['Accountant', 'COA', 'Admin', 'Super Admin']));
             })
             ->with('role')
             ->orderBy('name')
@@ -325,22 +334,100 @@ class LiquidationCommentController extends Controller
         $alreadyNotified = $alreadyNotified->unique()->toArray();
 
         $isActorHei = $actor->hei_id && $actor->hei_id === $liquidation->hei_id;
+        $actor->loadMissing('role');
+        $liquidation->loadMissing('program');
+        $isSTUFAPSProgram = $liquidation->program && $liquidation->program->parent_id;
+        $isEndorsedToAccounting = $liquidation->reviewed_at !== null;
+        $isEndorsedToCOA = $liquidation->coa_endorsed_at !== null;
+        $actorRoleName = $actor->role?->name;
 
-        if ($isActorHei) {
-            // HEI user commented → notify RC users for the region
-            $recipients = User::where('status', 'active')
+        $recipients = collect();
+
+        // Helper to fetch RC/STUFAPS Focal users for this liquidation
+        $getRcFocalUsers = function (array $excludeIds) use ($actor, $liquidation, $isSTUFAPSProgram) {
+            if ($isSTUFAPSProgram) {
+                return User::where('status', 'active')
+                    ->where('id', '!=', $actor->id)
+                    ->whereNotIn('id', $excludeIds)
+                    ->whereHas('role', fn ($q) => $q->where('name', 'STUFAPS Focal'))
+                    ->whereHas('programs', fn ($q) => $q->where('programs.id', $liquidation->program_id))
+                    ->get();
+            }
+            return User::where('status', 'active')
                 ->where('id', '!=', $actor->id)
-                ->whereNotIn('id', $alreadyNotified)
+                ->whereNotIn('id', $excludeIds)
                 ->where('region_id', $liquidation->hei?->region_id)
                 ->whereHas('role', fn ($q) => $q->where('name', 'Regional Coordinator'))
                 ->get();
-        } else {
-            // RC/Accountant/Admin commented → notify HEI users
-            $recipients = User::where('status', 'active')
+        };
+
+        // Helper to fetch Accountant users
+        $getAccountants = function (array $excludeIds) use ($actor) {
+            return User::where('status', 'active')
                 ->where('id', '!=', $actor->id)
-                ->whereNotIn('id', $alreadyNotified)
+                ->whereNotIn('id', $excludeIds)
+                ->whereHas('role', fn ($q) => $q->where('name', 'Accountant'))
+                ->get();
+        };
+
+        // Helper to fetch COA users
+        $getCOAUsers = function (array $excludeIds) use ($actor) {
+            return User::where('status', 'active')
+                ->where('id', '!=', $actor->id)
+                ->whereNotIn('id', $excludeIds)
+                ->whereHas('role', fn ($q) => $q->where('name', 'COA'))
+                ->get();
+        };
+
+        // Helper to fetch HEI users for this liquidation
+        $getHeiUsers = function (array $excludeIds) use ($actor, $liquidation) {
+            return User::where('status', 'active')
+                ->where('id', '!=', $actor->id)
+                ->whereNotIn('id', $excludeIds)
                 ->where('hei_id', $liquidation->hei_id)
                 ->get();
+        };
+
+        if ($isActorHei) {
+            // HEI commented → notify RC/STUFAPS Focal
+            $recipients = $getRcFocalUsers($alreadyNotified);
+
+            // Also notify Accountants if endorsed to Accounting
+            if ($isEndorsedToAccounting) {
+                $recipients = $recipients->merge($getAccountants(array_merge($alreadyNotified, $recipients->pluck('id')->toArray())));
+            }
+            // Also notify COA if endorsed to COA
+            if ($isEndorsedToCOA) {
+                $recipients = $recipients->merge($getCOAUsers(array_merge($alreadyNotified, $recipients->pluck('id')->toArray())));
+            }
+        } elseif ($actorRoleName === 'COA') {
+            // COA commented → notify Accountant, RC/STUFAPS Focal, and HEI
+            $heiUsers = $getHeiUsers($alreadyNotified);
+            $rcUsers = $getRcFocalUsers(array_merge($alreadyNotified, $heiUsers->pluck('id')->toArray()));
+            $accountants = $getAccountants(array_merge($alreadyNotified, $heiUsers->pluck('id')->toArray(), $rcUsers->pluck('id')->toArray()));
+            $recipients = $heiUsers->merge($rcUsers)->merge($accountants);
+        } elseif ($actorRoleName === 'Accountant') {
+            // Accountant commented → notify HEI users AND RC/STUFAPS Focal
+            $heiUsers = $getHeiUsers($alreadyNotified);
+            $rcUsers = $getRcFocalUsers(array_merge($alreadyNotified, $heiUsers->pluck('id')->toArray()));
+            $recipients = $heiUsers->merge($rcUsers);
+
+            // Also notify COA if endorsed to COA
+            if ($isEndorsedToCOA) {
+                $recipients = $recipients->merge($getCOAUsers(array_merge($alreadyNotified, $recipients->pluck('id')->toArray())));
+            }
+        } else {
+            // RC/Admin/STUFAPS Focal commented → notify HEI users
+            $recipients = $getHeiUsers($alreadyNotified);
+
+            // Also notify Accountants if endorsed to Accounting
+            if ($isEndorsedToAccounting) {
+                $recipients = $recipients->merge($getAccountants(array_merge($alreadyNotified, $recipients->pluck('id')->toArray())));
+            }
+            // Also notify COA if endorsed to COA
+            if ($isEndorsedToCOA) {
+                $recipients = $recipients->merge($getCOAUsers(array_merge($alreadyNotified, $recipients->pluck('id')->toArray())));
+            }
         }
 
         if ($recipients->isEmpty()) {

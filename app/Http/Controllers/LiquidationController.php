@@ -16,13 +16,16 @@ use App\Models\ActivityLog;
 use App\Models\DocumentLocation;
 use App\Models\DocumentRequirement;
 use App\Models\DocumentStatus;
+use App\Models\ImportBatch;
 use App\Models\Liquidation;
+use App\Models\Notification;
 use App\Models\LiquidationDocument;
 use App\Models\LiquidationReview;
 use App\Models\LiquidationRunningData;
 use App\Models\LiquidationStatus;
 use App\Models\RcNoteStatus;
 use App\Models\LiquidationTrackingEntry;
+use App\Models\User;
 use App\Services\CacheService;
 use App\Services\LiquidationService;
 use App\Services\NotificationService;
@@ -30,13 +33,39 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class LiquidationController extends Controller
 {
+    // ── Excel column indices (0-based) ────────────────────────────────────────
+    private const COL_SEQ                = 0;
+    private const COL_PROGRAM            = 1;
+    private const COL_UII                = 2;
+    private const COL_HEI_NAME           = 3;
+    private const COL_DATE_FUND_RELEASED = 4;
+    private const COL_DUE_DATE           = 5;
+    private const COL_ACADEMIC_YEAR      = 6;
+    private const COL_SEMESTER           = 7;
+    private const COL_BATCH_NO           = 8;
+    private const COL_CONTROL_NO         = 9;
+    private const COL_GRANTEES           = 10;
+    private const COL_DISBURSEMENTS      = 11;
+    private const COL_AMOUNT_LIQUIDATED  = 12;
+    private const COL_DOC_STATUS         = 13;
+    private const COL_RC_NOTES           = 14;
+
+    /** Rows per DB transaction during bulk import. */
+    private const IMPORT_CHUNK_SIZE = 500;
+
+    /** Import token TTL in minutes. */
+    private const IMPORT_TOKEN_TTL = 30;
+
     public function __construct(
         private readonly LiquidationService $liquidationService,
         private readonly CacheService $cacheService
@@ -75,6 +104,11 @@ class LiquidationController extends Controller
                     ->through(fn ($liquidation) => $this->formatLiquidationForList($liquidation))
             ),
 
+            // Summary stats for the table header
+            'tableSummary' => Inertia::defer(fn () =>
+                $this->liquidationService->getTableSummary($user, $filters)
+            ),
+
             // Deferred — only needed when user opens create/bulk modals
             'createPrograms' => Inertia::defer(function () use ($user, $allPrograms) {
                 $roleName = $user->role->name;
@@ -102,6 +136,11 @@ class LiquidationController extends Controller
                     )
                     ->orderBy('name')
                     ->get(['id', 'name', 'uii'])
+            ),
+            'accountants' => Inertia::defer(fn () =>
+                User::whereHas('role', fn ($q) => $q->where('name', 'Accountant'))
+                    ->orderBy('name')
+                    ->get(['id', 'name'])
             ),
         ]);
     }
@@ -173,6 +212,64 @@ class LiquidationController extends Controller
 
         return redirect()->route('liquidation.index')
             ->with('success', 'Liquidation endorsed to Accounting successfully.');
+    }
+
+    /**
+     * Regional Coordinator bulk endorses multiple liquidations to Accounting.
+     */
+    public function bulkEndorseToAccounting(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        $roleName = $user->role?->name;
+        if (!in_array($roleName, ['Regional Coordinator', 'STUFAPS Focal', 'Super Admin'])) {
+            abort(403, 'Unauthorized.');
+        }
+
+        $selectAll = (bool) $request->input('select_all', false);
+
+        $validated = $request->validate([
+            'liquidation_ids' => $selectAll ? 'nullable|array' : 'required|array|min:1',
+            'liquidation_ids.*' => 'string|exists:liquidations,id',
+            'review_remarks' => 'nullable|string',
+        ]);
+
+        // When "select all pages" was used, resolve all eligible IDs server-side
+        if ($selectAll) {
+            $query = Liquidation::excludeVoided()
+                ->whereNull('reviewed_at')
+                ->whereNotNull('date_submitted');
+            if ($roleName === 'Regional Coordinator' && $user->region_id) {
+                $query->whereHas('hei', fn ($q) => $q->where('region_id', $user->region_id));
+                $query->whereDoesntHave('program', fn ($q) => $q->whereNotNull('parent_id'));
+            } elseif ($roleName === 'STUFAPS Focal') {
+                $scopedIds = $user->getParentScopedProgramIds();
+                if ($scopedIds) $query->whereIn('program_id', $scopedIds);
+            }
+            $ids = $query->pluck('id')->toArray();
+        } else {
+            $ids = $validated['liquidation_ids'];
+        }
+
+        $data = collect($validated)->except('liquidation_ids')->toArray();
+        $succeeded = 0;
+        $errors = [];
+
+        foreach ($ids as $id) {
+            try {
+                $liquidation = Liquidation::findOrFail($id);
+                $this->liquidationService->endorseToAccounting($liquidation, $user, $data);
+                $succeeded++;
+            } catch (\Exception $e) {
+                $errors[] = $id;
+            }
+        }
+
+        $message = "{$succeeded} liquidation(s) endorsed to Accounting successfully.";
+        if (!empty($errors)) {
+            $message .= ' ' . count($errors) . ' failed.';
+        }
+
+        return redirect()->route('liquidation.index')->with('success', $message);
     }
 
     /**
@@ -268,11 +365,13 @@ class LiquidationController extends Controller
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
 
-        // Normalize control numbers: trim + uppercase
+        // Normalize control numbers: trim + uppercase (skip empty/null)
         $entries = $request->input('entries', []);
         foreach ($entries as &$entry) {
-            if (isset($entry['dv_control_no'])) {
+            if (!empty($entry['dv_control_no'])) {
                 $entry['dv_control_no'] = strtoupper(trim($entry['dv_control_no']));
+            } else {
+                $entry['dv_control_no'] = null;
             }
         }
         unset($entry);
@@ -282,11 +381,11 @@ class LiquidationController extends Controller
             'entries'                          => 'required|array|min:1|max:100',
             'entries.*.program_id'             => 'required|exists:programs,id',
             'entries.*.uii'                    => 'required|string',
-            'entries.*.dv_control_no'          => 'required|string|max:100|distinct|unique:liquidations,control_no',
+            'entries.*.dv_control_no'          => 'nullable|string|max:100|distinct|unique:liquidations,control_no',
             'entries.*.date_fund_released'     => 'required|date',
             'entries.*.due_date'               => 'nullable|date',
             'entries.*.academic_year_id'       => 'required|exists:academic_years,id',
-            'entries.*.semester'               => 'required|string|max:50',
+            'entries.*.semester'               => 'nullable|string|max:50',
             'entries.*.batch_no'               => 'nullable|string|max:50',
             'entries.*.number_of_grantees'     => 'nullable|integer|min:0',
             'entries.*.total_disbursements'    => 'required|numeric|min:0',
@@ -294,7 +393,6 @@ class LiquidationController extends Controller
             'entries.*.document_status'        => 'nullable|string|in:NONE,PARTIAL,COMPLETE',
             'entries.*.rc_notes'               => 'nullable|string|max:1000',
         ], [
-            'entries.*.dv_control_no.required' => 'Control No. is required for row :position.',
             'entries.*.dv_control_no.distinct'  => 'Control No. in row :position is duplicated.',
             'entries.*.dv_control_no.unique'    => 'Control No. in row :position already exists in the system.',
         ]);
@@ -302,14 +400,16 @@ class LiquidationController extends Controller
         $imported = 0;
         $errors = [];
 
-        foreach ($request->input('entries') as $index => $entry) {
-            try {
-                $this->liquidationService->createLiquidation($entry, $user);
-                $imported++;
-            } catch (\Exception $e) {
-                $errors[] = ['row' => $index + 1, 'error' => $e->getMessage()];
+        DB::transaction(function () use ($request, $user, &$imported, &$errors) {
+            foreach ($request->input('entries') as $index => $entry) {
+                try {
+                    $this->liquidationService->createLiquidation($entry, $user);
+                    $imported++;
+                } catch (\Exception $e) {
+                    $errors[] = ['row' => $index + 1, 'error' => $e->getMessage()];
+                }
             }
-        }
+        });
 
         if ($imported > 0) {
             ActivityLog::log('bulk_entry', 'Bulk entered '.$imported.' liquidation(s)', null, 'Liquidation');
@@ -343,33 +443,20 @@ class LiquidationController extends Controller
     /**
      * Validate an Excel file before importing (dry-run).
      * Returns parsed rows with validation status — no records are created.
+     *
+     * Valid rows are cached server-side under a one-time import token so that
+     * the actual import step never needs to re-parse the file.
      */
     public function validateImport(BulkImportRequest $request): JsonResponse
     {
         $file = $request->file('file');
         $user = $request->user();
-        $validatedRows = [];
 
         try {
             $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file->getRealPath());
-            $rows = $spreadsheet->getActiveSheet()->toArray();
-
-            foreach ($rows as $index => $row) {
-                if (empty(array_filter($row, fn($cell) => $cell !== null && $cell !== ''))) {
-                    continue;
-                }
-
-                $seq = trim($row[0] ?? '');
-                if (!is_numeric($seq)) {
-                    continue;
-                }
-
-                $excelRow = $index + 1;
-                $parsedRow = $this->parseRowForPreview($row, $user);
-                $parsedRow['row'] = $excelRow;
-                $parsedRow['seq'] = $seq;
-                $validatedRows[] = $parsedRow;
-            }
+            $allRows = $spreadsheet->getActiveSheet()->toArray();
+            $spreadsheet->disconnectWorksheets();
+            unset($spreadsheet);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -377,81 +464,359 @@ class LiquidationController extends Controller
             ], 422);
         }
 
+        $validatedRows  = [];
+        $importableRows = [];
+        $seenControlNos = []; // track within-file duplicates
+
+        foreach ($allRows as $index => $row) {
+            if (empty(array_filter($row, fn($cell) => $cell !== null && $cell !== ''))) {
+                continue;
+            }
+
+            $seq = trim($row[self::COL_SEQ] ?? '');
+            if (!is_numeric($seq)) {
+                continue;
+            }
+
+            $parsed = $this->parseImportRow($row, $user);
+            $parsed['row'] = $index + 1;
+            $parsed['seq'] = $seq;
+
+            // Within-file duplicate control_no detection (DB check only catches existing records,
+            // not duplicates within the same uploaded file)
+            $controlNoInFile = $parsed['control_no'] ?? '';
+            if (!empty($controlNoInFile)) {
+                if (isset($seenControlNos[$controlNoInFile])) {
+                    $parsed['valid'] = false;
+                    $parsed['errors'][] = "Control No '{$controlNoInFile}' (col J) appears more than once in this file (first seen at row {$seenControlNos[$controlNoInFile]}).";
+                } else {
+                    $seenControlNos[$controlNoInFile] = $parsed['row'];
+                }
+            }
+
+            // Separate importable data from display data before sending to frontend
+            $importable = $parsed['valid'] ? $parsed['importable'] : null;
+            if ($importable !== null) {
+                // Attach row context so import-time errors can include useful info
+                $importable['row_no']       = $index + 1;
+                $importable['seq']          = $seq;
+                $importable['program_code'] = $parsed['program'];
+                $importable['uii']          = $parsed['uii'];
+            }
+            unset($parsed['importable']);
+            $validatedRows[] = $parsed;
+
+            if ($importable !== null) {
+                $importableRows[] = $importable;
+            }
+        }
+
         $validCount = collect($validatedRows)->where('valid', true)->count();
         $errorCount = collect($validatedRows)->where('valid', false)->count();
 
+        // Cache pre-resolved rows server-side — import step uses token, not file
+        $token = Str::uuid()->toString();
+        Cache::put("liquidation_import_{$token}", [
+            'user_id'   => $user->id,
+            'file_name' => $file->getClientOriginalName(),
+            'rows'      => $importableRows,
+        ], now()->addMinutes(self::IMPORT_TOKEN_TTL));
+
         return response()->json([
             'success' => true,
-            'rows' => $validatedRows,
+            'token'   => $token,
+            'rows'    => $validatedRows,
             'summary' => [
-                'total' => count($validatedRows),
-                'valid' => $validCount,
+                'total'  => count($validatedRows),
+                'valid'  => $validCount,
                 'errors' => $errorCount,
             ],
         ]);
     }
 
     /**
-     * Bulk import liquidations from Excel file (for RC).
+     * Bulk import liquidations using a pre-validated import token.
+     *
+     * The token is issued by validateImport() and holds import-ready row data
+     * in the cache — no file re-upload or re-parse required.
+     * Rows are inserted in chunks of IMPORT_CHUNK_SIZE to keep transactions
+     * small and resilient (a failure in one chunk does not roll back others).
      */
-    public function bulkImportLiquidations(BulkImportRequest $request): JsonResponse
+    public function bulkImportLiquidations(Request $request): JsonResponse
     {
-        $file = $request->file('file');
+        // Bulk import can take several minutes for large files — lift PHP's default 30s limit
+        set_time_limit(300);
+
         $user = $request->user();
-        $imported = 0;
-        $errors = [];
 
-        try {
-            $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file->getRealPath());
-            $rows = $spreadsheet->getActiveSheet()->toArray();
+        if (!in_array($user->role?->name, ['Regional Coordinator', 'Admin', 'STUFAPS Focal']) && !$user->isSuperAdmin()) {
+            abort(403, 'Unauthorized action.');
+        }
 
-            foreach ($rows as $index => $row) {
-                if (empty(array_filter($row, fn($cell) => $cell !== null && $cell !== ''))) {
-                    continue;
-                }
-
-                $seq = trim($row[0] ?? '');
-                if (!is_numeric($seq)) {
-                    continue;
-                }
-
-                $excelRow = $index + 1; // 0-based array index → 1-based Excel row
-
-                try {
-                    $result = $this->processImportRow($row, $user);
-                    if ($result['success']) {
-                        $imported++;
-                    } else {
-                        $errors[] = [
-                            'row' => $excelRow,
-                            'seq' => $seq,
-                            'uii' => trim($row[2] ?? ''),
-                            'program' => trim($row[1] ?? ''),
-                            'error' => $result['error'],
-                        ];
-                    }
-                } catch (\Exception $e) {
-                    $errors[] = [
-                        'row' => $excelRow,
-                        'seq' => $seq,
-                        'uii' => trim($row[2] ?? ''),
-                        'program' => trim($row[1] ?? ''),
-                        'error' => $e->getMessage(),
-                    ];
-                }
-            }
-        } catch (\Exception $e) {
+        $token = $request->input('import_token');
+        if (!$token) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to read Excel file: ' . $e->getMessage(),
+                'message' => 'Missing import token. Please re-validate your file.',
             ], 422);
         }
 
+        $cacheKey = "liquidation_import_{$token}";
+        $cached   = Cache::get($cacheKey);
+
+        if (!$cached) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Import session expired or not found. Please re-validate your file.',
+            ], 422);
+        }
+
+        if ($cached['user_id'] !== $user->id) {
+            abort(403, 'Import token does not belong to the current user.');
+        }
+
+        $rows      = $cached['rows'];
+        $totalRows = count($rows);
+        $imported  = 0;
+        $errors    = [];
+
+        // Create import batch record for traceability / undo
+        $batch = ImportBatch::create([
+            'user_id'        => $user->id,
+            'file_name'      => $cached['file_name'] ?? 'unknown.xlsx',
+            'total_rows'     => $totalRows,
+            'imported_count' => 0,
+            'status'         => 'active',
+        ]);
+
+        // Publish initial progress so the frontend can start polling immediately
+        $progressKey = "import_progress_{$token}";
+        $progressTtl = now()->addMinutes(15);
+        Cache::put($progressKey, [
+            'processed' => 0,
+            'total'     => $totalRows,
+            'imported'  => 0,
+            'errors'    => 0,
+            'done'      => false,
+        ], $progressTtl);
+
+        $processed = 0;
+
+        // Process in chunks: smaller transactions = faster, more resilient
+        foreach (array_chunk($rows, self::IMPORT_CHUNK_SIZE) as $chunk) {
+            DB::transaction(function () use ($chunk, $user, $batch, &$imported, &$errors, &$processed) {
+                foreach ($chunk as $rowData) {
+                    $processed++;
+                    try {
+                        $this->insertImportRow($rowData, $user, $batch->id);
+                        $imported++;
+                    } catch (\Illuminate\Database\QueryException $e) {
+                        $isDuplicate = ($e->errorInfo[1] ?? null) === 1062;
+                        $errors[] = [
+                            'row'      => $rowData['row_no'] ?? null,
+                            'seq'      => $rowData['seq'] ?? null,
+                            'program'  => $rowData['program_code'] ?? null,
+                            'uii'      => $rowData['uii'] ?? null,
+                            'hei_name' => $rowData['hei_name'] ?? '',
+                            'error'    => $isDuplicate
+                                ? 'Already exists — this record was likely imported in a previous batch.'
+                                : 'Database error — the record could not be saved.',
+                        ];
+                    } catch (\Exception $e) {
+                        $errors[] = [
+                            'row'      => $rowData['row_no'] ?? null,
+                            'seq'      => $rowData['seq'] ?? null,
+                            'program'  => $rowData['program_code'] ?? null,
+                            'uii'      => $rowData['uii'] ?? null,
+                            'hei_name' => $rowData['hei_name'] ?? '',
+                            'error'    => $e->getMessage(),
+                        ];
+                    }
+                }
+            });
+
+            // Persist progress after each chunk — frontend polls this
+            $batch->update(['imported_count' => $imported]);
+            Cache::put($progressKey, [
+                'processed' => $processed,
+                'total'     => $totalRows,
+                'imported'  => $imported,
+                'errors'    => count($errors),
+                'done'      => false,
+            ], $progressTtl);
+        }
+
+        // Mark done so frontend knows to stop polling
+        Cache::put($progressKey, [
+            'processed' => $totalRows,
+            'total'     => $totalRows,
+            'imported'  => $imported,
+            'errors'    => count($errors),
+            'done'      => true,
+        ], now()->addMinutes(5));
+
+        // One-time token — clear regardless of outcome
+        Cache::forget($cacheKey);
+
         if ($imported > 0) {
-            ActivityLog::log('bulk_imported', 'Bulk imported '.$imported.' liquidation(s)', null, 'Liquidation');
+            ActivityLog::log('bulk_imported', "Bulk imported {$imported} liquidation(s) (batch: {$batch->id})", null, 'Liquidation');
+
+            // Single batch-level notification (not per-row) to avoid thousands of DB inserts
+            NotificationService::dispatch(
+                'bulk_imported',
+                "Bulk imported {$imported} liquidation record(s) from {$batch->file_name}",
+                null,
+                'Liquidation'
+            );
         }
 
         return $this->formatImportResponse($imported, $errors);
+    }
+
+    /**
+     * Return the current progress of an in-flight bulk import.
+     * The frontend polls this every second while the import is running.
+     */
+    public function importProgress(Request $request): JsonResponse
+    {
+        $token = $request->input('token');
+        if (!$token) {
+            return response()->json(['found' => false], 422);
+        }
+
+        $progress = Cache::get("import_progress_{$token}");
+        if (!$progress) {
+            return response()->json(['found' => false]);
+        }
+
+        return response()->json(['found' => true, ...$progress]);
+    }
+
+    /**
+     * List recent import batches for the current user.
+     */
+    public function importBatches(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if (!in_array($user->role?->name, ['Regional Coordinator', 'Admin', 'STUFAPS Focal']) && !$user->isSuperAdmin()) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        // Admin/Super Admin see all batches; others see only their own
+        $query = ImportBatch::orderByDesc('created_at')->limit(20);
+        if (!$user->isSuperAdmin() && $user->role?->name !== 'Admin') {
+            $query->where('user_id', $user->id);
+        }
+
+        $batches = $query->get()
+            ->map(fn (ImportBatch $b) => [
+                'id'             => $b->id,
+                'file_name'      => $b->file_name,
+                'total_rows'     => $b->total_rows,
+                'imported_count' => $b->imported_count,
+                'status'         => $b->status,
+                'created_at'     => $b->created_at->format('M d, Y h:i A'),
+                'undone_at'      => $b->undone_at?->format('M d, Y h:i A'),
+                'imported_by'    => $b->user?->name ?? 'Unknown',
+            ]);
+
+        return response()->json(['batches' => $batches]);
+    }
+
+    /**
+     * Undo an entire import batch — deletes all liquidations created in that batch.
+     */
+    public function undoImportBatch(Request $request, string $batchId): JsonResponse
+    {
+        $user = $request->user();
+
+        $batch = ImportBatch::findOrFail($batchId);
+
+        if ($batch->user_id !== $user->id && !$user->isSuperAdmin()) {
+            abort(403, 'You can only undo your own import batches.');
+        }
+
+        if ($batch->isUndone()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This import batch has already been undone.',
+            ], 422);
+        }
+
+        // Only delete liquidations still in draft-like states (not yet endorsed/reviewed)
+        $deletable = Liquidation::where('import_batch_id', $batchId)
+            ->whereNull('date_submitted')
+            ->get();
+
+        $skipped = Liquidation::where('import_batch_id', $batchId)
+            ->whereNotNull('date_submitted')
+            ->count();
+
+        $deletedCount = 0;
+        $deletedIds = [];
+
+        foreach ($deletable->chunk(self::IMPORT_CHUNK_SIZE) as $chunk) {
+            DB::transaction(function () use ($chunk, &$deletedCount, &$deletedIds) {
+                foreach ($chunk as $liquidation) {
+                    $deletedIds[] = $liquidation->id;
+                    // Hard-delete related records and the liquidation itself
+                    // (forceDelete so control numbers are freed for reuse)
+                    $liquidation->financial()->forceDelete();
+                    $liquidation->documents()->each(function ($doc) {
+                        if (!$doc->is_gdrive && $doc->file_path) {
+                            Storage::disk('public')->delete($doc->file_path);
+                        }
+                        $doc->forceDelete();
+                    });
+                    $liquidation->forceDelete();
+                    $deletedCount++;
+                }
+            });
+        }
+
+        // Also clean up any previously soft-deleted records from this batch
+        // (left over from old undo code that used soft-delete instead of forceDelete)
+        $orphaned = Liquidation::onlyTrashed()
+            ->where('import_batch_id', $batchId)
+            ->get();
+        foreach ($orphaned as $orphan) {
+            $deletedIds[] = $orphan->id;
+            $orphan->financial()->forceDelete();
+            $orphan->documents()->each(fn ($doc) => $doc->forceDelete());
+            $orphan->forceDelete();
+        }
+
+        // Clean up notifications for deleted liquidations
+        if (!empty($deletedIds)) {
+            Notification::where('action', 'bulk_imported')
+                ->whereIn('subject_id', $deletedIds)
+                ->delete();
+        }
+
+        $batch->update([
+            'status'   => 'undone',
+            'undone_at' => now(),
+        ]);
+
+        ActivityLog::log(
+            'undo_import_batch',
+            "Undid import batch — deleted {$deletedCount} liquidation(s)" . ($skipped > 0 ? ", skipped {$skipped} already submitted" : ''),
+            null,
+            'Liquidation'
+        );
+
+        $message = "Undone — {$deletedCount} liquidation(s) deleted.";
+        if ($skipped > 0) {
+            $message .= " {$skipped} already-submitted record(s) were kept.";
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $message,
+            'deleted' => $deletedCount,
+            'skipped' => $skipped,
+        ]);
     }
 
     /**
@@ -491,7 +856,9 @@ class LiquidationController extends Controller
         return Inertia::render('liquidation/show', [
             'liquidation' => $this->formatLiquidationDetails($liquidation, $requirements, $isHEIUser),
             'userHei' => $this->formatUserHei($user->hei),
-            'regionalCoordinators' => $this->cacheService->getRegionalCoordinators($heiRegionId),
+            'regionalCoordinators' => $liquidation->program?->parent_id
+                ? $this->getStufapsFocalsForProgram($liquidation->program_id)
+                : $this->cacheService->getRegionalCoordinators($heiRegionId),
             'accountants' => $this->cacheService->getAccountants(),
             'documentLocations' => DocumentLocation::orderBy('sort_order')->pluck('name'),
             'permissions' => [
@@ -500,6 +867,7 @@ class LiquidationController extends Controller
                 'edit' => $user->hasPermission('edit_liquidation'),
             ],
             'userRole' => $user->role->name,
+            'isStufapsProgram' => (bool) $liquidation->program?->parent_id,
 
             // Deferred props — load after initial page paint for instant navigation
             'documentRequirements' => Inertia::defer(fn () => $requirements),
@@ -1219,8 +1587,8 @@ class LiquidationController extends Controller
     {
         $user = $request->user();
 
-        if (!in_array($user->role->name, ['Regional Coordinator', 'Admin']) && !$user->isSuperAdmin()) {
-            abort(403, 'Only Regional Coordinators can download this template.');
+        if (!in_array($user->role?->name, ['Regional Coordinator', 'Admin', 'STUFAPS Focal']) && !$user->isSuperAdmin()) {
+            abort(403, 'Unauthorized action.');
         }
 
         $templatePath = base_path('materials/RC-LIQUIDATION_TEMPLATE-ENTRY.xlsx');
@@ -1242,7 +1610,13 @@ class LiquidationController extends Controller
     public function nextControlNo(Request $request): JsonResponse
     {
         $programId = $request->query('program_id');
-        $controlNo = $this->liquidationService->generateControlNo($programId);
+        $year = $request->query('year') ? (int) $request->query('year') : null;
+
+        if (!$programId) {
+            return response()->json(['control_no' => '']);
+        }
+
+        $controlNo = $this->liquidationService->generateControlNo($programId, $year);
 
         return response()->json(['control_no' => $controlNo]);
     }
@@ -1309,8 +1683,8 @@ class LiquidationController extends Controller
             return;
         }
 
-        // Accountants and Admins can view all liquidations
-        if (in_array($roleName, ['Accountant', 'Admin', 'Super Admin'])) {
+        // Accountants, COA, and Admins can view all liquidations
+        if (in_array($roleName, ['Accountant', 'COA', 'Admin', 'Super Admin'])) {
             return;
         }
 
@@ -1330,8 +1704,14 @@ class LiquidationController extends Controller
         $totalDisbursements = (float) ($financial?->amount_received ?? 0);
         $totalLiquidated = (float) ($financial?->amount_liquidated ?? 0);
         $totalUnliquidated = $totalDisbursements - $totalLiquidated;
+        // TES: (Liquidated + For Endorsement) / Disbursed
+        // STuFAPs (sub-programs): Liquidated / Disbursed
+        $isStufaps = $liquidation->program?->parent_id !== null;
+        $forEndorsement = (!$isStufaps && $liquidation->rcNoteStatus?->code === 'FOR_ENDORSEMENT')
+            ? $totalDisbursements - $totalLiquidated
+            : 0;
         $percentageLiquidation = $totalDisbursements > 0
-            ? round(($totalLiquidated / $totalDisbursements) * 100, 2)
+            ? round((($totalLiquidated + $forEndorsement) / $totalDisbursements) * 100, 2)
             : 0;
 
         // Determine Status of Documents display name
@@ -1370,6 +1750,7 @@ class LiquidationController extends Controller
             'liquidation_status' => $liquidationStatus,
             'liquidation_status_code' => $liquidation->liquidationStatus?->code ?? 'UNLIQUIDATED',
             'is_voided' => $liquidation->isVoided(),
+            'is_endorsed' => $liquidation->reviewed_at !== null,
             'percentage_liquidation' => $percentageLiquidation,
             'lapsing_period' => $financial?->lapsing_period ?? 0,
         ];
@@ -1422,6 +1803,14 @@ class LiquidationController extends Controller
             'can_edit' => true,
             'can_submit' => true,
         ];
+    }
+
+    private function getStufapsFocalsForProgram(string $programId): Collection
+    {
+        return User::whereHas('role', fn ($q) => $q->where('name', 'STUFAPS Focal'))
+            ->where('status', 'active')
+            ->orderBy('name')
+            ->get(['id', 'name', 'avatar', 'region_id']);
     }
 
     private function formatLiquidationDetails(Liquidation $liquidation, Collection $requirements, bool $isHEIUser): array
@@ -1494,6 +1883,11 @@ class LiquidationController extends Controller
             'document_status' => $liquidation->documentStatus?->name ?? 'N/A',
             'liquidation_status' => $liquidation->liquidationStatus?->name ?? 'Unliquidated',
             'date_submitted' => $liquidation->date_submitted?->format('Y-m-d H:i:s'),
+            'coa_endorsed_at' => $liquidation->coa_endorsed_at?->format('Y-m-d H:i:s'),
+            'accountant_reviewed_by_name' => $liquidation->accountantReviewer?->name,
+            'accountant_reviewed_at' => $liquidation->accountant_reviewed_at?->format('Y-m-d H:i:s'),
+            'rc_endorsement_remarks' => $liquidation->getRcEndorsementRemarks(),
+            'accountant_endorsement_remarks' => $liquidation->getAccountantEndorsementRemarks(),
             'updated_at' => $liquidation->updated_at?->toIso8601String(),
             'created_by_name' => $liquidation->creator?->name,
             'beneficiaries' => $liquidation->beneficiaries->map(fn ($b) => [
@@ -1589,194 +1983,50 @@ class LiquidationController extends Controller
     }
 
     /**
-     * Process a single import row.
+     * Parse and validate a single Excel row.
      *
-     * Column mapping (0-indexed):
-     * 0: SEQ, 1: Program, 2: UII, 3: HEI Name, 4: Date of Fund Release,
-     * 5: Due Date, 6: Academic Year, 7: Semester, 8: Batch no., 9: DV Control no.,
-     * 10: Number of Grantees, 11: Total Disbursements, 12: Total Amount Liquidated,
-     * 13: Status of Documents, 14: RC Notes
+     * Returns display data (for the preview JSON) plus an `importable` key
+     * containing pre-resolved IDs ready for DB insert — or null when invalid.
+     * This single method replaces the old processImportRow + parseRowForPreview pair.
      */
-    private function processImportRow(array $row, $user): array
+    private function parseImportRow(array $row, $user): array
     {
         $errors = [];
 
-        // --- Extract raw values ---
-        $programCode     = trim($row[1] ?? '');
-        $uii             = trim($row[2] ?? '');
-        $academicYearCode = trim($row[6] ?? '');
-        $semesterRaw     = trim((string) ($row[7] ?? ''));
-        $batchNo         = trim($row[8] ?? '');
-        $dvControlNo     = trim($row[9] ?? '');
-        $docStatusRaw    = trim((string) ($row[13] ?? ''));
-        $rcNotesRaw      = trim($row[14] ?? '');
+        // ── Extract all raw values upfront using named column constants ───────
+        $programCode      = trim($row[self::COL_PROGRAM] ?? '');
+        $uii              = trim($row[self::COL_UII] ?? '');
+        $heiName          = trim($row[self::COL_HEI_NAME] ?? '');
+        $academicYearCode = trim($row[self::COL_ACADEMIC_YEAR] ?? '');
+        $semesterRaw      = trim((string) ($row[self::COL_SEMESTER] ?? ''));
+        $batchNo          = trim($row[self::COL_BATCH_NO] ?? '');
+        $dvControlNo      = trim($row[self::COL_CONTROL_NO] ?? '');
+        $docStatusRaw     = trim((string) ($row[self::COL_DOC_STATUS] ?? ''));
+        $rcNotesRaw       = trim($row[self::COL_RC_NOTES] ?? '');
+        $grantees         = $this->parseInteger($row[self::COL_GRANTEES] ?? null);
+        $totalDisbursements = $this->parseAmount($row[self::COL_DISBURSEMENTS] ?? null);
+        $totalLiquidated  = $this->parseAmount($row[self::COL_AMOUNT_LIQUIDATED] ?? 0);
+        $dateFundReleased = $this->parseExcelDate($row[self::COL_DATE_FUND_RELEASED] ?? null);
+        $dueDateRaw       = trim((string) ($row[self::COL_DUE_DATE] ?? ''));
+        $dueDate          = $this->parseExcelDate($row[self::COL_DUE_DATE] ?? null);
 
-        // --- Required field checks ---
-        if (empty($programCode))     $errors[] = 'Program (col B) is required.';
-        if (empty($uii))             $errors[] = 'UII (col C) is required.';
+        // ── Required field checks ─────────────────────────────────────────────
+        if (empty($programCode))      $errors[] = 'Program (col B) is required.';
+        if (empty($uii))              $errors[] = 'UII (col C) is required.';
         if (empty($academicYearCode)) $errors[] = 'Academic Year (col G) is required.';
-        if (empty($semesterRaw))     $errors[] = 'Semester (col H) is required.';
+        // Semester is optional — some rows may leave it blank
 
-        $dateFundReleased = $this->parseExcelDate($row[4] ?? null);
         if (!$dateFundReleased) {
             $errors[] = 'Date of Fund Released (col E) is required and must be a valid date with a 4-digit year.';
         }
 
-        $totalDisbursements = $this->parseAmount($row[11] ?? null);
-        if (empty(trim((string) ($row[11] ?? ''))))  $errors[] = 'Total Disbursements (col L) is required.';
-        elseif ($totalDisbursements < 0)             $errors[] = 'Total Disbursements (col L) cannot be negative.';
-
-        if (!empty($errors)) {
-            return ['success' => false, 'error' => implode(' ', $errors)];
+        $disbursementsRaw = trim((string) ($row[self::COL_DISBURSEMENTS] ?? ''));
+        if (empty($disbursementsRaw)) {
+            $errors[] = 'Total Disbursements (col L) is required.';
+        } elseif ($totalDisbursements < 0) {
+            $errors[] = 'Total Disbursements (col L) cannot be negative.';
         }
 
-        // --- Lookup validations ---
-        $hei = $this->liquidationService->findHEIByUII($uii);
-        if (!$hei) {
-            return ['success' => false, 'error' => "UII '{$uii}' (col C) not found in the system."];
-        }
-
-        if ($user->role->name === 'Regional Coordinator' && $user->region_id) {
-            if ($hei->region_id !== $user->region_id) {
-                return ['success' => false, 'error' => "HEI '{$uii}' does not belong to your assigned region."];
-            }
-        }
-
-        $program = $this->findProgram($programCode);
-        if (!$program) {
-            return ['success' => false, 'error' => "Program '{$programCode}' (col B) not found. Use a valid program code."];
-        }
-
-        // Semester must match database codes (1ST, 2ND, SUM) — also accepts word forms
-        $semesterId = $this->liquidationService->findSemesterId($semesterRaw);
-        if (!$semesterId) {
-            return ['success' => false, 'error' => "Semester '{$semesterRaw}' (col H) is invalid. Use: 1ST, 2ND, SUM, First Semester, Second Semester, or Summer."];
-        }
-
-        // Academic year must match database codes
-        $academicYear = \App\Models\AcademicYear::findByCode($academicYearCode);
-        if (!$academicYear) {
-            return ['success' => false, 'error' => "Academic Year '{$academicYearCode}' (col G) not found in the system."];
-        }
-
-        // --- Control No validation (col J) ---
-        $controlNo = !empty($dvControlNo) ? $dvControlNo : $this->liquidationService->generateControlNumber($program->id);
-
-        if (!empty($dvControlNo)) {
-            // Validate format: PROGRAM-YYYY-XXXX (program code may contain hyphens, e.g. SIDA-SGP-2026-0012)
-            if (!preg_match('/^(.+)-(\d{4})-(\d+)$/', $dvControlNo, $matches)) {
-                return ['success' => false, 'error' => "Control No '{$dvControlNo}' (col J) must follow format: PROGRAM-YYYY-XXXX (e.g. TES-2026-0001)."];
-            }
-
-            // Program prefix in control no must match the program column
-            $controlPrefix = strtoupper($matches[1]);
-            if (strtoupper($program->code) !== $controlPrefix) {
-                return ['success' => false, 'error' => "Control No prefix '{$controlPrefix}' does not match Program '{$program->code}' (col B vs col J)."];
-            }
-        }
-
-        if (Liquidation::where('control_no', $controlNo)->exists()) {
-            return ['success' => false, 'error' => "Control No '{$controlNo}' (col J) already exists."];
-        }
-
-        // --- Document status validation (col N) ---
-        $documentStatusId = null;
-        if (!empty($docStatusRaw)) {
-            $documentStatusId = $this->parseDocumentStatus($docStatusRaw);
-            if (!$documentStatusId) {
-                return ['success' => false, 'error' => "Status of Documents '{$docStatusRaw}' (col N) is invalid. Use: COMPLETE, PARTIAL, or NONE."];
-            }
-        } else {
-            $documentStatusId = DocumentStatus::findByCode(DocumentStatus::CODE_NONE)?->id;
-        }
-
-        // --- RC Notes validation (col O) ---
-        $rcNoteStatusId = null;
-        if (!empty($rcNotesRaw)) {
-            $rcNoteStatusId = $this->parseRcNoteStatus($rcNotesRaw);
-            if (!$rcNoteStatusId) {
-                return ['success' => false, 'error' => "RC Notes '{$rcNotesRaw}' (col O) is invalid. Use: For Review, For Compliance, For Endorsement, Fully Endorsed, or Partially Endorsed."];
-            }
-        }
-
-        // --- Due date: auto-calculate if not provided ---
-        $dueDateRaw = trim((string) ($row[5] ?? ''));
-        $dueDate = $this->parseExcelDate($row[5] ?? null);
-        if (!empty($dueDateRaw) && !$dueDate) {
-            return ['success' => false, 'error' => 'Due Date (col F) has an invalid date or year. Please use a valid date with a 4-digit year.'];
-        }
-        if ($dueDate && $dateFundReleased && \Carbon\Carbon::instance($dueDate)->lt(\Carbon\Carbon::instance($dateFundReleased))) {
-            return ['success' => false, 'error' => 'Due Date (col F) cannot be earlier than Date of Fund Released (col E).'];
-        }
-        if (!$dueDate && $dateFundReleased) {
-            $days = $program->parent_id ? 30 : 90;
-            $dueDate = \Carbon\Carbon::instance($dateFundReleased)->copy()->addDays($days);
-        }
-
-        // --- Amount liquidated (non-negative) ---
-        $totalLiquidated = $this->parseAmount($row[12] ?? 0);
-        if ($totalLiquidated < 0) {
-            return ['success' => false, 'error' => 'Total Amount Liquidated (col M) cannot be negative.'];
-        }
-
-        // --- Create records ---
-        $liquidation = Liquidation::create([
-            'control_no'          => $controlNo,
-            'hei_id'              => $hei->id,
-            'program_id'          => $program->id,
-            'academic_year_id'    => $academicYear->id,
-            'semester_id'         => $semesterId,
-            'batch_no'            => !empty($batchNo) ? $batchNo : null,
-            'document_status_id'  => $documentStatusId,
-            'rc_note_status_id'   => $rcNoteStatusId,
-            'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
-            'created_by'          => $user->id,
-        ]);
-
-        $liquidation->createOrUpdateFinancial([
-            'date_fund_released' => $dateFundReleased,
-            'due_date'           => $dueDate,
-            'number_of_grantees' => $this->parseInteger($row[10] ?? null),
-            'amount_received'    => $totalDisbursements,
-            'amount_disbursed'   => $totalDisbursements,
-            'amount_liquidated'  => $totalLiquidated,
-        ]);
-
-        NotificationService::dispatch('bulk_imported', 'Bulk imported liquidation '.$liquidation->control_no.' for '.$hei->name, $liquidation, 'Liquidation');
-
-        return ['success' => true];
-    }
-
-    /**
-     * Parse and validate a single row for preview (dry-run, no DB writes).
-     */
-    private function parseRowForPreview(array $row, $user): array
-    {
-        $errors = [];
-
-        $programCode      = trim($row[1] ?? '');
-        $uii              = trim($row[2] ?? '');
-        $heiNameRaw       = trim($row[3] ?? '');
-        $academicYearCode = trim($row[6] ?? '');
-        $semesterRaw      = trim((string) ($row[7] ?? ''));
-        $batchNo          = trim($row[8] ?? '');
-        $dvControlNo      = trim($row[9] ?? '');
-        $docStatusRaw     = trim((string) ($row[13] ?? ''));
-        $rcNotesRaw       = trim($row[14] ?? '');
-
-        // Required field checks
-        if (empty($programCode))      $errors[] = 'Program (col B) is required.';
-        if (empty($uii))              $errors[] = 'UII (col C) is required.';
-        if (empty($academicYearCode)) $errors[] = 'Academic Year (col G) is required.';
-        if (empty($semesterRaw))      $errors[] = 'Semester (col H) is required.';
-
-        $dateFundReleased = $this->parseExcelDate($row[4] ?? null);
-        if (!$dateFundReleased) {
-            $errors[] = 'Date of Fund Released (col E) is required or has an invalid date/year.';
-        }
-
-        $dueDateRaw = trim((string) ($row[5] ?? ''));
-        $dueDate = $this->parseExcelDate($row[5] ?? null);
         if (!empty($dueDateRaw) && !$dueDate) {
             $errors[] = 'Due Date (col F) has an invalid date or year. Please use a valid date with a 4-digit year.';
         }
@@ -1784,97 +2034,254 @@ class LiquidationController extends Controller
             $errors[] = 'Due Date (col F) cannot be earlier than Date of Fund Released (col E).';
         }
 
-        $totalDisbursements = $this->parseAmount($row[11] ?? null);
-        if (empty(trim((string) ($row[11] ?? ''))))  $errors[] = 'Total Disbursements (col L) is required.';
-        elseif ($totalDisbursements < 0)             $errors[] = 'Total Disbursements (col L) cannot be negative.';
+        if ($totalLiquidated < 0) {
+            $errors[] = 'Total Amount Liquidated (col M) cannot be negative.';
+        }
 
-        $totalLiquidated = $this->parseAmount($row[12] ?? 0);
-        if ($totalLiquidated < 0) $errors[] = 'Total Amount Liquidated (col M) cannot be negative.';
+        // Short-circuit when critical fields are missing — lookups would add noise
+        if (!empty($errors)) {
+            return $this->buildRowResult($errors, $programCode, $uii, $heiName, $dvControlNo, $dateFundReleased, $dueDate, $academicYearCode, $semesterRaw, $batchNo, $grantees, $totalDisbursements, $totalLiquidated, $docStatusRaw, $rcNotesRaw, null, null);
+        }
 
-        // Lookup validations (only if basic fields present)
-        $heiName = $heiNameRaw;
-        $program = null;
+        // ── Lookup validations ────────────────────────────────────────────────
+        $hei     = $this->liquidationService->findHEIByUII($uii);
+        $program = !empty($programCode) ? $this->findProgram($programCode) : null;
 
-        if (!empty($uii)) {
-            $hei = $this->liquidationService->findHEIByUII($uii);
-            if (!$hei) {
-                $errors[] = "UII '{$uii}' (col C) not found.";
-            } else {
-                $heiName = $hei->name;
-                if ($user->role->name === 'Regional Coordinator' && $user->region_id && $hei->region_id !== $user->region_id) {
-                    $errors[] = "HEI '{$uii}' does not belong to your region.";
-                }
+        if (!$hei) {
+            $errors[] = "UII '{$uii}' (col C) not found in the system.";
+        } else {
+            $heiName = $hei->name;
+            $roleName = $user->role?->name;
+            if ($roleName === 'Regional Coordinator' && $user->region_id && $hei->region_id !== $user->region_id) {
+                $errors[] = "HEI '{$uii}' does not belong to your assigned region.";
             }
         }
 
-        if (!empty($programCode)) {
-            $program = $this->findProgram($programCode);
-            if (!$program) $errors[] = "Program '{$programCode}' (col B) not found.";
+        if (!$program) {
+            $errors[] = "Program '{$programCode}' (col B) not found. Use a valid program code.";
         }
 
+        $semesterId = null;
         if (!empty($semesterRaw)) {
             $semesterId = $this->liquidationService->findSemesterId($semesterRaw);
-            if (!$semesterId) $errors[] = "Semester '{$semesterRaw}' (col H) is invalid. Use: 1ST, 2ND, SUM, First Semester, Second Semester, or Summer.";
+            if (!$semesterId) {
+                $errors[] = "Semester '{$semesterRaw}' (col H) is invalid. Use: 1ST, 2ND, SUM, First Semester, Second Semester, or Summer.";
+            }
         }
 
-        if (!empty($academicYearCode)) {
-            $ay = \App\Models\AcademicYear::findByCode($academicYearCode);
-            if (!$ay) $errors[] = "Academic Year '{$academicYearCode}' (col G) not found.";
+        $academicYear = \App\Models\AcademicYear::findByCode($academicYearCode);
+        if (!$academicYear) {
+            $errors[] = "Academic Year '{$academicYearCode}' (col G) not found.";
         }
 
+        // ── Control number ────────────────────────────────────────────────────
         if (!empty($dvControlNo)) {
             if (!preg_match('/^(.+)-(\d{4})-(\d+)$/', $dvControlNo, $ctrlMatches)) {
-                $errors[] = "Control No '{$dvControlNo}' (col J) must follow format: PROGRAM-YYYY-XXXX.";
+                $errors[] = "Control No '{$dvControlNo}' (col J) must follow format: PROGRAM-YYYY-XXXX (e.g. TES-2026-0001).";
             } elseif ($program) {
                 $controlPrefix = strtoupper($ctrlMatches[1]);
                 if (strtoupper($program->code) !== $controlPrefix) {
-                    $errors[] = "Control No prefix '{$controlPrefix}' does not match Program '{$program->code}'.";
+                    $errors[] = "Control No prefix '{$controlPrefix}' does not match Program '{$program->code}' (col B vs col J).";
                 }
             }
             if (Liquidation::where('control_no', $dvControlNo)->exists()) {
-                $errors[] = "Control No '{$dvControlNo}' already exists.";
+                $errors[] = "Control No '{$dvControlNo}' (col J) already exists.";
             }
         }
 
+        // ── Potential duplicate check (auto control numbers only) ─────────────
+        // When the control number is not provided, we cannot check for an exact
+        // control_no match. Instead, detect records that share the same key
+        // business identifiers — these almost certainly represent a re-import.
+        if (empty($dvControlNo) && $hei && $program && $academicYear && $dateFundReleased) {
+            $fundReleasedStr = \Carbon\Carbon::instance($dateFundReleased)->format('Y-m-d');
+            $dupQuery = Liquidation::where('hei_id', $hei->id)
+                ->where('program_id', $program->id)
+                ->where('academic_year_id', $academicYear->id)
+                ->whereHas('financial', fn ($q) => $q->where('date_fund_released', $fundReleasedStr));
+
+            if ($semesterId) {
+                $dupQuery->where('semester_id', $semesterId);
+            }
+            if (!empty($batchNo)) {
+                $dupQuery->where('batch_no', $batchNo);
+            }
+
+            $existing = $dupQuery->select('control_no')->first();
+            if ($existing) {
+                $errors[] = "A record already exists for this disbursement (control no: {$existing->control_no}). This row would create a duplicate — remove it from the file.";
+            }
+        }
+
+        // ── Document status ───────────────────────────────────────────────────
+        $documentStatusId = null;
         if (!empty($docStatusRaw)) {
-            if (!$this->parseDocumentStatus($docStatusRaw)) {
-                $errors[] = "Status of Documents '{$docStatusRaw}' (col N) is invalid.";
+            $documentStatusId = $this->parseDocumentStatus($docStatusRaw);
+            if (!$documentStatusId) {
+                $errors[] = "Status of Documents '{$docStatusRaw}' (col N) is invalid. Use: COMPLETE, PARTIAL, or NONE.";
             }
+        } else {
+            $documentStatusId = DocumentStatus::findByCode(DocumentStatus::CODE_NONE)?->id;
         }
 
+        // ── RC Notes ──────────────────────────────────────────────────────────
+        $rcNoteStatusId = null;
         if (!empty($rcNotesRaw)) {
-            if (!$this->parseRcNoteStatus($rcNotesRaw)) {
-                $errors[] = "RC Notes '{$rcNotesRaw}' (col O) is invalid.";
+            $rcNoteStatusId = $this->parseRcNoteStatus($rcNotesRaw);
+            if (!$rcNoteStatusId) {
+                $errors[] = "RC Notes '{$rcNotesRaw}' (col O) is invalid. Use: For Review, For Compliance, For Endorsement, Fully Endorsed, or Partially Endorsed.";
             }
         }
 
-        // Auto-calculate due date for preview
-        $dueDateDisplay = null;
-        if ($dueDate) {
-            $dueDateDisplay = \Carbon\Carbon::instance($dueDate)->format('M d, Y');
-        } elseif ($dateFundReleased && $program) {
-            $days = $program->parent_id ? 30 : 90;
-            $dueDateDisplay = \Carbon\Carbon::instance($dateFundReleased)->copy()->addDays($days)->format('M d, Y');
+        // ── Auto-calculate due date when omitted ──────────────────────────────
+        if (!$dueDate && $dateFundReleased && $program) {
+            $days    = $program->parent_id ? 30 : 90;
+            $dueDate = \Carbon\Carbon::instance($dateFundReleased)->copy()->addDays($days);
         }
 
+        $valid = empty($errors);
+
+        $importable = null;
+        $liquidationStatusLabel = null;
+        if ($valid) {
+            // Auto-calculate liquidation status from financial amounts
+            $liquidationStatus = $this->resolveImportLiquidationStatus($totalDisbursements, $totalLiquidated);
+            $liquidationStatusLabel = $liquidationStatus?->name ?? 'Unliquidated';
+
+            $importable = [
+                'hei_id'                => $hei->id,
+                'hei_name'              => $heiName,
+                'program_id'            => $program->id,
+                'academic_year_id'      => $academicYear->id,
+                'semester_id'           => $semesterId,
+                'batch_no'              => !empty($batchNo) ? $batchNo : null,
+                'document_status_id'    => $documentStatusId,
+                'rc_note_status_id'     => $rcNoteStatusId,
+                'liquidation_status_id' => $liquidationStatus?->id ?? LiquidationStatus::unliquidated()?->id,
+                'explicit_control_no'   => !empty($dvControlNo) ? $dvControlNo : null,
+                'date_fund_released'    => \Carbon\Carbon::instance($dateFundReleased)->format('Y-m-d'),
+                'due_date'              => $dueDate ? \Carbon\Carbon::instance($dueDate)->format('Y-m-d') : null,
+                'number_of_grantees'    => $grantees,
+                'amount_received'       => $totalDisbursements,
+                'amount_disbursed'      => $totalDisbursements,
+                'amount_liquidated'     => $totalLiquidated,
+            ];
+        }
+
+        return $this->buildRowResult($errors, $programCode, $uii, $heiName, $dvControlNo, $dateFundReleased, $dueDate, $academicYearCode, $semesterRaw, $batchNo, $grantees, $totalDisbursements, $totalLiquidated, $docStatusRaw, $rcNotesRaw, $liquidationStatusLabel, $importable);
+    }
+
+    /**
+     * Assemble the display+importable result array returned by parseImportRow().
+     * Centralises the return shape so it can never drift between the early-return
+     * path and the happy path.
+     */
+    private function buildRowResult(
+        array $errors,
+        string $programCode,
+        string $uii,
+        string $heiName,
+        string $dvControlNo,
+        ?\DateTime $dateFundReleased,
+        $dueDate,
+        string $academicYearCode,
+        string $semesterRaw,
+        string $batchNo,
+        ?int $grantees,
+        float $totalDisbursements,
+        float $totalLiquidated,
+        string $docStatusRaw,
+        string $rcNotesRaw,
+        ?string $liquidationStatus,
+        ?array $importable
+    ): array {
         return [
-            'valid'              => empty($errors),
-            'errors'             => $errors,
-            'program'            => $programCode,
-            'uii'                => $uii,
-            'hei_name'           => $heiName,
-            'date_fund_released' => $dateFundReleased ? \Carbon\Carbon::instance($dateFundReleased)->format('M d, Y') : null,
-            'due_date'           => $dueDateDisplay,
-            'academic_year'      => $academicYearCode,
-            'semester'           => $semesterRaw,
-            'batch_no'           => $batchNo,
-            'control_no'         => $dvControlNo,
-            'grantees'           => $this->parseInteger($row[10] ?? null),
-            'disbursements'      => $totalDisbursements,
-            'amount_liquidated'  => $totalLiquidated,
-            'doc_status'         => $docStatusRaw,
-            'rc_notes'           => $rcNotesRaw,
+            'valid'               => empty($errors),
+            'errors'              => $errors,
+            'program'             => $programCode,
+            'uii'                 => $uii,
+            'hei_name'            => $heiName,
+            'date_fund_released'  => $dateFundReleased
+                ? \Carbon\Carbon::instance($dateFundReleased)->format('M d, Y')
+                : null,
+            'due_date'            => $dueDate
+                ? \Carbon\Carbon::instance($dueDate)->format('M d, Y')
+                : null,
+            'academic_year'       => $academicYearCode,
+            'semester'            => $semesterRaw,
+            'batch_no'            => $batchNo,
+            'control_no'          => $dvControlNo,
+            'grantees'            => $grantees,
+            'disbursements'       => $totalDisbursements,
+            'amount_liquidated'   => $totalLiquidated,
+            'doc_status'          => $docStatusRaw,
+            'rc_notes'            => $rcNotesRaw,
+            'liquidation_status'  => $liquidationStatus,
+            'importable'          => $importable,
         ];
+    }
+
+    /**
+     * Insert a single pre-validated import row into the database.
+     * Must be called within a DB::transaction().
+     *
+     * @throws \RuntimeException if an explicit control number was taken between validate and import.
+     */
+    private function insertImportRow(array $data, $user, ?string $batchId = null): void
+    {
+        $controlNo = $data['explicit_control_no'];
+
+        if (!$controlNo) {
+            $fundYear  = (int) substr($data['date_fund_released'], 0, 4);
+            $controlNo = $this->liquidationService->generateControlNo($data['program_id'], $fundYear);
+        } else {
+            // Re-check: another import may have taken this number since validate step
+            // Include soft-deleted records — MySQL unique constraint covers all rows
+            if (Liquidation::withTrashed()->where('control_no', $controlNo)->lockForUpdate()->exists()) {
+                throw new \RuntimeException("Control No '{$controlNo}' was already taken. Please re-validate.");
+            }
+        }
+
+        $liquidation = Liquidation::create([
+            'control_no'            => $controlNo,
+            'hei_id'                => $data['hei_id'],
+            'program_id'            => $data['program_id'],
+            'academic_year_id'      => $data['academic_year_id'],
+            'semester_id'           => $data['semester_id'],
+            'batch_no'              => $data['batch_no'],
+            'document_status_id'    => $data['document_status_id'],
+            'rc_note_status_id'     => $data['rc_note_status_id'],
+            'liquidation_status_id' => $data['liquidation_status_id'],
+            'created_by'            => $user->id,
+            'import_batch_id'       => $batchId,
+        ]);
+
+        $liquidation->createOrUpdateFinancial([
+            'date_fund_released' => $data['date_fund_released'],
+            'due_date'           => $data['due_date'],
+            'number_of_grantees' => $data['number_of_grantees'],
+            'amount_received'    => $data['amount_received'],
+            'amount_disbursed'   => $data['amount_disbursed'],
+            'amount_liquidated'  => $data['amount_liquidated'],
+        ]);
+
+        // Notification is sent once per batch (not per row) to avoid 1,200+ queries during bulk import
+    }
+
+    /**
+     * Determine liquidation status from financial amounts.
+     */
+    private function resolveImportLiquidationStatus(float $totalDisbursements, float $totalLiquidated): ?LiquidationStatus
+    {
+        if ($totalDisbursements > 0 && $totalLiquidated >= $totalDisbursements) {
+            return LiquidationStatus::fullyLiquidated();
+        }
+
+        if ($totalLiquidated > 0) {
+            return LiquidationStatus::partiallyLiquidated();
+        }
+
+        return LiquidationStatus::unliquidated();
     }
 
     private function findProgram(string $name): ?\App\Models\Program
@@ -1926,7 +2333,7 @@ class LiquidationController extends Controller
 
         if (is_numeric($value)) {
             try {
-                $date = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($value);
+                $date = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject((float) $value);
                 // Validate year is a reasonable 4-digit year
                 $year = (int) $date->format('Y');
                 if ($year < 1900 || $year > 2100) {

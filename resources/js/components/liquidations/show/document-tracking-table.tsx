@@ -24,23 +24,28 @@ interface DocumentTrackingTableProps {
     liquidationId: number;
     initialEntries: TrackingEntry[];
     isHEIUser: boolean;
+    readOnly?: boolean;
     regionalCoordinators: LiquidationUser[];
     documentLocations: string[];
     avatarMap: Record<string, string>;
     onEntriesChange: (entries: TrackingEntry[]) => void;
     updatedAt?: string | null;
+    isStufapsProgram?: boolean;
 }
 
 export default function DocumentTrackingTable({
     liquidationId,
     initialEntries,
     isHEIUser,
+    readOnly = false,
     regionalCoordinators,
     documentLocations,
     avatarMap,
     onEntriesChange,
     updatedAt,
+    isStufapsProgram = false,
 }: DocumentTrackingTableProps) {
+    const canModify = !isHEIUser && !readOnly;
     const [entries, setEntries] = useState<TrackingEntry[]>(
         initialEntries.length > 0 ? initialEntries : [createEmptyTrackingEntry()]
     );
@@ -110,7 +115,7 @@ export default function DocumentTrackingTable({
                                 <CardDescription className="text-xs">Track document submissions and review status</CardDescription>
                             </div>
                         </div>
-                        {!isHEIUser && (
+                        {canModify && (
                             <Button size="sm" onClick={save} disabled={isSaving} className="h-8 text-xs px-3 bg-foreground text-background hover:bg-foreground/90">
                                 <Save className="h-3.5 w-3.5 mr-1.5" />
                                 {isSaving ? 'Saving...' : 'Save'}
@@ -132,30 +137,31 @@ export default function DocumentTrackingTable({
                                     <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">RC Note</th>
                                     <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Endorsement</th>
                                     <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Liquidation</th>
-                                    {!isHEIUser && <th className="px-3 py-2.5 w-8"></th>}
+                                    {canModify && <th className="px-3 py-2.5 w-8"></th>}
                                 </tr>
                             </thead>
-                            <tbody className={isHEIUser ? 'pointer-events-none opacity-60' : ''}>
+                            <tbody className={!canModify ? 'pointer-events-none opacity-60' : ''}>
                                 {entries.map((entry, index) => {
                                     return (
                                         <TrackingRow
                                             key={entry.id || `new-${index}`}
                                             entry={entry}
                                             index={index}
-                                            isHEIUser={isHEIUser}
+                                            readOnly={!canModify}
                                             canDelete={canDelete}
                                             regionalCoordinators={regionalCoordinators}
                                             documentLocations={documentLocations}
                                             avatarMap={avatarMap}
                                             updateField={updateField}
                                             removeEntry={removeEntry}
+                                            isStufapsProgram={isStufapsProgram}
                                         />
                                     );
                                 })}
                             </tbody>
                         </table>
                     </div>
-                    {!isHEIUser && (
+                    {canModify && (
                         <Button size="sm" onClick={addEntry} className="mt-4 h-8 text-xs px-3 bg-foreground text-background hover:bg-foreground/90">
                             <Plus className="h-3.5 w-3.5 mr-1.5" />
                             Add Entry
@@ -172,25 +178,27 @@ export default function DocumentTrackingTable({
 interface TrackingRowProps {
     entry: TrackingEntry;
     index: number;
-    isHEIUser: boolean;
+    readOnly: boolean;
     canDelete: boolean;
     regionalCoordinators: LiquidationUser[];
     documentLocations: string[];
     avatarMap: Record<string, string>;
     updateField: (index: number, field: keyof TrackingEntry, value: string) => void;
     removeEntry: (index: number) => void;
+    isStufapsProgram?: boolean;
 }
 
 const TrackingRow = React.memo(function TrackingRow({
     entry,
     index,
-    isHEIUser,
+    readOnly,
     canDelete,
     regionalCoordinators,
     documentLocations,
     avatarMap,
     updateField,
     removeEntry,
+    isStufapsProgram = false,
 }: TrackingRowProps) {
     return (
         <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors">
@@ -207,7 +215,7 @@ const TrackingRow = React.memo(function TrackingRow({
                 </Select>
             </td>
             <td className="px-3 py-2">
-                <RCMultiSelect value={entry.received_by} users={regionalCoordinators} avatarMap={avatarMap} onChange={(v) => updateField(index, 'received_by', v)} />
+                <RCMultiSelect value={entry.received_by} users={regionalCoordinators} avatarMap={avatarMap} onChange={(v) => updateField(index, 'received_by', v)} placeholder={isStufapsProgram ? 'Select Focal' : 'Select RC'} />
             </td>
             <td className="px-3 py-2">
                 <Input type="date" value={entry.date_received ?? ''} onChange={(e) => updateField(index, 'date_received', e.target.value)} className="h-8 text-xs min-w-[110px]" />
@@ -216,7 +224,7 @@ const TrackingRow = React.memo(function TrackingRow({
                 <LocationMultiSelect value={entry.document_location} locations={documentLocations} onChange={(v) => updateField(index, 'document_location', v)} />
             </td>
             <td className="px-3 py-2">
-                <RCMultiSelect value={entry.reviewed_by} users={regionalCoordinators} avatarMap={avatarMap} onChange={(v) => updateField(index, 'reviewed_by', v)} />
+                <RCMultiSelect value={entry.reviewed_by} users={regionalCoordinators} avatarMap={avatarMap} onChange={(v) => updateField(index, 'reviewed_by', v)} placeholder={isStufapsProgram ? 'Select Focal' : 'Select RC'} />
             </td>
             <td className="px-3 py-2">
                 <Input type="date" value={entry.date_reviewed ?? ''} onChange={(e) => updateField(index, 'date_reviewed', e.target.value)} className="h-8 text-xs min-w-[110px]" />
@@ -248,7 +256,7 @@ const TrackingRow = React.memo(function TrackingRow({
                     </SelectContent>
                 </Select>
             </td>
-            {!isHEIUser && (
+            {!readOnly && (
                 <td className="px-3 py-2">
                     {canDelete && (
                         <DeleteRowButton isFilled={isTrackingEntryFilled(entry)} onDelete={() => removeEntry(index)} />
@@ -293,11 +301,12 @@ const DeleteRowButton = React.memo(function DeleteRowButton({ isFilled, onDelete
     );
 });
 
-const RCMultiSelect = React.memo(function RCMultiSelect({ value, users, avatarMap, onChange }: {
+const RCMultiSelect = React.memo(function RCMultiSelect({ value, users, avatarMap, onChange, placeholder = 'Select RC' }: {
     value: string;
     users: LiquidationUser[];
     avatarMap: Record<string, string>;
     onChange: (val: string) => void;
+    placeholder?: string;
 }) {
     const knownNames = users.map(u => u.name);
     const selected = parseNames(value, knownNames);
@@ -308,7 +317,7 @@ const RCMultiSelect = React.memo(function RCMultiSelect({ value, users, avatarMa
                 <Button variant="outline" size="sm" className="h-auto min-h-[32px] text-xs min-w-[110px] justify-between font-normal py-1">
                     {value
                         ? <AvatarStack namesStr={value} avatarMap={avatarMap} knownNames={knownNames} disableTooltip />
-                        : <span className="text-muted-foreground">Select RC</span>
+                        : <span className="text-muted-foreground">{placeholder}</span>
                     }
                     <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-50 ml-1" />
                 </Button>

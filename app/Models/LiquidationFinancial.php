@@ -139,23 +139,34 @@ class LiquidationFinancial extends Model
 
     /**
      * Calculate the lapsing period (days overdue).
-     * Formula: Date of Submission - Due Date
-     * Returns 0 if submission is before due date (early submission).
+     * Formula: Date of Last Submission - Due Date
+     * Uses the last tracking entry's date_received as the actual submission date,
+     * since RC/STUFAPS Focal record when documents are physically received.
+     * Returns 0 if submission is before due date (early/on-time).
      */
     public function getLapsingPeriodAttribute(): int
     {
         $dueDate = $this->due_date;
         $liquidation = $this->liquidation;
 
-        if (!$dueDate || !$liquidation || !$liquidation->date_submitted) {
+        if (!$dueDate || !$liquidation) {
             return 0;
         }
 
-        $submissionDate = $liquidation->date_submitted;
-        $diff = $submissionDate->diffInDays($dueDate, false);
+        // Use last tracking entry's date_received as the actual submission date
+        // Uses the already-loaded relation when available to avoid N+1 queries
+        $lastEntry = $liquidation->relationLoaded('trackingEntries')
+            ? $liquidation->trackingEntries->filter(fn($e) => $e->date_received !== null)->sortByDesc('date_received')->first()
+            : $liquidation->trackingEntries()->whereNotNull('date_received')->latest('date_received')->first();
+        $submissionDate = $lastEntry?->date_received ?? $liquidation->date_submitted;
 
-        // If submission is before due date (negative diff), return 0
-        // If submission is after due date (positive diff), return the days overdue
+        // If not yet submitted, fall back to today (live overdue counter)
+        $referenceDate = $submissionDate ?? now();
+
+        $diff = (int) $referenceDate->diffInDays($dueDate, false);
+
+        // If reference date is before due date (positive diff), return 0
+        // If reference date is after due date (negative diff), return the days overdue
         return $diff < 0 ? abs($diff) : 0;
     }
 

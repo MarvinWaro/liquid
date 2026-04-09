@@ -28,6 +28,7 @@ export interface Liquidation {
     percentage_liquidation: number;
     lapsing_period: number;
     is_voided: boolean;
+    is_endorsed: boolean;
 }
 
 export interface HEIOption {

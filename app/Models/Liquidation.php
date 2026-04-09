@@ -110,6 +110,7 @@ class Liquidation extends Model
 
         // Workflow tracking
         'created_by',
+        'import_batch_id',
 
         // RC Review (current state)
         'reviewed_by',
@@ -226,6 +227,11 @@ class Liquidation extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    public function importBatch(): BelongsTo
+    {
+        return $this->belongsTo(ImportBatch::class, 'import_batch_id');
+    }
+
     /**
      * Get the Regional Coordinator who reviewed.
      */
@@ -338,7 +344,7 @@ class Liquidation extends Model
      */
     public function trackingEntries(): HasMany
     {
-        return $this->hasMany(LiquidationTrackingEntry::class);
+        return $this->hasMany(LiquidationTrackingEntry::class)->orderBy('created_at');
     }
 
     /**
@@ -372,7 +378,7 @@ class Liquidation extends Model
             return null;
         }
 
-        return $this->date_submitted->diffInDays($dueDate, false);
+        return (int) $this->date_submitted->diffInDays($dueDate, false);
     }
 
     // ========================================
@@ -457,6 +463,32 @@ class Liquidation extends Model
             ->first();
 
         return $latestReview?->remarks;
+    }
+
+    /**
+     * Get the RC endorsement remarks (when RC endorsed to Accounting).
+     */
+    public function getRcEndorsementRemarks(): ?string
+    {
+        $review = $this->reviews()
+            ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_RC_ENDORSEMENT))
+            ->orderBy('performed_at', 'desc')
+            ->first();
+
+        return $review?->remarks;
+    }
+
+    /**
+     * Get the Accountant endorsement remarks (when Accountant endorsed to COA).
+     */
+    public function getAccountantEndorsementRemarks(): ?string
+    {
+        $review = $this->reviews()
+            ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_ACCOUNTANT_ENDORSEMENT))
+            ->orderBy('performed_at', 'desc')
+            ->first();
+
+        return $review?->remarks;
     }
 
     // ========================================

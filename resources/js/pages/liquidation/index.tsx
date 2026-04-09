@@ -24,10 +24,12 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet } from 'lucide-react';
+import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
 import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
 import { ImportPreviewDialog } from '@/components/liquidations/import-preview-dialog';
+import { EndorseToAccountingModal } from '@/components/liquidations/endorsement-modals';
 import { toast } from '@/lib/toast';
 import { type BreadcrumbItem } from '@/types';
 
@@ -36,12 +38,20 @@ import { LiquidationFilters } from '@/components/liquidations/index/liquidation-
 import { LiquidationTableRow } from '@/components/liquidations/index/liquidation-table-row';
 import { LiquidationTableSkeleton } from '@/components/liquidations/index/liquidation-table-skeleton';
 
+interface TableSummary {
+    total_records: number;
+    total_disbursed: number;
+    total_liquidated: number;
+    total_unliquidated: number;
+}
+
 interface Props {
     liquidations?: {
         data: Liquidation[];
         links: any[];
         meta: any;
     };
+    tableSummary?: TableSummary;
     programs: Program[];
     createPrograms?: Program[];
     academicYears?: AcademicYearOption[];
@@ -65,7 +75,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Liquidation Management', href: route('liquidation.index') },
 ];
 
-export default function Index({ liquidations, programs, createPrograms, academicYears, rcNoteStatuses, heis, filters, permissions, userRole }: Props) {
+export default function Index({ liquidations, tableSummary, programs, createPrograms, academicYears, rcNoteStatuses, heis, filters, permissions, userRole }: Props) {
     const [searchQuery, setSearchQuery] = useState(filters.search || '');
     const [programFilter, setProgramFilter] = useState(filters.program || '');
     const [documentStatusFilter, setDocumentStatusFilter] = useState(filters.document_status || '');
@@ -75,12 +85,21 @@ export default function Index({ liquidations, programs, createPrograms, academic
     const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
     const [importFile, setImportFile] = useState<File | null>(null);
     const [isUploadPopoverOpen, setIsUploadPopoverOpen] = useState(false);
+    const [openImportHistory, setOpenImportHistory] = useState(false);
     const bulkActionsRef = React.useRef<HTMLButtonElement>(null);
     const bulkUploadRef = React.useRef<HTMLInputElement>(null);
     const [importResult, setImportResult] = useState<{
         imported: number;
         errors: { row: number; seq: string; uii: string; program: string; error: string }[];
     } | null>(null);
+    const [lastImportCount, setLastImportCount] = useState<number | null>(null);
+
+    // Selection state for bulk endorsement (ids are UUIDs at runtime)
+    const [selectedIds, setSelectedIds] = useState<Set<number | string>>(new Set());
+    const [allPagesSelected, setAllPagesSelected] = useState(false);
+    const [isEndorseModalOpen, setIsEndorseModalOpen] = useState(false);
+    const [endorseTarget, setEndorseTarget] = useState<Liquidation | null>(null);
+    const [isEndorsing, setIsEndorsing] = useState(false);
 
     const isRC = userRole === 'Regional Coordinator';
     const isHEI = userRole === 'HEI';
@@ -135,8 +154,10 @@ export default function Index({ liquidations, programs, createPrograms, academic
             setImportResult({ imported: result.imported, errors: result.errors });
         }
         if (result.imported > 0) {
-            router.reload();
+            setLastImportCount(result.imported);
         }
+        // Always reload to refresh the table (covers both import and undo)
+        router.reload();
     };
 
     const handleVoid = useCallback((liquidation: Liquidation) => {
@@ -152,6 +173,65 @@ export default function Index({ liquidations, programs, createPrograms, academic
             onError: () => toast.error('Failed to restore liquidation.'),
         });
     }, []);
+
+    const handleSelect = useCallback((id: number, checked: boolean) => {
+        setAllPagesSelected(false);
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            checked ? next.add(id) : next.delete(id);
+            return next;
+        });
+    }, []);
+
+    const handleSelectAll = useCallback((checked: boolean) => {
+        if (!liquidations?.data) return;
+        if (checked) {
+            const ids = liquidations.data.filter(l => !l.is_voided && !l.is_endorsed).map(l => l.id);
+            setSelectedIds(new Set(ids));
+        } else {
+            setAllPagesSelected(false);
+            setSelectedIds(new Set());
+        }
+    }, [liquidations?.data]);
+
+    const handleEndorseSingle = useCallback((liquidation: Liquidation) => {
+        setEndorseTarget(liquidation);
+        setIsEndorseModalOpen(true);
+    }, []);
+
+    const handleBulkEndorseClick = useCallback(() => {
+        setEndorseTarget(null);
+        setIsEndorseModalOpen(true);
+    }, []);
+
+    const handleEndorseSubmit = useCallback((data: { reviewRemarks: string }) => {
+        setIsEndorsing(true);
+        const payload = { review_remarks: data.reviewRemarks };
+
+        if (endorseTarget) {
+            // Single endorse
+            router.post(route('liquidation.endorse-to-accounting', endorseTarget.id), payload, {
+                onSuccess: () => { setIsEndorsing(false); setIsEndorseModalOpen(false); setEndorseTarget(null); router.reload(); },
+                onError: () => setIsEndorsing(false),
+            });
+        } else {
+            // Bulk endorse — when all pages selected, send flag so server resolves all eligible IDs
+            router.post(route('liquidation.bulk-endorse-to-accounting'), {
+                ...payload,
+                liquidation_ids: allPagesSelected ? [] : Array.from(selectedIds),
+                select_all: allPagesSelected,
+            }, {
+                onSuccess: () => {
+                    setIsEndorsing(false);
+                    setIsEndorseModalOpen(false);
+                    setSelectedIds(new Set());
+                    setAllPagesSelected(false);
+                    router.reload();
+                },
+                onError: () => setIsEndorsing(false),
+            });
+        }
+    }, [endorseTarget, selectedIds, allPagesSelected]);
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -182,9 +262,10 @@ export default function Index({ liquidations, programs, createPrograms, academic
             {/* Import Preview Dialog */}
             <ImportPreviewDialog
                 isOpen={isImportPreviewOpen}
-                onClose={() => { setIsImportPreviewOpen(false); setImportFile(null); }}
+                onClose={() => { setIsImportPreviewOpen(false); setImportFile(null); setOpenImportHistory(false); }}
                 onImportComplete={handleImportComplete}
                 initialFile={importFile}
+                initialShowHistory={openImportHistory}
             />
 
             <div className="py-8 w-full min-w-0 overflow-hidden">
@@ -224,6 +305,10 @@ export default function Index({ liquidations, programs, createPrograms, academic
                                         <DropdownMenuItem onClick={() => setIsUploadPopoverOpen(true)}>
                                             <Upload className="h-4 w-4 mr-2" />
                                             Bulk Upload
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => { setOpenImportHistory(true); setIsImportPreviewOpen(true); }}>
+                                            <History className="h-4 w-4 mr-2" />
+                                            Import History
                                         </DropdownMenuItem>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
@@ -303,7 +388,7 @@ export default function Index({ liquidations, programs, createPrograms, academic
                                     <DialogDescription>
                                         {importResult && importResult.imported > 0
                                             ? `${importResult.imported} record(s) imported successfully. ${importResult.errors.length} row(s) failed and were skipped.`
-                                            : `All rows failed validation. No records were imported. Please fix the errors below and try again.`
+                                            : `No records were saved. The rows below could not be imported — they may already exist in the system from a previous import.`
                                         }
                                     </DialogDescription>
                                 </DialogHeader>
@@ -341,6 +426,58 @@ export default function Index({ liquidations, programs, createPrograms, academic
                             </DialogContent>
                         </Dialog>
 
+                        {/* Endorse to Accounting Modal */}
+                        <EndorseToAccountingModal
+                            isOpen={isEndorseModalOpen}
+                            onClose={() => { setIsEndorseModalOpen(false); setEndorseTarget(null); }}
+                            onSubmit={handleEndorseSubmit}
+                            isProcessing={isEndorsing}
+                        />
+
+                        {/* Bulk Selection Action Bar */}
+                        {selectedIds.size > 0 && (
+                            <div className="flex flex-wrap items-center gap-3 px-4 py-3 mb-4 rounded-lg border bg-muted/50 animate-in fade-in-0 slide-in-from-top-2">
+                                <span className="text-sm font-medium">
+                                    {allPagesSelected
+                                        ? `All ${tableSummary?.total_records?.toLocaleString() ?? ''} records selected`
+                                        : `${selectedIds.size} selected`}
+                                </span>
+
+                                {/* Gmail-style: offer to select across all pages when current page is fully selected */}
+                                {!allPagesSelected && tableSummary && selectedIds.size > 0 && tableSummary.total_records > selectedIds.size && (
+                                    <span className="text-xs text-muted-foreground">
+                                        |{' '}
+                                        <button
+                                            className="text-primary underline-offset-2 hover:underline font-medium"
+                                            onClick={() => setAllPagesSelected(true)}
+                                        >
+                                            Select all {tableSummary.total_records.toLocaleString()} records
+                                        </button>
+                                    </span>
+                                )}
+                                {allPagesSelected && (
+                                    <span className="text-xs text-muted-foreground">
+                                        |{' '}
+                                        <button
+                                            className="text-primary underline-offset-2 hover:underline font-medium"
+                                            onClick={() => { setAllPagesSelected(false); setSelectedIds(new Set()); }}
+                                        >
+                                            Clear selection
+                                        </button>
+                                    </span>
+                                )}
+
+                                <Button size="sm" className="h-8 text-xs gap-1.5" onClick={handleBulkEndorseClick}>
+                                    <Send className="h-3.5 w-3.5" />
+                                    Endorse to Accounting
+                                </Button>
+                                <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setSelectedIds(new Set()); setAllPagesSelected(false); }}>
+                                    <X className="h-3.5 w-3.5 mr-1" />
+                                    Clear
+                                </Button>
+                            </div>
+                        )}
+
                         <CardContent className="pt-6 px-0">
                             {/* Extracted filter components */}
                             <LiquidationFilters
@@ -356,15 +493,73 @@ export default function Index({ liquidations, programs, createPrograms, academic
                                 onLiquidationStatusFilter={handleLiquidationStatusFilter}
                             />
 
+                            {/* Summary stats bar */}
+                            <Deferred data="tableSummary" fallback={
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                                    {[...Array(4)].map((_, i) => (
+                                        <div key={i} className="rounded-lg border bg-card p-3 animate-pulse">
+                                            <div className="h-3 w-20 bg-muted rounded mb-2" />
+                                            <div className="h-5 w-28 bg-muted rounded" />
+                                        </div>
+                                    ))}
+                                </div>
+                            }>
+                                {tableSummary && (
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                                        <div className="rounded-lg border bg-card p-3">
+                                            <div className="flex items-center gap-1.5 mb-1">
+                                                <FileBarChart2 className="h-3.5 w-3.5 text-blue-600" />
+                                                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Records</p>
+                                            </div>
+                                            <p className="text-lg font-bold tracking-tight">{tableSummary.total_records.toLocaleString()}</p>
+                                        </div>
+                                        <div className="rounded-lg border bg-card p-3">
+                                            <div className="flex items-center gap-1.5 mb-1">
+                                                <Banknote className="h-3.5 w-3.5 text-emerald-600" />
+                                                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Disbursed</p>
+                                            </div>
+                                            <p className="text-lg font-bold tracking-tight text-emerald-700 dark:text-emerald-400">
+                                                {new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(tableSummary.total_disbursed)}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-lg border bg-card p-3">
+                                            <div className="flex items-center gap-1.5 mb-1">
+                                                <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                                                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Liquidated</p>
+                                            </div>
+                                            <p className="text-lg font-bold tracking-tight text-green-700 dark:text-green-400">
+                                                {new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(tableSummary.total_liquidated)}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-lg border bg-card p-3">
+                                            <div className="flex items-center gap-1.5 mb-1">
+                                                <TrendingDown className="h-3.5 w-3.5 text-red-600" />
+                                                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Unliquidated</p>
+                                            </div>
+                                            <p className="text-lg font-bold tracking-tight text-red-600 dark:text-red-400">
+                                                {new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(tableSummary.total_unliquidated)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+                            </Deferred>
+
                             {/* Table with deferred loading */}
                             <Deferred data="liquidations" fallback={<LiquidationTableSkeleton />}>
                                 <LiquidationTable
                                     liquidations={liquidations!}
                                     permissions={permissions}
+                                    selectedIds={selectedIds}
+                                    onSelect={handleSelect}
+                                    onSelectAll={handleSelectAll}
                                     onVoid={handleVoid}
                                     onRestore={handleRestore}
+                                    onEndorse={handleEndorseSingle}
+                                    lastImportCount={lastImportCount}
+                                    onDismissImport={() => setLastImportCount(null)}
                                 />
                             </Deferred>
+
                         </CardContent>
 
                 </div>
@@ -378,23 +573,47 @@ export default function Index({ liquidations, programs, createPrograms, academic
 const LiquidationTable = React.memo(function LiquidationTable({
     liquidations,
     permissions,
+    selectedIds,
+    onSelect,
+    onSelectAll,
     onVoid,
     onRestore,
+    onEndorse,
+    lastImportCount,
+    onDismissImport,
 }: {
     liquidations: NonNullable<Props['liquidations']>;
     permissions: Props['permissions'];
+    selectedIds: Set<number | string>;
+    onSelect: (id: number, checked: boolean) => void;
+    onSelectAll: (checked: boolean) => void;
     onVoid: (l: Liquidation) => void;
     onRestore: (l: Liquidation) => void;
+    onEndorse: (l: Liquidation) => void;
+    lastImportCount: number | null;
+    onDismissImport: () => void;
 }) {
     if (!liquidations?.data) return <LiquidationTableSkeleton />;
 
+    const selectableCount = liquidations.data.filter(l => !l.is_voided).length;
+    const allSelected = selectableCount > 0 && selectedIds.size >= selectableCount;
+    const someSelected = selectedIds.size > 0 && !allSelected;
+
     return (
         <>
-            <div className="overflow-hidden rounded-t-lg border border-b-0 overflow-x-auto">
+            <div className="overflow-hidden rounded-t-lg border border-b-0 overflow-x-auto [&_td]:border-r [&_td]:border-border/40 [&_th]:border-r [&_th]:border-border/40 [&_td:last-child]:border-r-0 [&_th:last-child]:border-r-0">
                 <Table>
                     <TableHeader>
                         <TableRow className="border-b hover:bg-transparent">
-                            <TableHead className="h-9 w-[50px] pl-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">SEQ</TableHead>
+                            <TableHead className="h-9 w-[40px] pl-4">
+                                {permissions.review && (
+                                    <Checkbox
+                                        checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                                        onCheckedChange={(checked) => onSelectAll(!!checked)}
+                                        aria-label="Select all"
+                                    />
+                                )}
+                            </TableHead>
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Program</TableHead>
                             <TableHead className="h-9 max-w-[300px] text-xs font-medium tracking-wider text-muted-foreground uppercase">HEI</TableHead>
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Period</TableHead>
@@ -428,8 +647,12 @@ const LiquidationTable = React.memo(function LiquidationTable({
                                     liquidation={liquidation}
                                     index={index}
                                     canVoid={permissions.void}
+                                    canReview={permissions.review}
+                                    isSelected={selectedIds.has(liquidation.id)}
+                                    onSelect={onSelect}
                                     onVoid={onVoid}
                                     onRestore={onRestore}
+                                    onEndorse={onEndorse}
                                 />
                             ))
                         )}
@@ -440,9 +663,9 @@ const LiquidationTable = React.memo(function LiquidationTable({
             {/* Table Footer with Record Counter and Pagination */}
             <div className="flex items-center justify-between px-4 py-3 bg-muted/50 border rounded-b-lg">
                 {/* Record Counter - Left Side */}
-                <div className="text-sm font-medium text-foreground">
+                <div className="text-sm text-foreground flex items-center gap-3">
                     {liquidations.data.length > 0 ? (
-                        <>
+                        <span className="font-medium">
                             Showing{' '}
                             <span className="font-semibold">
                                 {((liquidations.meta?.current_page || 1) - 1) * (liquidations.meta?.per_page || 15) + 1}
@@ -456,12 +679,24 @@ const LiquidationTable = React.memo(function LiquidationTable({
                             </span>
                             {' '}of{' '}
                             <span className="font-semibold">
-                                {liquidations.meta?.total || liquidations.data.length}
+                                {(liquidations.meta?.total || liquidations.data.length).toLocaleString()}
                             </span>
                             {' '}records
-                        </>
+                        </span>
                     ) : (
-                        <span>No records found</span>
+                        <span className="font-medium">No records found</span>
+                    )}
+                    {lastImportCount !== null && (
+                        <>
+                            <span className="text-muted-foreground">|</span>
+                            <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                {lastImportCount.toLocaleString()} imported
+                                <button onClick={onDismissImport} className="ml-0.5 opacity-60 hover:opacity-100">
+                                    <X className="h-3 w-3" />
+                                </button>
+                            </span>
+                        </>
                     )}
                 </div>
 

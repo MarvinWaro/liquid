@@ -26,9 +26,11 @@ interface LiquidationDetailsCardProps {
     liquidation: Liquidation;
     canEditDetails: boolean;
     isHEIUser: boolean;
+    userRole?: string;
     runningDataTotalLiquidated: number;
     totalDisbursements: number;
     latestRcNote?: string;
+    isStufapsProgram?: boolean;
 }
 
 /** Read-only display value — replaces disabled <Input> for Vercel-clean look */
@@ -53,9 +55,11 @@ export default function LiquidationDetailsCard({
     liquidation,
     canEditDetails,
     isHEIUser,
+    userRole,
     runningDataTotalLiquidated,
     totalDisbursements,
     latestRcNote,
+    isStufapsProgram = false,
 }: LiquidationDetailsCardProps) {
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -123,17 +127,20 @@ export default function LiquidationDetailsCard({
     const effectiveLiquidated = runningDataTotalLiquidated;
     const remainingAmount = Math.max(0, totalDisbursements - effectiveLiquidated);
 
-    // Remaining amount is allocated based on latest RC Note:
-    // - For Compliance → goes to For Compliance
-    // - For Endorsement → goes to For Endorsement
-    // - Otherwise (Partially/Fully Endorsed, For Review, etc.) → goes to Unliquidated
+    // Unliquidated always shows the actual remaining amount
+    const unliquidated = remainingAmount;
+
+    // For Compliance / For Endorsement categorize where the remaining amount sits
     const isForCompliance = latestRcNote === 'For Compliance';
     const isForEndorsement = latestRcNote === 'For Endorsement';
-
     const forComplianceAmount = isForCompliance ? remainingAmount : 0;
     const forEndorsementAmount = isForEndorsement ? remainingAmount : 0;
-    const unliquidated = (!isForCompliance && !isForEndorsement) ? remainingAmount : 0;
-    const percentage = totalDisbursements > 0 ? ((effectiveLiquidated / totalDisbursements) * 100) : 0;
+    // TES: (Liquidated + For Endorsement) / Disbursed
+    // STuFAPs: Liquidated / Disbursed
+    const percentageNumerator = isStufapsProgram
+        ? effectiveLiquidated
+        : effectiveLiquidated + forEndorsementAmount;
+    const percentage = totalDisbursements > 0 ? ((percentageNumerator / totalDisbursements) * 100) : 0;
 
     const editInputClass = 'h-9 text-sm border-ring/30 bg-background focus:border-ring';
 
@@ -331,6 +338,40 @@ export default function LiquidationDetailsCard({
                                         </FieldBlock>
                                     )}
                                 </div>
+
+                                {/* Accountant sees RC → Accountant endorsement info */}
+                                {userRole === 'Accountant' && liquidation.reviewed_by_name && (
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 mt-4 pt-4 border-t border-dashed">
+                                        <FieldBlock label="Endorsed to Accounting By">
+                                            <DisplayValue>{liquidation.reviewed_by_name}</DisplayValue>
+                                        </FieldBlock>
+                                        <FieldBlock label="Date Endorsed to Accounting">
+                                            <DisplayValue>{liquidation.reviewed_at ? new Date(liquidation.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</DisplayValue>
+                                        </FieldBlock>
+                                        {liquidation.rc_endorsement_remarks && (
+                                            <FieldBlock label="RC Remarks">
+                                                <p className="text-sm text-foreground italic">{liquidation.rc_endorsement_remarks}</p>
+                                            </FieldBlock>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* COA / Admin sees Accountant → COA endorsement info */}
+                                {['COA', 'Admin', 'Super Admin'].includes(userRole ?? '') && liquidation.accountant_reviewed_by_name && (
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 mt-4 pt-4 border-t border-dashed">
+                                        <FieldBlock label="Endorsed to COA By">
+                                            <DisplayValue>{liquidation.accountant_reviewed_by_name}</DisplayValue>
+                                        </FieldBlock>
+                                        <FieldBlock label="Date Endorsed to COA">
+                                            <DisplayValue>{liquidation.accountant_reviewed_at ? new Date(liquidation.accountant_reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</DisplayValue>
+                                        </FieldBlock>
+                                        {liquidation.accountant_endorsement_remarks && (
+                                            <FieldBlock label="Accountant Remarks">
+                                                <p className="text-sm text-foreground italic">{liquidation.accountant_endorsement_remarks}</p>
+                                            </FieldBlock>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </ContextMenuTrigger>

@@ -19,6 +19,7 @@ interface RunningDataTableProps {
     totalDisbursements: number;
     totalGrantees: number;
     isHEIUser: boolean;
+    readOnly?: boolean;
     latestLiquidationStatus?: string;
     onTotalLiquidatedChange: (total: number) => void;
     updatedAt?: string | null;
@@ -38,10 +39,12 @@ export default function RunningDataTable({
     totalDisbursements,
     totalGrantees,
     isHEIUser,
+    readOnly = false,
     latestLiquidationStatus,
     onTotalLiquidatedChange,
     updatedAt,
 }: RunningDataTableProps) {
+    const canModify = !isHEIUser && !readOnly;
     // Hide "Add Entry" when latest tracking entry's liquidation status is "Unliquidated"
     const isDisabled = latestLiquidationStatus === 'Unliquidated';
     const [entries, setEntries] = useState<RunningDataEntry[]>(
@@ -177,7 +180,7 @@ export default function RunningDataTable({
                                 <CardDescription className="text-xs">Liquidation running financial data and transmittal references</CardDescription>
                             </div>
                         </div>
-                        {!isHEIUser && (
+                        {canModify && (
                             <Button size="sm" onClick={save} disabled={isSaving} className="h-8 text-xs px-3 bg-foreground text-background hover:bg-foreground/90">
                                 <Save className="h-3.5 w-3.5 mr-1.5" />
                                 {isSaving ? 'Saving...' : 'Save'}
@@ -201,10 +204,10 @@ export default function RunningDataTable({
                                     <th className="text-right font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">%</th>
                                     <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Transmittal Ref</th>
                                     <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Group Ref</th>
-                                    {!isHEIUser && <th className="px-3 py-2.5 w-8"></th>}
+                                    {canModify && <th className="px-3 py-2.5 w-8"></th>}
                                 </tr>
                             </thead>
-                            <tbody className={isHEIUser ? 'pointer-events-none opacity-60' : ''}>
+                            <tbody className={!canModify ? 'pointer-events-none opacity-60' : ''}>
                                 {entries.map((entry, index) => {
                                     return (
                                         <RunningDataRow
@@ -216,7 +219,7 @@ export default function RunningDataTable({
                                             totalGrantees={totalGrantees}
                                             totalDisbursements={totalDisbursements}
                                             entries={entries}
-                                            isHEIUser={isHEIUser}
+                                            readOnly={!canModify}
                                             canDelete={canDelete}
                                             updateField={updateField}
                                             removeEntry={removeEntry}
@@ -226,7 +229,7 @@ export default function RunningDataTable({
                             </tbody>
                         </table>
                     </div>
-                    {!isHEIUser && !isDisabled && (
+                    {canModify && !isDisabled && (
                         <Button size="sm" onClick={addEntry} className="mt-4 h-8 text-xs px-3 bg-foreground text-background hover:bg-foreground/90">
                             <Plus className="h-3.5 w-3.5 mr-1.5" />
                             Add Entry
@@ -250,7 +253,7 @@ interface RunningDataRowProps {
     totalGrantees: number;
     totalDisbursements: number;
     entries: RunningDataEntry[];
-    isHEIUser: boolean;
+    readOnly: boolean;
     canDelete: boolean;
     updateField: (index: number, field: keyof RunningDataEntry, value: string | number | null) => void;
     removeEntry: (index: number) => void;
@@ -264,7 +267,7 @@ const RunningDataRow = React.memo(function RunningDataRow({
     totalGrantees,
     totalDisbursements,
     entries,
-    isHEIUser,
+    readOnly,
     canDelete,
     updateField,
     removeEntry,
@@ -377,7 +380,7 @@ const RunningDataRow = React.memo(function RunningDataRow({
             <td className="px-3 py-2">
                 <Input type="text" value={entry.group_transmittal_ref_no ?? ''} onChange={(e) => updateField(index, 'group_transmittal_ref_no', e.target.value)} className="h-8 text-xs min-w-[90px]" placeholder="Group Ref" />
             </td>
-            {!isHEIUser && (
+            {!readOnly && (
                 <td className="px-3 py-2">
                     {canDelete && (
                         <DeleteRowButton isFilled={isRunningDataEntryFilled(entry)} onDelete={() => removeEntry(index)} />
