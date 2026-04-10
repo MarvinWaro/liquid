@@ -36,12 +36,13 @@ class DashboardController extends Controller
             'totalStats' => $this->getTotalStats(),
 
             // Deferred — queries run only after initial paint is sent to browser
-            'summaryPerAY' => Inertia::defer(fn () => $this->getSummaryPerAY(), 'charts-1'),
-            'summaryPerHEI' => Inertia::defer(fn () => $this->getSummaryPerHEI(), 'charts-2'),
-            'statusDistribution' => Inertia::defer(fn () => $this->getLiquidationStatusDistribution(), 'charts-3'),
-            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates(), 'charts-4'),
-            'fundSourceData' => Inertia::defer(fn () => $this->computeFundSourceData(), 'charts-5'),
-            'overviewStats' => Inertia::defer(fn () => $this->getOverviewStats(), 'charts-6'),
+            // Group into 2 batches: core charts (1 request) + supplementary (1 request)
+            'summaryPerAY' => Inertia::defer(fn () => $this->getSummaryPerAY(), 'charts'),
+            'summaryPerHEI' => Inertia::defer(fn () => $this->getSummaryPerHEI(), 'charts'),
+            'statusDistribution' => Inertia::defer(fn () => $this->getLiquidationStatusDistribution(), 'charts'),
+            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates(), 'charts'),
+            'overviewStats' => Inertia::defer(fn () => $this->getOverviewStats(), 'charts'),
+            'fundSourceData' => Inertia::defer(fn () => $this->computeFundSourceData(), 'charts-extra'),
         ]);
     }
 
@@ -79,6 +80,7 @@ class DashboardController extends Controller
             'userRole' => $userRole,
 
             // Deferred — heavy queries run only after initial paint is sent to browser
+            // Group into 2 batches: core charts (1 request) + fund source (1 request)
             'summaryPerAY' => Inertia::defer(function () use ($user, $userRole) {
                 return match ($userRole) {
                     'Regional Coordinator' => $this->getSummaryPerAY(null, $user->region_id, null, true),
@@ -88,7 +90,7 @@ class DashboardController extends Controller
                     'STUFAPS Focal' => $this->getSummaryPerAY(null, null, $user->getParentScopedProgramIds()),
                     default => [],
                 };
-            }, 'charts-1'),
+            }, 'charts'),
             'summaryPerHEI' => Inertia::defer(function () use ($user, $userRole) {
                 return match ($userRole) {
                     'Regional Coordinator' => $this->getSummaryPerHEI($user->region_id, null, true),
@@ -97,7 +99,7 @@ class DashboardController extends Controller
                     'STUFAPS Focal' => $this->getSummaryPerHEI(null, $user->getParentScopedProgramIds()),
                     default => [],
                 };
-            }, 'charts-2'),
+            }, 'charts'),
             'statusDistribution' => Inertia::defer(function () use ($user, $userRole) {
                 return match ($userRole) {
                     'Regional Coordinator' => $this->getLiquidationStatusDistribution(null, $user->region_id, null, true),
@@ -107,9 +109,9 @@ class DashboardController extends Controller
                     'STUFAPS Focal' => $this->getLiquidationStatusDistribution(null, null, $user->getParentScopedProgramIds()),
                     default => [],
                 };
-            }, 'charts-3'),
-            'recentLiquidations' => Inertia::defer(fn () => $this->getRecentLiquidations($user, $userRole), 'charts-4'),
-            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates($user, $userRole), 'charts-5'),
+            }, 'charts'),
+            'recentLiquidations' => Inertia::defer(fn () => $this->getRecentLiquidations($user, $userRole), 'charts'),
+            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates($user, $userRole), 'charts'),
             'fundSourceData' => Inertia::defer(function () use ($user, $userRole, $canViewFundSource) {
                 return match ($userRole) {
                     'Accountant' => $canViewFundSource ? $this->computeFundSourceData(endorsedOnly: true) : null,
@@ -117,7 +119,7 @@ class DashboardController extends Controller
                     'HEI' => $user->hei_id ? $this->computeFundSourceData($user->hei_id) : null,
                     default => null,
                 };
-            }, 'charts-6'),
+            }, 'charts-extra'),
         ]);
     }
 

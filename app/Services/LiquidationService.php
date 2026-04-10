@@ -603,6 +603,9 @@ class LiquidationService
             '1', '1st', '1st semester', 'first', 'first semester' => Semester::CODE_FIRST,
             '2', '2nd', '2nd semester', 'second', 'second semester' => Semester::CODE_SECOND,
             '3', 'summer', 'sum', 'summer semester' => Semester::CODE_SUMMER,
+            '1st and 2nd', '1st & 2nd', '1st and 2nd semester', '1st&2nd' => '1ST&2ND',
+            'tes3a', 'tes 3a' => 'TES3A',
+            'tes3b', 'tes 3b' => 'TES3B',
             default => null,
         };
 
@@ -610,9 +613,11 @@ class LiquidationService
             return $this->getCachedSemesters()->firstWhere('code', $code)?->id;
         }
 
-        // Try matching against semester names in the database
-        $semester = $this->getCachedSemesters()->first(function ($sem) use ($value) {
-            return strtolower($sem->name) === strtolower($value);
+        // Normalize: strip spaces and compare against code and name
+        $normalized = strtoupper(str_replace(' ', '', $value));
+        $semester = $this->getCachedSemesters()->first(function ($sem) use ($value, $normalized) {
+            return strtolower($sem->name) === strtolower($value)
+                || strtoupper($sem->code) === $normalized;
         });
 
         return $semester?->id;

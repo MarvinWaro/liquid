@@ -61,7 +61,7 @@ class LiquidationController extends Controller
     private const COL_RC_NOTES           = 14;
 
     /** Rows per DB transaction during bulk import. */
-    private const IMPORT_CHUNK_SIZE = 500;
+    private const IMPORT_CHUNK_SIZE = 100;
 
     /** Import token TTL in minutes. */
     private const IMPORT_TOKEN_TTL = 30;
@@ -449,12 +449,28 @@ class LiquidationController extends Controller
      */
     public function validateImport(BulkImportRequest $request): JsonResponse
     {
+        set_time_limit(300); // Large files (3000+ rows) need more than 30s
+
         $file = $request->file('file');
         $user = $request->user();
 
         try {
             $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file->getRealPath());
+
+            // Try the active sheet first; if it yields no data rows, scan all sheets
             $allRows = $spreadsheet->getActiveSheet()->toArray();
+            $hasDataRows = collect($allRows)->contains(fn ($row) => is_numeric(trim($row[self::COL_SEQ] ?? '')));
+
+            if (!$hasDataRows && $spreadsheet->getSheetCount() > 1) {
+                foreach ($spreadsheet->getAllSheets() as $sheet) {
+                    $candidate = $sheet->toArray();
+                    if (collect($candidate)->contains(fn ($row) => is_numeric(trim($row[self::COL_SEQ] ?? '')))) {
+                        $allRows = $candidate;
+                        break;
+                    }
+                }
+            }
+
             $spreadsheet->disconnectWorksheets();
             unset($spreadsheet);
         } catch (\Exception $e) {
@@ -464,9 +480,48 @@ class LiquidationController extends Controller
             ], 422);
         }
 
+        // Pre-warm caches to avoid per-row DB queries
+        $this->liquidationService->getCachedSemesters();
+        $this->liquidationService->getCachedRcNoteStatuses();
+        $this->cacheService->getPrograms();
+
+        // Pre-load all existing control numbers for fast duplicate checks
+        $existingControlNos = Liquidation::pluck('control_no')->filter()->flip()->all();
+
+        // Pre-load academic years keyed by code for in-memory lookup
+        $academicYearsMap = \App\Models\AcademicYear::all()->keyBy(fn ($ay) => trim($ay->code));
+
+        // Pre-load existing liquidation fingerprints for fast duplicate detection
+        $existingFingerprints = DB::table('liquidations')
+            ->join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
+            ->select('liquidations.hei_id', 'liquidations.program_id', 'liquidations.academic_year_id',
+                     'liquidations.semester_id', 'liquidations.batch_no', 'liquidations.control_no',
+                     'liquidation_financials.date_fund_released')
+            ->whereNull('liquidations.deleted_at')
+            ->get()
+            ->map(fn ($r) => $r->hei_id . '|' . $r->program_id . '|' . $r->academic_year_id . '|' .
+                ($r->date_fund_released ?? '') . '|' . ($r->semester_id ?? '') . '|' . ($r->batch_no ?? ''))
+            ->flip()
+            ->all();
+
+        // Count data rows for progress tracking
+        $dataRows = array_filter($allRows, function ($row) {
+            if (empty(array_filter($row, fn($cell) => $cell !== null && $cell !== ''))) return false;
+            return is_numeric(trim($row[self::COL_SEQ] ?? ''));
+        });
+        $totalDataRows = count($dataRows);
+
+        // Publish progress so frontend can poll during validation
+        // Accept a client-provided token so polling can begin before the response returns
+        $validateToken = $request->input('validate_token') ?: Str::uuid()->toString();
+        $progressKey = "validate_progress_{$validateToken}";
+        $progressTtl = now()->addMinutes(15);
+        Cache::put($progressKey, ['processed' => 0, 'total' => $totalDataRows, 'done' => false], $progressTtl);
+
         $validatedRows  = [];
         $importableRows = [];
         $seenControlNos = []; // track within-file duplicates
+        $processedCount = 0;
 
         foreach ($allRows as $index => $row) {
             if (empty(array_filter($row, fn($cell) => $cell !== null && $cell !== ''))) {
@@ -478,7 +533,14 @@ class LiquidationController extends Controller
                 continue;
             }
 
-            $parsed = $this->parseImportRow($row, $user);
+            $processedCount++;
+
+            // Update progress every 50 rows to avoid cache overhead
+            if ($processedCount % 50 === 0 || $processedCount === $totalDataRows) {
+                Cache::put($progressKey, ['processed' => $processedCount, 'total' => $totalDataRows, 'done' => false], $progressTtl);
+            }
+
+            $parsed = $this->parseImportRow($row, $user, $existingControlNos, $academicYearsMap, $existingFingerprints);
             $parsed['row'] = $index + 1;
             $parsed['seq'] = $seq;
 
@@ -514,6 +576,9 @@ class LiquidationController extends Controller
         $validCount = collect($validatedRows)->where('valid', true)->count();
         $errorCount = collect($validatedRows)->where('valid', false)->count();
 
+        // Mark validation as complete
+        Cache::put($progressKey, ['processed' => $totalDataRows, 'total' => $totalDataRows, 'done' => true], $progressTtl);
+
         // Cache pre-resolved rows server-side — import step uses token, not file
         $token = Str::uuid()->toString();
         Cache::put("liquidation_import_{$token}", [
@@ -523,10 +588,11 @@ class LiquidationController extends Controller
         ], now()->addMinutes(self::IMPORT_TOKEN_TTL));
 
         return response()->json([
-            'success' => true,
-            'token'   => $token,
-            'rows'    => $validatedRows,
-            'summary' => [
+            'success'        => true,
+            'token'          => $token,
+            'validate_token' => $validateToken,
+            'rows'           => $validatedRows,
+            'summary'        => [
                 'total'  => count($validatedRows),
                 'valid'  => $validCount,
                 'errors' => $errorCount,
@@ -604,7 +670,7 @@ class LiquidationController extends Controller
 
         // Process in chunks: smaller transactions = faster, more resilient
         foreach (array_chunk($rows, self::IMPORT_CHUNK_SIZE) as $chunk) {
-            DB::transaction(function () use ($chunk, $user, $batch, &$imported, &$errors, &$processed) {
+            DB::transaction(function () use ($chunk, $user, $batch, &$imported, &$errors, &$processed, $progressKey, $progressTtl, $totalRows) {
                 foreach ($chunk as $rowData) {
                     $processed++;
                     try {
@@ -632,10 +698,21 @@ class LiquidationController extends Controller
                             'error'    => $e->getMessage(),
                         ];
                     }
+
+                    // Update progress every 25 rows so the frontend poll catches it
+                    if ($processed % 25 === 0) {
+                        Cache::put($progressKey, [
+                            'processed' => $processed,
+                            'total'     => $totalRows,
+                            'imported'  => $imported,
+                            'errors'    => count($errors),
+                            'done'      => false,
+                        ], $progressTtl);
+                    }
                 }
             });
 
-            // Persist progress after each chunk — frontend polls this
+            // Always persist after each completed chunk
             $batch->update(['imported_count' => $imported]);
             Cache::put($progressKey, [
                 'processed' => $processed,
@@ -671,6 +748,24 @@ class LiquidationController extends Controller
         }
 
         return $this->formatImportResponse($imported, $errors);
+    }
+
+    /**
+     * Return the current progress of an in-flight validation.
+     */
+    public function validateProgress(Request $request): JsonResponse
+    {
+        $token = $request->input('token');
+        if (!$token) {
+            return response()->json(['found' => false], 422);
+        }
+
+        $progress = Cache::get("validate_progress_{$token}");
+        if (!$progress) {
+            return response()->json(['found' => false]);
+        }
+
+        return response()->json(['found' => true, ...$progress]);
     }
 
     /**
@@ -1989,7 +2084,7 @@ class LiquidationController extends Controller
      * containing pre-resolved IDs ready for DB insert — or null when invalid.
      * This single method replaces the old processImportRow + parseRowForPreview pair.
      */
-    private function parseImportRow(array $row, $user): array
+    private function parseImportRow(array $row, $user, array $existingControlNos = [], $academicYearsMap = null, array $existingFingerprints = []): array
     {
         $errors = [];
 
@@ -2065,11 +2160,13 @@ class LiquidationController extends Controller
         if (!empty($semesterRaw)) {
             $semesterId = $this->liquidationService->findSemesterId($semesterRaw);
             if (!$semesterId) {
-                $errors[] = "Semester '{$semesterRaw}' (col H) is invalid. Use: 1ST, 2ND, SUM, First Semester, Second Semester, or Summer.";
+                $errors[] = "Semester '{$semesterRaw}' (col H) is invalid. Use: 1ST, 2ND, SUM, TES3A, TES3B, 1ST AND 2ND, First Semester, Second Semester, or Summer.";
             }
         }
 
-        $academicYear = \App\Models\AcademicYear::findByCode($academicYearCode);
+        $academicYear = $academicYearsMap
+            ? $academicYearsMap->get($academicYearCode)
+            : \App\Models\AcademicYear::findByCode($academicYearCode);
         if (!$academicYear) {
             $errors[] = "Academic Year '{$academicYearCode}' (col G) not found.";
         }
@@ -2084,7 +2181,7 @@ class LiquidationController extends Controller
                     $errors[] = "Control No prefix '{$controlPrefix}' does not match Program '{$program->code}' (col B vs col J).";
                 }
             }
-            if (Liquidation::where('control_no', $dvControlNo)->exists()) {
+            if (isset($existingControlNos[$dvControlNo])) {
                 $errors[] = "Control No '{$dvControlNo}' (col J) already exists.";
             }
         }
@@ -2095,21 +2192,11 @@ class LiquidationController extends Controller
         // business identifiers — these almost certainly represent a re-import.
         if (empty($dvControlNo) && $hei && $program && $academicYear && $dateFundReleased) {
             $fundReleasedStr = \Carbon\Carbon::instance($dateFundReleased)->format('Y-m-d');
-            $dupQuery = Liquidation::where('hei_id', $hei->id)
-                ->where('program_id', $program->id)
-                ->where('academic_year_id', $academicYear->id)
-                ->whereHas('financial', fn ($q) => $q->where('date_fund_released', $fundReleasedStr));
+            $fingerprint = $hei->id . '|' . $program->id . '|' . $academicYear->id . '|' .
+                $fundReleasedStr . '|' . ($semesterId ?? '') . '|' . ($batchNo ?? '');
 
-            if ($semesterId) {
-                $dupQuery->where('semester_id', $semesterId);
-            }
-            if (!empty($batchNo)) {
-                $dupQuery->where('batch_no', $batchNo);
-            }
-
-            $existing = $dupQuery->select('control_no')->first();
-            if ($existing) {
-                $errors[] = "A record already exists for this disbursement (control no: {$existing->control_no}). This row would create a duplicate — remove it from the file.";
+            if (isset($existingFingerprints[$fingerprint])) {
+                $errors[] = "A record already exists for this disbursement. This row would create a duplicate — remove it from the file.";
             }
         }
 
@@ -2129,7 +2216,7 @@ class LiquidationController extends Controller
         if (!empty($rcNotesRaw)) {
             $rcNoteStatusId = $this->parseRcNoteStatus($rcNotesRaw);
             if (!$rcNoteStatusId) {
-                $errors[] = "RC Notes '{$rcNotesRaw}' (col O) is invalid. Use: For Review, For Compliance, For Endorsement, Fully Endorsed, or Partially Endorsed.";
+                $errors[] = "RC Notes '{$rcNotesRaw}' (col O) is invalid. Use: No Submission, For Review, For Compliance, For Endorsement, Fully Endorsed, or Partially Endorsed.";
             }
         }
 
@@ -2420,6 +2507,8 @@ class LiquidationController extends Controller
         $normalized = strtoupper(trim($value));
 
         $statusMap = [
+            'NO SUBMISSION'       => RcNoteStatus::CODE_NO_SUBMISSION,
+            'NO_SUBMISSION'       => RcNoteStatus::CODE_NO_SUBMISSION,
             'FOR REVIEW'          => RcNoteStatus::CODE_FOR_REVIEW,
             'FOR_REVIEW'          => RcNoteStatus::CODE_FOR_REVIEW,
             'FOR COMPLIANCE'      => RcNoteStatus::CODE_FOR_COMPLIANCE,

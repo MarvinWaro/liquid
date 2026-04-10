@@ -809,7 +809,7 @@ export function BulkEntryModal({
                                         </td>
                                         <td className="px-0.5 py-0.5">
                                             <CellTooltip content={row.batch_no ? `Batch ${row.batch_no}` : ''}>
-                                                <Input className="h-7 text-xs" type="number" min="0" value={row.batch_no} onChange={e => updateRow(index, 'batch_no', e.target.value)} placeholder="1" />
+                                                <Input className="h-7 text-xs" type="text" value={row.batch_no} onChange={e => updateRow(index, 'batch_no', e.target.value)} placeholder="1 & 2" />
                                             </CellTooltip>
                                         </td>
                                         <td className="px-0.5 py-0.5">

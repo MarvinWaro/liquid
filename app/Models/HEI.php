@@ -8,10 +8,24 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Cache;
 
 class HEI extends Model
 {
     use HasFactory, HasUuid, LogsActivity;
+
+    protected static function booted(): void
+    {
+        static::saved(function (HEI $hei) {
+            Cache::forget("hei_uii_{$hei->uii}");
+            Cache::forget('heis_active');
+        });
+
+        static::deleted(function (HEI $hei) {
+            Cache::forget("hei_uii_{$hei->uii}");
+            Cache::forget('heis_active');
+        });
+    }
 
     protected static function getActivityModule(): string
     {

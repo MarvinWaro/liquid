@@ -107,24 +107,40 @@ export function ImportPreviewDialog({
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const processedFileRef = React.useRef<File | null>(null);
 
-    // Import progress polling
+    // Import simulated progress (client-side timer — server is single-threaded so polls can't get through)
     const [importProgress, setImportProgress] = useState<{
         processed: number;
         total: number;
         imported: number;
         errors: number;
     } | null>(null);
+    const importTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    // Validation progress polling
+    const [validateProgress, setValidateProgress] = useState<{ processed: number; total: number } | null>(null);
     const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const validatePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    const stopValidatePolling = useCallback(() => {
+        if (validatePollRef.current) {
+            clearInterval(validatePollRef.current);
+            validatePollRef.current = null;
+        }
+    }, []);
 
     const stopPolling = useCallback(() => {
         if (pollIntervalRef.current) {
             clearInterval(pollIntervalRef.current);
             pollIntervalRef.current = null;
         }
+        if (importTimerRef.current) {
+            clearInterval(importTimerRef.current);
+            importTimerRef.current = null;
+        }
     }, []);
 
     // Clean up polling on unmount
-    useEffect(() => () => stopPolling(), [stopPolling]);
+    useEffect(() => () => { stopPolling(); stopValidatePolling(); }, [stopPolling, stopValidatePolling]);
 
     // Import history state
     const [showHistory, setShowHistory] = useState(false);
@@ -170,7 +186,9 @@ export function ImportPreviewDialog({
 
     const reset = useCallback(() => {
         stopPolling();
+        stopValidatePolling();
         setStep('idle');
+        setValidateProgress(null);
         setRows([]);
         setSummary({ total: 0, valid: 0, errors: 0 });
         setSelectedRow(null);
@@ -199,15 +217,35 @@ export function ImportPreviewDialog({
         await validateFile(file);
     };
 
+    const startValidatePolling = useCallback((token: string) => {
+        stopValidatePolling();
+        validatePollRef.current = setInterval(async () => {
+            try {
+                const res = await axios.get(route('liquidation.validate-progress'), { params: { token } });
+                if (res.data.found) {
+                    setValidateProgress({ processed: res.data.processed, total: res.data.total });
+                    if (res.data.done) stopValidatePolling();
+                }
+            } catch {
+                // Silently ignore polling errors
+            }
+        }, 800);
+    }, [stopValidatePolling]);
+
     const validateFile = async (file: File) => {
         setStep('validating');
         setUploadProgress(0);
         setUploadPhase('uploading');
+        setValidateProgress(null);
         setSelectedRow(null);
         setDetailOpen(false);
 
         const formData = new FormData();
         formData.append('file', file);
+
+        // Pre-generate a token so we can start polling immediately once upload finishes
+        const clientToken = crypto.randomUUID();
+        formData.append('validate_token', clientToken);
 
         try {
             const response = await axios.post(route('liquidation.validate-import'), formData, {
@@ -216,10 +254,15 @@ export function ImportPreviewDialog({
                     if (e.total) {
                         const pct = Math.round((e.loaded / e.total) * 100);
                         setUploadProgress(pct);
-                        if (pct >= 100) setUploadPhase('processing');
+                        if (pct >= 100) {
+                            setUploadPhase('processing');
+                            startValidatePolling(clientToken);
+                        }
                     }
                 },
             });
+
+            stopValidatePolling();
 
             if (response.data.success) {
                 setRows(response.data.rows);
@@ -228,6 +271,7 @@ export function ImportPreviewDialog({
                 setStep('preview');
             }
         } catch (error: any) {
+            stopValidatePolling();
             const msg = error.response?.data?.message || 'Failed to validate file.';
             toast.error(msg);
             setStep('idle');
@@ -246,28 +290,25 @@ export function ImportPreviewDialog({
         if (!importToken || summary.valid === 0) return;
 
         const token = importToken;
+        const total = summary.valid;
         setStep('importing');
-        setImportProgress({ processed: 0, total: summary.valid, imported: 0, errors: 0 });
+        setImportProgress({ processed: 0, total, imported: 0, errors: 0 });
 
-        // Poll progress every 500ms while the import runs server-side
-        pollIntervalRef.current = setInterval(async () => {
-            try {
-                const res = await axios.get(route('liquidation.import-progress'), {
-                    params: { token },
-                });
-                if (res.data.found) {
-                    setImportProgress({
-                        processed: res.data.processed ?? 0,
-                        total: res.data.total ?? summary.valid,
-                        imported: res.data.imported ?? 0,
-                        errors: res.data.errors ?? 0,
-                    });
-                    if (res.data.done) stopPolling();
-                }
-            } catch {
-                // silently ignore poll failures — the main request will still resolve
-            }
-        }, 1500);
+        // Client-side simulated progress — the server is synchronous so polling can't get
+        // through while the import request is running. Estimate ~80ms per row, cap at 93%
+        // so the bar never falsely reaches 100% before the server confirms completion.
+        const estimatedMs = Math.max(total * 80, 3000);
+        const tickMs = 200;
+        const maxPct = 93;
+        let simulatedProcessed = 0;
+
+        importTimerRef.current = setInterval(() => {
+            simulatedProcessed = Math.min(
+                simulatedProcessed + Math.round((total * tickMs) / estimatedMs),
+                Math.round(total * maxPct / 100),
+            );
+            setImportProgress(prev => prev ? { ...prev, processed: simulatedProcessed } : prev);
+        }, tickMs);
 
         try {
             // Send the server-side token — no file re-upload needed
@@ -278,6 +319,10 @@ export function ImportPreviewDialog({
             stopPolling();
             const imported = response.data.imported ?? 0;
             const errors = response.data.errors ?? [];
+
+            // Snap to 100% briefly so the user sees completion
+            setImportProgress({ processed: total, total, imported, errors: errors.length });
+            await new Promise(r => setTimeout(r, 400));
 
             if (imported > 0 && errors.length === 0) {
                 toast.success(response.data.message);
@@ -340,7 +385,11 @@ export function ImportPreviewDialog({
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
-            <DialogContent className="max-w-[90vw] sm:max-w-[90vw] w-[1400px] max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+            <DialogContent
+                className="max-w-[90vw] sm:max-w-[90vw] w-[1400px] max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden"
+                onInteractOutside={(e) => { if (step === 'validating' || step === 'importing') e.preventDefault(); }}
+                onEscapeKeyDown={(e) => { if (step === 'validating' || step === 'importing') e.preventDefault(); }}
+            >
                 {/* Header */}
                 <DialogHeader className="px-6 pt-6 pb-4 shrink-0 border-b pr-14">
                     <div className="flex items-center justify-between">
@@ -498,94 +547,123 @@ export function ImportPreviewDialog({
                         </div>
                     )}
 
-                    {/* Validating with progress */}
-                    {!showHistory && step === 'validating' && (
-                        <div className="flex-1 flex flex-col items-center justify-center gap-5 p-10">
-                            <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                            <div className="w-full max-w-sm space-y-2">
-                                <div className="flex items-center justify-between text-sm">
-                                    <span className="text-muted-foreground">
-                                        {uploadPhase === 'uploading' ? 'Uploading file...' : 'Processing rows...'}
-                                    </span>
-                                    <span className="font-mono text-xs text-muted-foreground">
-                                        {uploadPhase === 'uploading' ? `${uploadProgress}%` : ''}
-                                    </span>
-                                </div>
-                                <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                                    {uploadPhase === 'uploading' ? (
-                                        <div
-                                            className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
-                                            style={{ width: `${uploadProgress}%` }}
-                                        />
-                                    ) : (
-                                        <div className="h-full w-full rounded-full bg-primary/30 relative overflow-hidden">
-                                            <div className="absolute inset-0 bg-primary animate-progress-indeterminate" />
-                                        </div>
-                                    )}
-                                </div>
-                                <p className="text-xs text-center text-muted-foreground">
-                                    {uploadPhase === 'uploading'
-                                        ? 'Uploading your Excel file to the server...'
-                                        : 'Validating each row — this may take a moment for large files.'
-                                    }
-                                </p>
-                            </div>
-                        </div>
-                    )}
+                    {/* Validating with progress + skeleton */}
+                    {!showHistory && step === 'validating' && (() => {
+                        const isProcessing = uploadPhase === 'processing';
+                        const hasValidateData = isProcessing && validateProgress && validateProgress.total > 0;
+                        const validatePct = hasValidateData
+                            ? Math.round((validateProgress!.processed / validateProgress!.total) * 100)
+                            : 0;
+                        const displayPct = isProcessing ? validatePct : uploadProgress;
+                        const isDeterminate = !isProcessing || hasValidateData;
 
-                    {/* Importing — progress bar */}
-                    {!showHistory && step === 'importing' && (
-                        <div className="flex-1 flex flex-col items-center justify-center gap-6 p-10 max-w-md mx-auto w-full">
-                            <div className="flex flex-col items-center gap-2">
-                                <Loader2 className="h-9 w-9 animate-spin text-primary" />
-                                <p className="text-sm font-medium">Importing records…</p>
-                                <p className="text-xs text-muted-foreground text-center">
-                                    Processing in batches — please keep this window open.
-                                </p>
-                            </div>
-
-                            {/* Progress bar */}
-                            {importProgress && importProgress.total > 0 && (() => {
-                                const pct = Math.round((importProgress.processed / importProgress.total) * 100);
-                                return (
-                                    <div className="w-full space-y-2">
-                                        <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
-                                            <div
-                                                className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
-                                                style={{ width: `${pct}%` }}
-                                            />
-                                        </div>
-                                        <div className="flex justify-between text-xs text-muted-foreground">
-                                            <span>
-                                                {importProgress.processed.toLocaleString()} / {importProgress.total.toLocaleString()} rows
-                                            </span>
-                                            <span className="font-semibold text-foreground">{pct}%</span>
-                                        </div>
-                                        <div className="flex gap-4 text-xs pt-1">
-                                            <span className="text-emerald-600 dark:text-emerald-400">
-                                                ✓ {importProgress.imported.toLocaleString()} saved
-                                            </span>
-                                            {importProgress.errors > 0 && (
-                                                <span className="text-red-500">
-                                                    ✗ {importProgress.errors.toLocaleString()} skipped
+                        return (
+                            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                                {/* Progress section */}
+                                <div className="px-6 pt-6 pb-4 shrink-0 border-b">
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
+                                                <span className="text-sm font-medium">
+                                                    {isProcessing ? 'Validating rows...' : 'Uploading file...'}
                                                 </span>
+                                            </div>
+                                            <span className="text-2xl font-bold font-mono tabular-nums text-foreground">
+                                                {isDeterminate ? `${displayPct}%` : '—'}
+                                            </span>
+                                        </div>
+                                        <div className="h-2.5 w-full rounded-full bg-muted overflow-hidden">
+                                            {isDeterminate ? (
+                                                <div
+                                                    className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
+                                                    style={{ width: `${displayPct}%` }}
+                                                />
+                                            ) : (
+                                                <div className="h-full w-full rounded-full bg-primary/30 relative overflow-hidden">
+                                                    <div className="absolute inset-0 bg-primary animate-progress-indeterminate" />
+                                                </div>
                                             )}
                                         </div>
+                                        <p className="text-xs text-muted-foreground">
+                                            {isProcessing
+                                                ? hasValidateData
+                                                    ? `${validateProgress!.processed.toLocaleString()} of ${validateProgress!.total.toLocaleString()} rows checked`
+                                                    : 'Preparing validation — this may take a moment for large files.'
+                                                : 'Uploading your Excel file to the server...'
+                                            }
+                                        </p>
                                     </div>
-                                );
-                            })()}
-
-                            {/* Indeterminate bar while waiting for first poll */}
-                            {(!importProgress || importProgress.total === 0) && (
-                                <div className="w-full space-y-2">
-                                    <div className="w-full bg-muted rounded-full h-3 overflow-hidden relative">
-                                        <div className="absolute inset-y-0 left-0 bg-primary/70 rounded-full animate-progress-indeterminate" />
-                                    </div>
-                                    <p className="text-xs text-muted-foreground text-center">Initializing…</p>
                                 </div>
-                            )}
-                        </div>
-                    )}
+
+                                {/* Skeleton preview — mimics the table that will appear */}
+                                <div className="flex-1 overflow-hidden">
+                                    <div className="flex items-center gap-3 px-4 py-3 bg-muted/30 border-b shrink-0">
+                                        <div className="h-5 w-24 rounded-full bg-muted animate-pulse" />
+                                        <div className="h-5 w-20 rounded-full bg-muted animate-pulse" />
+                                        <div className="h-5 w-22 rounded-full bg-muted animate-pulse" />
+                                    </div>
+                                    <div className="flex items-center gap-3 px-4 py-2 bg-muted/20 border-b">
+                                        {[10, 8, 12, 16, 24, 16, 14].map((w, i) => (
+                                            <div key={i} className="h-2.5 rounded bg-muted animate-pulse flex-shrink-0" style={{ width: `${w * 4}px` }} />
+                                        ))}
+                                    </div>
+                                    {[...Array(10)].map((_, i) => (
+                                        <div
+                                            key={i}
+                                            className="flex items-center gap-3 px-4 py-3 border-b"
+                                            style={{ opacity: 1 - i * 0.08 }}
+                                        >
+                                            <div className="h-3 w-10 rounded bg-muted animate-pulse flex-shrink-0" />
+                                            <div className="h-4 w-4 rounded-full bg-muted animate-pulse flex-shrink-0" />
+                                            <div className="h-3 w-12 rounded bg-muted animate-pulse flex-shrink-0" />
+                                            <div className="h-3 w-16 rounded bg-muted animate-pulse flex-shrink-0" />
+                                            <div className="h-3 flex-1 rounded bg-muted animate-pulse" />
+                                            <div className="h-3 w-20 rounded bg-muted animate-pulse flex-shrink-0" />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    {/* Importing — spinner + progress, no skeleton */}
+                    {!showHistory && step === 'importing' && (() => {
+                        const pct = importProgress && importProgress.total > 0
+                            ? Math.round((importProgress.processed / importProgress.total) * 100)
+                            : 0;
+
+                        return (
+                            <div className="flex-1 flex flex-col items-center justify-center gap-6 px-10 py-12 max-w-lg mx-auto w-full">
+                                {/* Spinner + label */}
+                                <div className="flex items-center gap-3">
+                                    <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0" />
+                                    <span className="text-sm font-medium">Importing records...</span>
+                                </div>
+
+                                {/* Progress */}
+                                <div className="w-full space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-xs text-muted-foreground">
+                                            {(importProgress?.processed ?? 0).toLocaleString()} of {(importProgress?.total ?? 0).toLocaleString()} rows
+                                        </p>
+                                        <span className="text-2xl font-bold font-mono tabular-nums text-foreground">
+                                            {pct}%
+                                        </span>
+                                    </div>
+                                    <div className="h-2.5 w-full rounded-full bg-muted overflow-hidden">
+                                        <div
+                                            className="h-full rounded-full bg-primary transition-all duration-200 ease-out"
+                                            style={{ width: `${pct}%` }}
+                                        />
+                                    </div>
+                                    <p className="text-xs text-muted-foreground text-center">
+                                        Please keep this window open until complete.
+                                    </p>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {/* Preview — two panel layout */}
                     {!showHistory && step === 'preview' && (

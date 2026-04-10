@@ -49,6 +49,7 @@ class RcNoteStatus extends Model
     public const CODE_FOR_ENDORSEMENT = 'FOR_ENDORSEMENT';
     public const CODE_FULLY_ENDORSED = 'FULLY_ENDORSED';
     public const CODE_PARTIALLY_ENDORSED = 'PARTIALLY_ENDORSED';
+    public const CODE_NO_SUBMISSION = 'NO_SUBMISSION';
 
     public function liquidations(): HasMany
     {
