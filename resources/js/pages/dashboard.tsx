@@ -17,7 +17,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { DollarSign, FileText, CheckCircle, Clock, AlertCircle, GraduationCap, Send, ShieldAlert } from 'lucide-react';
+import { DollarSign, FileText, CheckCircle, Clock, AlertCircle, GraduationCap, Send, ShieldAlert, Percent } from 'lucide-react';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import { SortableDashboard, DashboardCard, DashboardToolbar } from '@/components/sortable-dashboard';
 import { DashboardCalendar } from '@/components/dashboard-calendar';
@@ -57,6 +57,7 @@ interface TotalStats {
     total_unliquidated: number;
     for_endorsement: number;
     for_compliance: number;
+    total_with_submission: number;
     pending_review: number;
     pending_action?: number;
     completed?: number;
@@ -154,6 +155,7 @@ export default function Dashboard({
         total_unliquidated: rawTotalStats?.total_unliquidated ?? 0,
         for_endorsement: rawTotalStats?.for_endorsement ?? 0,
         for_compliance: rawTotalStats?.for_compliance ?? 0,
+        total_with_submission: rawTotalStats?.total_with_submission ?? 0,
         pending_review: rawTotalStats?.pending_review ?? 0,
     }), [rawTotalStats]);
 
@@ -184,6 +186,7 @@ export default function Dashboard({
                 total_unliquidated: fs.total_unliquidated ?? 0,
                 for_endorsement: fs.for_endorsement ?? 0,
                 for_compliance: fs.for_compliance ?? 0,
+                total_with_submission: fs.total_with_submission ?? 0,
                 pending_review: fs.pending_review ?? 0,
                 pending_action: fs.pending_action,
                 completed: fs.completed,
@@ -266,6 +269,22 @@ export default function Dashboard({
             }
         }
 
+        // Percentage cards — computed from activeTotalStats
+        const disbursed = Number(activeTotalStats.total_disbursed) || 0;
+        if (disbursed > 0) {
+            const pctLiquidation = ((Number(activeTotalStats.total_liquidated) + Number(activeTotalStats.for_endorsement)) / disbursed) * 100;
+            const pctCompliance = (Number(activeTotalStats.for_compliance) / disbursed) * 100;
+            const pctSubmission = (Number(activeTotalStats.total_with_submission ?? 0) / disbursed) * 100;
+
+            const pctColor = (v: number) => v >= 80 ? 'text-emerald-600 dark:text-emerald-400' : v >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400';
+
+            defs.push(
+                { id: 'stat-pct-liquidation', title: '%Age of Liquidation', value: `${pctLiquidation.toFixed(2)}%`, subtitle: '(Liquidated + Endorsed) / Disbursed', icon: <Percent className="h-4 w-4 text-muted-foreground" />, valueClass: pctColor(pctLiquidation) },
+                { id: 'stat-pct-compliance', title: '%Age of Compliance', value: `${pctCompliance.toFixed(2)}%`, subtitle: 'For Compliance / Disbursed', icon: <Percent className="h-4 w-4 text-muted-foreground" />, valueClass: pctCompliance > 10 ? 'text-red-600 dark:text-red-400' : pctCompliance > 5 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400' },
+                { id: 'stat-pct-submission', title: '%Age of Submission', value: `${pctSubmission.toFixed(2)}%`, subtitle: 'With Submission / Disbursed', icon: <Percent className="h-4 w-4 text-muted-foreground" />, valueClass: pctColor(pctSubmission) },
+            );
+        }
+
         return defs;
     }, [isAdmin, userRole, activeTotalStats, userStats, fundSourceFilter]);
 
@@ -289,14 +308,14 @@ export default function Dashboard({
         if (showPieChart) {
             cards.push({ id: 'status-distribution', title: 'Status Distribution', colSpan: 4 });
         }
-        if (!isAdmin && (chartsLoading || (recentLiquidations && recentLiquidations.length > 0))) {
+        if (!isAdmin && recentLiquidations && recentLiquidations.length > 0) {
             cards.push({ id: 'recent-liquidations', title: 'Recent Liquidations', colSpan: 12 });
         }
 
         return cards;
     }, [statCardDefs, showBarChart, showPieChart, isAdmin, recentLiquidations, chartsLoading]);
 
-    const storageKey = `dashboard-layout-v6-${isAdmin ? 'admin' : userRole || 'default'}`;
+    const storageKey = `dashboard-layout-v8-${isAdmin ? 'admin' : userRole || 'default'}`;
     const { layout, updateOrder, toggleVisibility, cycleExpand, showCard, resetLayout, hiddenCardIds } = useDashboardLayout(
         cardConfigs.map(c => c.id),
         storageKey,

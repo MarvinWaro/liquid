@@ -160,10 +160,10 @@ export const LiquidationProgressChart = memo(function LiquidationProgressChart({
                         wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }}
                         formatter={(value) => <span className="text-foreground text-xs">{value}</span>}
                     />
-                    <Bar dataKey="Total Disbursements" fill={BAR_COLORS.totalDisbursements} radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Amount Liquidated" fill={BAR_COLORS.liquidatedAmount} radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Unliquidated Amount" fill={BAR_COLORS.unliquidatedAmount} radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="For Compliance" fill={BAR_COLORS.forCompliance} radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Total Disbursements" fill={BAR_COLORS.totalDisbursements} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                    <Bar dataKey="Amount Liquidated" fill={BAR_COLORS.liquidatedAmount} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                    <Bar dataKey="Unliquidated Amount" fill={BAR_COLORS.unliquidatedAmount} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                    <Bar dataKey="For Compliance" fill={BAR_COLORS.forCompliance} radius={[4, 4, 0, 0]} isAnimationActive={false} />
                 </BarChart>
             </ResponsiveContainer>
         </div>

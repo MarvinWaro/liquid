@@ -331,7 +331,8 @@ class DashboardController extends Controller
     {
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id');
+            ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id')
+            ->leftJoin('document_statuses', 'liquidations.document_status_id', '=', 'document_statuses.id');
         $this->applyBaseExclusions($query);
 
         if ($coaEndorsedOnly) {
@@ -368,6 +369,8 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)), 0) as total_unliquidated')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_compliance')
+            // Total With Submission = Liquidated + Unliquidated where docs submitted (COMPLETE/PARTIAL)
+            ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN document_statuses.code IN ("COMPLETE", "PARTIAL") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as total_with_submission')
             ->first();
 
         // Pending review = submitted but not yet endorsed to COA
@@ -409,6 +412,7 @@ class DashboardController extends Controller
             'total_unliquidated' => $stats->total_unliquidated ?? 0,
             'for_endorsement' => $stats->for_endorsement ?? 0,
             'for_compliance' => $stats->for_compliance ?? 0,
+            'total_with_submission' => $stats->total_with_submission ?? 0,
             'pending_review' => $pendingReview,
         ];
 

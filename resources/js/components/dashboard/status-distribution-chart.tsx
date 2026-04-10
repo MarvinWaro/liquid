@@ -92,6 +92,7 @@ export const StatusDistributionChart = memo(function StatusDistributionChart({ d
                         outerRadius={90}
                         strokeWidth={2}
                         dataKey="value"
+                        isAnimationActive={false}
                         {...({ activeIndex: activePieIndex } as any)}
                         activeShape={({ outerRadius = 0, ...props }: PieSectorDataItem) => (
                             <g>
