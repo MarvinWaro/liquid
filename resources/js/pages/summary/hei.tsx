@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, Filter, BarChart3, TableIcon } from 'lucide-react';
+import { Search, Filter, BarChart3, TableIcon, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import {
     BarChart,
     Bar,
@@ -94,6 +94,48 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
     const [page, setPage] = useState(1);
     const PAGE_SIZE = 25;
 
+    type SortKey =
+        | 'name' | 'grantees' | 'disbursements' | 'liquidated'
+        | 'for_endorsement' | 'unliquidated_net' | 'unliquidated_not_submitted'
+        | 'for_compliance' | 'total_with_submission'
+        | 'pct_liquidation' | 'pct_compliance' | 'pct_submission';
+    const [sortKey, setSortKey] = useState<SortKey | null>('name');
+    const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+    const handleSort = (key: SortKey) => {
+        if (sortKey === key) {
+            setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortKey(key);
+            setSortDir('asc');
+        }
+        setPage(1);
+    };
+
+    const SortIcon = ({ col }: { col: SortKey }) => {
+        if (sortKey !== col) return <ChevronsUpDown className="h-3 w-3 ml-1 opacity-40" />;
+        return sortDir === 'asc'
+            ? <ChevronUp className="h-3 w-3 ml-1 text-primary" />
+            : <ChevronDown className="h-3 w-3 ml-1 text-primary" />;
+    };
+
+    const getSortValue = (row: HEISummary, key: SortKey): number | string => {
+        switch (key) {
+            case 'name': return row.hei?.name?.toLowerCase() ?? '';
+            case 'grantees': return Number(row.total_grantees) || 0;
+            case 'disbursements': return Number(row.total_disbursements) || 0;
+            case 'liquidated': return Number(row.total_amount_liquidated) || 0;
+            case 'for_endorsement': return Number(row.for_endorsement) || 0;
+            case 'unliquidated_net': return Number(row.total_disbursements) - Number(row.total_amount_liquidated) - Number(row.for_endorsement);
+            case 'unliquidated_not_submitted': return Number(row.total_disbursements) - Number(row.total_amount_liquidated);
+            case 'for_compliance': return Number(row.for_compliance) || 0;
+            case 'total_with_submission': return Number(row.total_with_submission) || 0;
+            case 'pct_liquidation': return computePercentLiquidation(row);
+            case 'pct_compliance': return Number(row.percentage_compliance) || 0;
+            case 'pct_submission': return Number(row.percentage_submission) || 0;
+        }
+    };
+
     const filtered = summaryPerHEI.filter(item => {
         if (!searchQuery.trim()) return true;
         const q = searchQuery.toLowerCase();
@@ -103,9 +145,18 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
         );
     });
 
-    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    const sorted = sortKey
+        ? [...filtered].sort((a, b) => {
+            const av = getSortValue(a, sortKey);
+            const bv = getSortValue(b, sortKey);
+            const cmp = typeof av === 'string' ? av.localeCompare(bv as string) : (av as number) - (bv as number);
+            return sortDir === 'asc' ? cmp : -cmp;
+        })
+        : filtered;
+
+    const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
     const currentPage = Math.min(page, totalPages);
-    const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+    const paginated = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
     const selectedProgram = programs.find(p => p.id === filters?.program);
 
@@ -258,22 +309,37 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
                                 <TableHeader>
                                     <TableRow className="border-b hover:bg-transparent">
                                         <TableHead className="h-9 pl-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">No.</TableHead>
-                                        <TableHead className="h-9 min-w-[200px] text-xs font-medium tracking-wider text-muted-foreground uppercase">Name of HEI</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase text-right">Grantees</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Disbursements</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Amount Liquidated</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Endorsement</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated (net of endorsement)</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated (not submitted)</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Compliance</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Amount With Submission</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Liquidation</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Compliance</TableHead>
-                                        <TableHead className="h-9 pr-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Submission</TableHead>
+                                        {(
+                                            [
+                                                { col: 'name', label: 'Name of HEI', className: 'min-w-[200px]' },
+                                                { col: 'grantees', label: 'Grantees', className: 'text-right' },
+                                                { col: 'disbursements', label: 'Total Disbursements', className: '' },
+                                                { col: 'liquidated', label: 'Total Amount Liquidated', className: '' },
+                                                { col: 'for_endorsement', label: 'For Endorsement', className: '' },
+                                                { col: 'unliquidated_net', label: 'Unliquidated (net of endorsement)', className: '' },
+                                                { col: 'unliquidated_not_submitted', label: 'Unliquidated (not submitted)', className: '' },
+                                                { col: 'for_compliance', label: 'For Compliance', className: '' },
+                                                { col: 'total_with_submission', label: 'Total Amount With Submission', className: '' },
+                                                { col: 'pct_liquidation', label: '% Liquidation', className: '' },
+                                                { col: 'pct_compliance', label: '% Compliance', className: '' },
+                                                { col: 'pct_submission', label: '% Submission', className: 'pr-6' },
+                                            ] as { col: SortKey; label: string; className: string }[]
+                                        ).map(({ col, label, className }) => (
+                                            <TableHead
+                                                key={col}
+                                                className={`h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase cursor-pointer select-none hover:text-foreground transition-colors ${className}`}
+                                                onClick={() => handleSort(col)}
+                                            >
+                                                <span className="inline-flex items-center">
+                                                    {label}
+                                                    <SortIcon col={col} />
+                                                </span>
+                                            </TableHead>
+                                        ))}
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {filtered.length === 0 ? (
+                                    {sorted.length === 0 ? (
                                         <TableRow>
                                             <TableCell colSpan={13} className="text-center py-12 text-muted-foreground">
                                                 {searchQuery ? 'No matching HEIs found.' : 'No data available.'}
@@ -336,10 +402,10 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
                             </Table>
 
                             {/* Pagination footer */}
-                            {filtered.length > PAGE_SIZE && (
+                            {sorted.length > PAGE_SIZE && (
                                 <div className="flex items-center justify-between px-6 py-3 border-t text-sm text-muted-foreground">
                                     <span>
-                                        Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} HEIs
+                                        Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, sorted.length)} of {sorted.length} HEIs
                                     </span>
                                     <div className="flex items-center gap-1">
                                         <Button
