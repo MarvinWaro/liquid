@@ -81,7 +81,7 @@ class LiquidationController extends Controller
         }
 
         $user = $request->user();
-        $filters = $request->only(['search', 'program', 'document_status', 'liquidation_status']);
+        $filters = $request->only(['search', 'program', 'document_status', 'liquidation_status', 'academic_year', 'rc_note_status']);
 
         // All programs for the filter dropdown (lightweight, cached)
         $allPrograms = $this->cacheService->getSelectablePrograms();
@@ -126,8 +126,8 @@ class LiquidationController extends Controller
                 }
                 return $allPrograms;
             }),
-            'academicYears' => Inertia::defer(fn () => \App\Models\AcademicYear::getDropdownOptions()),
-            'rcNoteStatuses' => Inertia::defer(fn () => RcNoteStatus::getDropdownOptions()),
+            'academicYears' => \App\Models\AcademicYear::getDropdownOptions(),
+            'rcNoteStatuses' => RcNoteStatus::getDropdownOptions(),
             'heis' => Inertia::defer(fn () =>
                 \App\Models\HEI::where('status', 'active')
                     ->when(

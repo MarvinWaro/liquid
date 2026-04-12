@@ -12,10 +12,15 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem, type SharedData, type NavigationAbilities } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { FileText, LayoutGrid, BarChart3 } from 'lucide-react';
+import { FileText, LayoutGrid, BarChart3, Megaphone } from 'lucide-react';
 
 // Define all navigation items with their required ability key
 const allNavItems: (NavItem & { ability?: keyof NavigationAbilities; children?: (NavItem & { ability?: keyof NavigationAbilities })[] })[] = [
+    {
+        title: 'Announcement',
+        href: '/announcement',
+        icon: Megaphone,
+    },
     {
         title: 'Dashboard',
         href: dashboard(),

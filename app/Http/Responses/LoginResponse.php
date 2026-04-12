@@ -35,6 +35,6 @@ class LoginResponse implements LoginResponseContract
         // For active users, redirect to intended page or dashboard
         return $request->wantsJson()
             ? new JsonResponse('', 204)
-            : redirect()->intended(Fortify::redirects('login', '/dashboard'));
+            : redirect()->intended(Fortify::redirects('login', '/announcement'));
     }
 }

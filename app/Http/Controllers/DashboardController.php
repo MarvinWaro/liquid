@@ -158,15 +158,26 @@ class DashboardController extends Controller
     {
         $allPrograms = Program::all(['id', 'code', 'parent_id']);
 
-        $unifastIds = $allPrograms->filter(fn($p) =>
-            in_array(strtoupper($p->code), ['TES', 'TDP']) && $p->parent_id === null
+        $tesIds = $allPrograms->filter(fn($p) =>
+            strtoupper($p->code) === 'TES' && $p->parent_id === null
         )->pluck('id')->toArray();
+
+        $tdpIds = $allPrograms->filter(fn($p) =>
+            strtoupper($p->code) === 'TDP' && $p->parent_id === null
+        )->pluck('id')->toArray();
+
+        $unifastIds = array_merge($tesIds, $tdpIds);
 
         $stufapsIds = $allPrograms->reject(fn($p) =>
             in_array($p->id, $unifastIds)
         )->pluck('id')->toArray();
 
-        return ['unifast' => $unifastIds, 'stufaps' => $stufapsIds];
+        return [
+            'unifast'  => $unifastIds,
+            'tes'      => $tesIds,
+            'tdp'      => $tdpIds,
+            'stufaps'  => $stufapsIds,
+        ];
     }
 
     /**
@@ -182,7 +193,7 @@ class DashboardController extends Controller
         ];
 
         $result = [];
-        foreach (['unifast', 'stufaps'] as $source) {
+        foreach (['unifast', 'tes', 'tdp', 'stufaps'] as $source) {
             $ids = $fs[$source];
             $result[$source] = [
                 'totalStats' => !empty($ids) ? $this->getTotalStats($regionId, $ids, false, $heiId, $endorsedOnly, $coaEndorsedOnly) : $empty,
@@ -781,6 +792,8 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursed')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code IN ("FULLY_ENDORSED", "PARTIALLY_ENDORSED") THEN COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as total_liquidated')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(CASE WHEN rc_note_statuses.code IN ("FULLY_ENDORSED", "PARTIALLY_ENDORSED") THEN COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as total_unliquidated')
+            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
+            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_compliance')
             ->first();
 
         // Pending review = submitted but not endorsed to COA
@@ -794,6 +807,8 @@ class DashboardController extends Controller
             'total_disbursed' => $stats->total_disbursed ?? 0,
             'total_liquidated' => $stats->total_liquidated ?? 0,
             'total_unliquidated' => $stats->total_unliquidated ?? 0,
+            'for_endorsement' => $stats->for_endorsement ?? 0,
+            'for_compliance' => $stats->for_compliance ?? 0,
             'pending_review' => $pendingReview,
         ];
     }

@@ -36,6 +36,7 @@ import {
     ChevronDown,
     FileText,
     LayoutGrid,
+    Megaphone,
     Menu,
     Monitor,
     Moon,
@@ -46,6 +47,11 @@ import { useMemo } from 'react';
 
 // Define all navigation items with their required ability key
 const allNavItems: (NavItem & { ability?: keyof NavigationAbilities; children?: (NavItem & { ability?: keyof NavigationAbilities })[] })[] = [
+    {
+        title: 'Announcement',
+        href: '/announcement',
+        icon: Megaphone,
+    },
     {
         title: 'Dashboard',
         href: dashboard(),

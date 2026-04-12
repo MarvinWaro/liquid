@@ -183,6 +183,20 @@ class LiquidationService
                 $query->where('liquidation_status_id', $liquidationStatus->id);
             }
         }
+
+        // Filter by academic year
+        if (!empty($filters['academic_year']) && $filters['academic_year'] !== 'all') {
+            $query->where('academic_year_id', $filters['academic_year']);
+        }
+
+        // Filter by RC note status
+        if (!empty($filters['rc_note_status']) && $filters['rc_note_status'] !== 'all') {
+            if ($filters['rc_note_status'] === 'none') {
+                $query->whereNull('rc_note_status_id');
+            } else {
+                $query->where('rc_note_status_id', $filters['rc_note_status']);
+            }
+        }
     }
 
     /**

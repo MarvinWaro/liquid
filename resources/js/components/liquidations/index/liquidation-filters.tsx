@@ -12,7 +12,7 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Search } from 'lucide-react';
-import type { Program } from './types';
+import type { Program, AcademicYearOption, RcNoteStatusOption } from './types';
 
 interface LiquidationFiltersProps {
     searchQuery: string;
@@ -25,6 +25,12 @@ interface LiquidationFiltersProps {
     onDocumentStatusFilter: (value: string) => void;
     liquidationStatusFilter: string;
     onLiquidationStatusFilter: (value: string) => void;
+    academicYearFilter: string;
+    onAcademicYearFilter: (value: string) => void;
+    academicYears: AcademicYearOption[];
+    rcNoteStatusFilter: string;
+    onRcNoteStatusFilter: (value: string) => void;
+    rcNoteStatuses: RcNoteStatusOption[];
 }
 
 export const LiquidationFilters = React.memo(function LiquidationFilters({
@@ -38,6 +44,12 @@ export const LiquidationFilters = React.memo(function LiquidationFilters({
     onDocumentStatusFilter,
     liquidationStatusFilter,
     onLiquidationStatusFilter,
+    academicYearFilter,
+    onAcademicYearFilter,
+    academicYears,
+    rcNoteStatusFilter,
+    onRcNoteStatusFilter,
+    rcNoteStatuses,
 }: LiquidationFiltersProps) {
     return (
         <form onSubmit={onSearchSubmit} className="mb-4">
@@ -53,8 +65,10 @@ export const LiquidationFilters = React.memo(function LiquidationFilters({
                     />
                 </div>
                 <ProgramFilterSelect value={programFilter} onChange={onProgramFilter} programs={programs} />
+                <AcademicYearSelect value={academicYearFilter} onChange={onAcademicYearFilter} academicYears={academicYears} />
                 <DocumentStatusSelect value={documentStatusFilter} onChange={onDocumentStatusFilter} />
                 <LiquidationStatusSelect value={liquidationStatusFilter} onChange={onLiquidationStatusFilter} />
+                <RcNoteStatusSelect value={rcNoteStatusFilter} onChange={onRcNoteStatusFilter} rcNoteStatuses={rcNoteStatuses} />
                 <Button type="submit" className="bg-foreground text-background hover:bg-foreground/90">Search</Button>
             </div>
             <div className="flex items-center gap-4 my-3 text-xs text-muted-foreground">
@@ -140,6 +154,32 @@ const ProgramFilterSelect = React.memo(function ProgramFilterSelect({
     );
 });
 
+/* ── Academic Year Filter ── */
+
+const AcademicYearSelect = React.memo(function AcademicYearSelect({
+    value,
+    onChange,
+    academicYears,
+}: {
+    value: string;
+    onChange: (v: string) => void;
+    academicYears: AcademicYearOption[];
+}) {
+    return (
+        <Select value={value} onValueChange={onChange}>
+            <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="Academic Year" />
+            </SelectTrigger>
+            <SelectContent>
+                <SelectItem value="all">All Academic Years</SelectItem>
+                {academicYears.map(ay => (
+                    <SelectItem key={ay.id} value={ay.id}>{ay.name || ay.code}</SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+    );
+});
+
 /* ── Document Status Filter ── */
 
 const DocumentStatusSelect = React.memo(function DocumentStatusSelect({
@@ -219,6 +259,33 @@ const LiquidationStatusSelect = React.memo(function LiquidationStatusSelect({
                         Voided
                     </span>
                 </SelectItem>
+            </SelectContent>
+        </Select>
+    );
+});
+
+/* ── RC Note Status Filter ── */
+
+const RcNoteStatusSelect = React.memo(function RcNoteStatusSelect({
+    value,
+    onChange,
+    rcNoteStatuses,
+}: {
+    value: string;
+    onChange: (v: string) => void;
+    rcNoteStatuses: RcNoteStatusOption[];
+}) {
+    return (
+        <Select value={value} onValueChange={onChange}>
+            <SelectTrigger className="w-[170px]">
+                <SelectValue placeholder="RC Note" />
+            </SelectTrigger>
+            <SelectContent>
+                <SelectItem value="all">All RC Notes</SelectItem>
+                <SelectItem value="none">No RC Note</SelectItem>
+                {rcNoteStatuses.map(s => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
             </SelectContent>
         </Select>
     );

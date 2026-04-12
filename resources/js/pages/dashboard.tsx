@@ -17,7 +17,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { DollarSign, FileText, CheckCircle, Clock, AlertCircle, GraduationCap, Send, ShieldAlert, Percent } from 'lucide-react';
+import { DollarSign, FileText, CheckCircle, AlertCircle, GraduationCap, Send, ShieldAlert, Percent } from 'lucide-react';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import { SortableDashboard, DashboardCard, DashboardToolbar } from '@/components/sortable-dashboard';
 import { DashboardCalendar } from '@/components/dashboard-calendar';
@@ -90,6 +90,8 @@ interface FundSourceStats {
     statusDistribution: StatusDistribution[];
 }
 
+type ProgramFilter = 'all' | 'unifast' | 'tes' | 'tdp' | 'stufaps';
+
 interface ProgramStat {
     code: string;
     name: string;
@@ -115,6 +117,8 @@ interface DashboardProps {
     calendarDueDates?: CalendarDueDate[];
     fundSourceData?: {
         unifast: FundSourceStats;
+        tes: FundSourceStats;
+        tdp: FundSourceStats;
         stufaps: FundSourceStats;
     };
     overviewStats?: OverviewStats;
@@ -169,8 +173,8 @@ export default function Dashboard({
     }), [rawUserStats]);
 
     // Fund source filter — only state that triggers full re-render (intentional)
-    const [fundSourceFilter, setFundSourceFilter] = useState<'all' | 'unifast' | 'stufaps'>('all');
-    const handleFundSourceChange = useCallback((value: 'all' | 'unifast' | 'stufaps') => {
+    const [fundSourceFilter, setFundSourceFilter] = useState<ProgramFilter>('all');
+    const handleFundSourceChange = useCallback((value: ProgramFilter) => {
         setFundSourceFilter(value);
     }, []);
 
@@ -211,7 +215,9 @@ export default function Dashboard({
 
     const activeCalendarDueDates = useMemo(() => {
         if (fundSourceFilter === 'all') return calendarDueDates;
-        return calendarDueDates.filter(d => d.fund_source === fundSourceFilter);
+        if (fundSourceFilter === 'stufaps') return calendarDueDates.filter(d => d.fund_source === 'stufaps');
+        // TES, TDP, unifast all belong to the unifast fund source on calendar
+        return calendarDueDates.filter(d => d.fund_source === 'unifast');
     }, [fundSourceFilter, calendarDueDates]);
 
     // ---------- Stat card definitions per role ----------
@@ -249,16 +255,16 @@ export default function Dashboard({
         } else {
             const filtered = fundSourceFilter !== 'all';
             const myLiq = filtered ? activeTotalStats.total_liquidations : userStats.my_liquidations;
-            const pendingAct = filtered ? (activeTotalStats.pending_action ?? activeTotalStats.pending_review) : userStats.pending_action;
-            const completedVal = filtered ? (activeTotalStats.completed ?? 0) : userStats.completed;
             const totalAmt = filtered ? activeTotalStats.total_disbursed : userStats.total_amount;
             const totalLiq = filtered ? activeTotalStats.total_liquidated : userStats.total_liquidated;
             const totalUnliq = filtered ? activeTotalStats.total_unliquidated : (userStats.total_unliquidated || 0);
+            const forEndorsement = Number(activeTotalStats.for_endorsement ?? 0);
+            const forCompliance = Number(activeTotalStats.for_compliance ?? 0);
 
             defs.push(
                 { id: 'stat-my-liquidations', title: 'My Liquidations', value: myLiq, subtitle: 'Total reports in my queue', icon: <FileText className="h-4 w-4 text-muted-foreground" /> },
-                { id: 'stat-pending-action', title: 'Pending Action', value: pendingAct, subtitle: 'Requires your attention', icon: <Clock className="h-4 w-4 text-muted-foreground" /> },
-                { id: 'stat-completed', title: 'Completed', value: completedVal, subtitle: 'Successfully processed', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-for-endorsement', title: 'For Endorsement', value: formatCurrency(forEndorsement), subtitle: 'Pending endorsement to Accounting', icon: <Send className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-amber-600 dark:text-amber-400' },
+                { id: 'stat-for-compliance', title: 'For Compliance', value: formatCurrency(forCompliance), subtitle: 'Returned for compliance', icon: <ShieldAlert className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-violet-600 dark:text-violet-400' },
                 { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(totalAmt), subtitle: 'Received from CHED', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
             );
             if (userStats.total_liquidated !== undefined || filtered) {
@@ -276,12 +282,10 @@ export default function Dashboard({
             const pctCompliance = (Number(activeTotalStats.for_compliance) / disbursed) * 100;
             const pctSubmission = (Number(activeTotalStats.total_with_submission ?? 0) / disbursed) * 100;
 
-            const pctColor = (v: number) => v >= 80 ? 'text-emerald-600 dark:text-emerald-400' : v >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400';
-
             defs.push(
-                { id: 'stat-pct-liquidation', title: '%Age of Liquidation', value: `${pctLiquidation.toFixed(2)}%`, subtitle: '(Liquidated + Endorsed) / Disbursed', icon: <Percent className="h-4 w-4 text-muted-foreground" />, valueClass: pctColor(pctLiquidation) },
-                { id: 'stat-pct-compliance', title: '%Age of Compliance', value: `${pctCompliance.toFixed(2)}%`, subtitle: 'For Compliance / Disbursed', icon: <Percent className="h-4 w-4 text-muted-foreground" />, valueClass: pctCompliance > 10 ? 'text-red-600 dark:text-red-400' : pctCompliance > 5 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400' },
-                { id: 'stat-pct-submission', title: '%Age of Submission', value: `${pctSubmission.toFixed(2)}%`, subtitle: 'With Submission / Disbursed', icon: <Percent className="h-4 w-4 text-muted-foreground" />, valueClass: pctColor(pctSubmission) },
+                { id: 'stat-pct-liquidation', title: '%Age of Liquidation', value: `${pctLiquidation.toFixed(2)}%`, subtitle: '(Liquidated + Endorsed) / Disbursed', icon: <Percent className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-pct-compliance', title: '%Age of Compliance', value: `${pctCompliance.toFixed(2)}%`, subtitle: 'For Compliance / Disbursed', icon: <Percent className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-pct-submission', title: '%Age of Submission', value: `${pctSubmission.toFixed(2)}%`, subtitle: 'With Submission / Disbursed', icon: <Percent className="h-4 w-4 text-muted-foreground" /> },
             );
         }
 
@@ -315,7 +319,7 @@ export default function Dashboard({
         return cards;
     }, [statCardDefs, showBarChart, showPieChart, isAdmin, recentLiquidations, chartsLoading]);
 
-    const storageKey = `dashboard-layout-v8-${isAdmin ? 'admin' : userRole || 'default'}`;
+    const storageKey = `dashboard-layout-v9-${isAdmin ? 'admin' : userRole || 'default'}`;
     const { layout, updateOrder, toggleVisibility, cycleExpand, showCard, resetLayout, hiddenCardIds } = useDashboardLayout(
         cardConfigs.map(c => c.id),
         storageKey,
@@ -397,14 +401,15 @@ export default function Dashboard({
                         </div>
                         <div className="flex items-center gap-2">
                             {fundSourceData && (
-                                <Select value={fundSourceFilter} onValueChange={(v) => handleFundSourceChange(v as 'all' | 'unifast' | 'stufaps')}>
+                                <Select value={fundSourceFilter} onValueChange={(v) => handleFundSourceChange(v as ProgramFilter)}>
                                     <SelectTrigger className="w-[160px] h-8 text-xs">
-                                        <SelectValue placeholder="Fund Source" />
+                                        <SelectValue placeholder="All Programs" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="all" className="text-xs">All Programs</SelectItem>
-                                        <SelectItem value="unifast" className="text-xs">UniFAST</SelectItem>
-                                        <SelectItem value="stufaps" className="text-xs">STuFAPs</SelectItem>
+                                        {fundSourceData.tes && <SelectItem value="tes" className="text-xs">TES</SelectItem>}
+                                        {fundSourceData.tdp && <SelectItem value="tdp" className="text-xs">TDP</SelectItem>}
+                                        {fundSourceData.stufaps && <SelectItem value="stufaps" className="text-xs">STuFAPs</SelectItem>}
                                     </SelectContent>
                                 </Select>
                             )}

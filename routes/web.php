@@ -7,6 +7,7 @@ use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\HEIController;
 use App\Http\Controllers\RegionController;
+use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\LiquidationController;
 use App\Http\Controllers\ProgramController;
 use App\Http\Controllers\ActivityLogController;
@@ -17,11 +18,10 @@ use App\Http\Controllers\SemesterController;
 use App\Http\Controllers\AcademicYearController;
 use App\Http\Controllers\AcademicYearRequirementController;
 
-Route::get('/', function () {
-    return Inertia::render('welcome');
-})->name('home');
+Route::get('/', [AnnouncementController::class, 'welcome'])->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
+    Route::get('announcement', [AnnouncementController::class, 'index'])->name('announcement');
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('summary/academic-year', [DashboardController::class, 'summaryPerAY'])->name('summary.academic-year');
     Route::get('summary/hei', [DashboardController::class, 'summaryPerHEI'])->name('summary.hei');
