@@ -2,15 +2,22 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Inertia\Inertia;
+use App\Models\Announcement;
 use App\Models\LiquidationStatus;
 use App\Models\Program;
 use App\Models\Region;
+use App\Services\AnnouncementImageService;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Inertia\Inertia;
 
 class AnnouncementController extends Controller
 {
+    // ---------------------------------------------------------------------
+    // Landing page (honor / shame boards) — unchanged
+    // ---------------------------------------------------------------------
+
     public function welcome(Request $request)
     {
         $regionId       = $request->query('region');
@@ -37,15 +44,6 @@ class AnnouncementController extends Controller
         ]);
     }
 
-    /**
-     * Resolve the landing-page program filter value into a concrete list of
-     * program IDs. Mirrors the grouping used by the liquidation index filter:
-     *   - null / 'all'          → no filter
-     *   - 'unifast'             → top-level TES + TDP (+ their children, if any)
-     *   - 'stufaps'             → every non-UniFAST program (parents + children)
-     *   - parent program id     → parent + all its children
-     *   - child/leaf program id → that program only
-     */
     private function resolveProgramFilter(?string $value, $programs): ?array
     {
         if (!$value || $value === 'all') {
@@ -71,7 +69,6 @@ class AnnouncementController extends Controller
                 ->all() ?: null;
         }
 
-        // Specific program id — include children when it's a parent
         $program = $programs->firstWhere('id', $value);
         if (!$program) {
             return [$value];
@@ -83,29 +80,6 @@ class AnnouncementController extends Controller
         }
 
         return [$program->id];
-    }
-
-    public function index()
-    {
-        $user = auth()->user();
-        $userRole = $user->role?->name;
-
-        // Scope by region for RC
-        $regionId = ($userRole === 'Regional Coordinator') ? $user->region_id : null;
-        // Scope by HEI
-        $heiId = ($userRole === 'HEI' && $user->hei_id) ? $user->hei_id : null;
-        // Scope by program for STUFAPS Focal
-        $programIds = ($userRole === 'STUFAPS Focal') ? $user->getParentScopedProgramIds() : null;
-        // Exclude sub-programs for RC
-        $excludeSubPrograms = ($userRole === 'Regional Coordinator');
-
-        [$honorBoard, $shameBoard] = $this->getBoards($regionId, $heiId, $programIds, $excludeSubPrograms);
-
-        return Inertia::render('announcement', [
-            'honorBoard' => $honorBoard,
-            'shameBoard' => $shameBoard,
-            'userRole'   => $userRole,
-        ]);
     }
 
     private function getBoards(
@@ -147,8 +121,6 @@ class AnnouncementController extends Controller
             }
         }
 
-        // When liquidation_status is FULLY_LIQUIDATED, treat amount_received as the
-        // effective liquidated amount so the HEI shows as 100% on the board.
         $fullyLiquidatedClause = $fullyLiquidatedId
             ? "CASE WHEN liquidations.liquidation_status_id = '{$fullyLiquidatedId}' THEN COALESCE(liquidation_financials.amount_received, 0) ELSE COALESCE(liquidation_financials.amount_liquidated, 0) END"
             : 'COALESCE(liquidation_financials.amount_liquidated, 0)';
@@ -191,11 +163,274 @@ class AnnouncementController extends Controller
             }
         }
 
-        // Honor: highest % first (all 100%, sort by name)
         usort($honor, fn($a, $b) => strcmp($a['hei_name'], $b['hei_name']));
-        // Shame: lowest % first (most behind at top)
         usort($shame, fn($a, $b) => $a['pct_liquidation'] <=> $b['pct_liquidation']);
 
         return [$honor, $shame];
+    }
+
+    // ---------------------------------------------------------------------
+    // Announcement CRUD
+    // ---------------------------------------------------------------------
+
+    public function index()
+    {
+        $user = auth()->user();
+        $userRole = $user->role?->name;
+        $isAdmin = in_array($userRole, ['Super Admin', 'Admin'], true);
+        $isHei = $userRole === 'HEI';
+
+        $query = Announcement::with('author:id,name');
+
+        // Only Admin/Super Admin can see scheduled + expired posts (for management).
+        // Everyone else (RC, STUFAPS Focal, HEI) sees only currently-live posts.
+        if (!$isAdmin) {
+            $query->visible();
+            if ($isHei) {
+                $query->where('show_to_hei', true);
+            }
+        }
+
+        $posts = $query
+            ->orderByDesc('is_featured')
+            ->orderByDesc('published_at')
+            ->get()
+            ->map(fn (Announcement $a) => $this->toListPayload($a));
+
+        return Inertia::render('announcement', [
+            'posts' => $posts,
+            'permissions' => [
+                'create' => $user?->hasPermission('create_announcements') ?? false,
+                'edit'   => $user?->hasPermission('edit_announcements') ?? false,
+                'delete' => $user?->hasPermission('delete_announcements') ?? false,
+            ],
+        ]);
+    }
+
+    public function create()
+    {
+        abort_unless(auth()->user()?->hasPermission('create_announcements'), 403);
+
+        return Inertia::render('announcement/create');
+    }
+
+    public function store(Request $request, AnnouncementImageService $images)
+    {
+        abort_unless(auth()->user()?->hasPermission('create_announcements'), 403);
+
+        $data = $this->validatePayload($request);
+
+        $paths = null;
+        if ($request->hasFile('cover')) {
+            $paths = $images->store($request->file('cover'));
+        }
+
+        $announcement = Announcement::create([
+            'title'                => $data['title'],
+            'slug'                 => Announcement::uniqueSlug($data['title']),
+            'category'             => $data['category'] ?? 'news',
+            'tag_color'            => $data['tag_color'] ?? null,
+            'excerpt'              => $data['excerpt'] ?? null,
+            'content'              => $data['content'],
+            'is_featured'          => (bool) ($data['is_featured'] ?? false),
+            'show_to_hei'          => (bool) ($data['show_to_hei'] ?? true),
+            'published_at'         => $this->toUtc($data['published_at'] ?? null) ?? now(),
+            'end_date'             => $this->toUtc($data['end_date'] ?? null),
+            'created_by'           => auth()->id(),
+            'cover_original_path'  => $paths['original'] ?? null,
+            'cover_display_path'   => $paths['display']  ?? null,
+            'cover_thumb_path'     => $paths['thumb']    ?? null,
+        ]);
+
+        if ($announcement->is_featured) {
+            Announcement::where('id', '!=', $announcement->id)
+                ->where('is_featured', true)
+                ->update(['is_featured' => false]);
+        }
+
+        return redirect()->route('announcements.index')->with('success', 'Announcement posted.');
+    }
+
+    public function show(Announcement $announcement)
+    {
+        $user = auth()->user();
+        $userRole = $user?->role?->name;
+        $isAdmin = in_array($userRole, ['Super Admin', 'Admin'], true);
+
+        if (!$isAdmin) {
+            $now = now();
+            $notYetPublished = $announcement->published_at && $announcement->published_at->gt($now);
+            $hasExpired      = $announcement->end_date && $announcement->end_date->lt($now);
+            $hiddenFromHei   = $userRole === 'HEI' && !$announcement->show_to_hei;
+            abort_if($notYetPublished || $hasExpired || $hiddenFromHei, 404);
+        }
+
+        $announcement->load('author:id,name');
+
+        return Inertia::render('announcement/show', [
+            'post' => $this->toDetailPayload($announcement),
+            'permissions' => [
+                'edit'   => auth()->user()?->hasPermission('edit_announcements') ?? false,
+                'delete' => auth()->user()?->hasPermission('delete_announcements') ?? false,
+            ],
+        ]);
+    }
+
+    public function edit(Announcement $announcement)
+    {
+        abort_unless(auth()->user()?->hasPermission('edit_announcements'), 403);
+
+        return Inertia::render('announcement/edit', [
+            'post' => $this->toDetailPayload($announcement),
+        ]);
+    }
+
+    public function update(Request $request, Announcement $announcement, AnnouncementImageService $images)
+    {
+        abort_unless(auth()->user()?->hasPermission('edit_announcements'), 403);
+
+        $data = $this->validatePayload($request, updating: true);
+
+        $payload = [
+            'title'        => $data['title'],
+            'category'     => $data['category'] ?? $announcement->category,
+            'tag_color'    => $data['tag_color'] ?? null,
+            'excerpt'      => $data['excerpt'] ?? null,
+            'content'      => $data['content'],
+            'is_featured'  => (bool) ($data['is_featured'] ?? false),
+            'show_to_hei'  => (bool) ($data['show_to_hei'] ?? true),
+            'published_at' => $this->toUtc($data['published_at'] ?? null) ?? $announcement->published_at ?? now(),
+            'end_date'     => $this->toUtc($data['end_date'] ?? null),
+        ];
+
+        if ($data['title'] !== $announcement->title) {
+            $payload['slug'] = Announcement::uniqueSlug($data['title'], $announcement->id);
+        }
+
+        if ($request->hasFile('cover')) {
+            $announcement->deleteCoverFiles();
+            $paths = $images->store($request->file('cover'));
+            $payload['cover_original_path'] = $paths['original'];
+            $payload['cover_display_path']  = $paths['display'];
+            $payload['cover_thumb_path']    = $paths['thumb'];
+        } elseif ($request->boolean('remove_cover')) {
+            $announcement->deleteCoverFiles();
+            $payload['cover_original_path'] = null;
+            $payload['cover_display_path']  = null;
+            $payload['cover_thumb_path']    = null;
+        }
+
+        $announcement->update($payload);
+
+        if ($announcement->is_featured) {
+            Announcement::where('id', '!=', $announcement->id)
+                ->where('is_featured', true)
+                ->update(['is_featured' => false]);
+        }
+
+        return redirect()->route('announcements.index')->with('success', 'Announcement updated.');
+    }
+
+    public function destroy(Announcement $announcement)
+    {
+        abort_unless(auth()->user()?->hasPermission('delete_announcements'), 403);
+
+        $announcement->deleteCoverFiles();
+        $announcement->delete();
+
+        return redirect()->route('announcements.index')->with('success', 'Announcement deleted.');
+    }
+
+    // ---------------------------------------------------------------------
+    // Helpers
+    // ---------------------------------------------------------------------
+
+    private function validatePayload(Request $request, bool $updating = false): array
+    {
+        return $request->validate([
+            'title'        => ['required', 'string', 'max:255'],
+            'category'     => ['nullable', 'string', 'in:news,event,important,update'],
+            'tag_color'    => ['nullable', 'string', 'in:blue,emerald,violet,amber,sky,rose'],
+            'excerpt'      => ['nullable', 'string', 'max:500'],
+            'content'      => ['required', 'string'],
+            'is_featured'  => ['nullable', 'boolean'],
+            'show_to_hei'  => ['nullable', 'boolean'],
+            'published_at' => ['nullable', 'date'],
+            'end_date'     => ['nullable', 'date'],
+            'cover'        => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
+            'remove_cover' => ['nullable', 'boolean'],
+        ]);
+    }
+
+    /**
+     * Parse a datetime-local value (timezone-naive) as Asia/Manila,
+     * convert to UTC for storage so scope comparisons with now() work.
+     */
+    private function toUtc(?string $value): ?Carbon
+    {
+        if (!$value) {
+            return null;
+        }
+        return Carbon::parse($value, 'Asia/Manila')->utc();
+    }
+
+    /**
+     * Format a UTC datetime back to Asia/Manila ISO for the frontend datetime-local input.
+     */
+    private function toLocalIso(?\Carbon\Carbon $dt): ?string
+    {
+        if (!$dt) {
+            return null;
+        }
+        return $dt->copy()->setTimezone('Asia/Manila')->format('Y-m-d\TH:i');
+    }
+
+    private function toListPayload(Announcement $a): array
+    {
+        // Determine visibility status for admin badge
+        $status = 'live';
+        if ($a->end_date && $a->end_date->lt(now())) {
+            $status = 'expired';
+        } elseif ($a->published_at && $a->published_at->gt(now())) {
+            $status = 'scheduled';
+        }
+
+        return [
+            'id'            => $a->id,
+            'slug'          => $a->slug,
+            'title'         => $a->title,
+            'category'      => $a->category,
+            'tag_color'     => $a->tag_color,
+            'excerpt'       => $a->excerpt,
+            'is_featured'   => $a->is_featured,
+            'show_to_hei'   => $a->show_to_hei,
+            'status'        => $status,
+            'published_at'  => $a->published_at?->copy()->setTimezone('Asia/Manila')->toIso8601String(),
+            'end_date'      => $a->end_date?->copy()->setTimezone('Asia/Manila')->toIso8601String(),
+            'cover_thumb'   => $a->cover_thumb_url,
+            'cover_display' => $a->cover_display_url,
+            'author_name'   => $a->author?->name,
+        ];
+    }
+
+    private function toDetailPayload(Announcement $a): array
+    {
+        return [
+            'id'             => $a->id,
+            'slug'           => $a->slug,
+            'title'          => $a->title,
+            'category'       => $a->category,
+            'tag_color'      => $a->tag_color,
+            'excerpt'        => $a->excerpt,
+            'content'        => $a->content,
+            'is_featured'    => $a->is_featured,
+            'show_to_hei'    => $a->show_to_hei,
+            'published_at'   => $this->toLocalIso($a->published_at),
+            'end_date'       => $this->toLocalIso($a->end_date),
+            'cover_thumb'    => $a->cover_thumb_url,
+            'cover_display'  => $a->cover_display_url,
+            'cover_original' => $a->cover_original_url,
+            'author_name'    => $a->author?->name,
+        ];
     }
 }

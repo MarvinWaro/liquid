@@ -55,6 +55,17 @@ class LiquidationFinancial extends Model
         ];
     }
 
+    /**
+     * Financial figures feed every dashboard aggregate, so bust the cache on
+     * any write. See \App\Services\DashboardCache.
+     */
+    protected static function booted(): void
+    {
+        $flush = fn () => \App\Services\DashboardCache::flush();
+        static::saved($flush);
+        static::deleted($flush);
+    }
+
     protected static function getActivityHiddenFields(): array
     {
         return ['liquidation_id'];

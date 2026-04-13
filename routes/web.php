@@ -21,7 +21,14 @@ use App\Http\Controllers\AcademicYearRequirementController;
 Route::get('/', [AnnouncementController::class, 'welcome'])->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('announcement', [AnnouncementController::class, 'index'])->name('announcement');
+    // Announcement CRUD Routes
+    Route::get('announcement', [AnnouncementController::class, 'index'])->name('announcements.index');
+    Route::get('announcement/create', [AnnouncementController::class, 'create'])->name('announcements.create');
+    Route::post('announcement', [AnnouncementController::class, 'store'])->name('announcements.store');
+    Route::get('announcement/{announcement:slug}', [AnnouncementController::class, 'show'])->name('announcements.show');
+    Route::get('announcement/{announcement:slug}/edit', [AnnouncementController::class, 'edit'])->name('announcements.edit');
+    Route::put('announcement/{announcement:slug}', [AnnouncementController::class, 'update'])->name('announcements.update');
+    Route::delete('announcement/{announcement:slug}', [AnnouncementController::class, 'destroy'])->name('announcements.destroy');
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('summary/academic-year', [DashboardController::class, 'summaryPerAY'])->name('summary.academic-year');
     Route::get('summary/hei', [DashboardController::class, 'summaryPerHEI'])->name('summary.hei');

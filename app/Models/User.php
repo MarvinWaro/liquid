@@ -251,6 +251,9 @@ class User extends Authenticatable
             'canViewActivityLogs' => $this->hasPermission('view_activity_logs'),
             'canViewSummaryAY' => $this->hasPermission('view_summary_ay'),
             'canViewSummaryHEI' => $this->hasPermission('view_summary_hei'),
+            'canCreateAnnouncements' => $this->hasPermission('create_announcements'),
+            'canEditAnnouncements' => $this->hasPermission('edit_announcements'),
+            'canDeleteAnnouncements' => $this->hasPermission('delete_announcements'),
         ];
     }
 

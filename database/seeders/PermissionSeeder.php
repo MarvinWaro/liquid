@@ -83,6 +83,12 @@ class PermissionSeeder extends Seeder
             'Activity Logs' => [
                 ['name' => 'view_activity_logs', 'description' => 'View system activity logs'],
             ],
+            'Announcements' => [
+                ['name' => 'view_announcements', 'description' => 'View announcements'],
+                ['name' => 'create_announcements', 'description' => 'Create new announcements'],
+                ['name' => 'edit_announcements', 'description' => 'Edit existing announcements'],
+                ['name' => 'delete_announcements', 'description' => 'Delete announcements'],
+            ],
         ];
 
         // Create or update permissions
@@ -119,6 +125,7 @@ class PermissionSeeder extends Seeder
             'view_reports', 'export_reports', 'view_dashboard', 'view_fund_source_filter',
             'view_summary_ay', 'view_summary_hei',
             'view_activity_logs',
+            'view_announcements', 'create_announcements', 'edit_announcements', 'delete_announcements',
         ]);
 
         $this->createExampleRole('Regional Coordinator', 'Reviews and endorses liquidation', [

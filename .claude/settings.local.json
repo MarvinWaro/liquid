@@ -48,7 +48,9 @@
       "Bash(npx -y esbuild resources/js/components/liquidations/import-preview-dialog.tsx resources/js/pages/liquidation/index.tsx --bundle --jsx=automatic --loader:.tsx=tsx --outdir=/tmp/check4 --platform=browser --external:react --external:'@inertiajs/*' --external:'@/*' --external:lucide-react --external:sonner --external:axios)",
       "Bash(python3 -c \":*)",
       "Bash(xargs grep:*)",
-      "Bash(grep -E \"\\\\.\\(php|tsx|ts\\)$\")"
+      "Bash(grep -E \"\\\\.\\(php|tsx|ts\\)$\")",
+      "Bash(grep -iE \"^\\(gd|imagick\\)$\")",
+      "Bash(cat c:/Users/MARVIN/projects/liquid/tailwind.config.*)"
     ]
   }
 }

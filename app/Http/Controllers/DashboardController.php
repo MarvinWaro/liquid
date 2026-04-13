@@ -6,6 +6,7 @@ use App\Models\Liquidation;
 use App\Models\LiquidationStatus;
 use App\Models\HEI;
 use App\Models\Program;
+use App\Services\DashboardCache;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
@@ -31,18 +32,20 @@ class DashboardController extends Controller
      */
     private function adminDashboard()
     {
+        $scope = ['role' => 'admin'];
+
         return Inertia::render('dashboard', [
             'isAdmin' => true,
-            'totalStats' => $this->getTotalStats(),
+            'totalStats' => DashboardCache::remember('totalStats', $scope, fn () => $this->getTotalStats()),
 
             // Deferred — queries run only after initial paint is sent to browser
             // Group into 2 batches: core charts (1 request) + supplementary (1 request)
-            'summaryPerAY' => Inertia::defer(fn () => $this->getSummaryPerAY(), 'charts'),
-            'summaryPerHEI' => Inertia::defer(fn () => $this->getSummaryPerHEI(), 'charts'),
-            'statusDistribution' => Inertia::defer(fn () => $this->getLiquidationStatusDistribution(), 'charts'),
+            'summaryPerAY' => Inertia::defer(fn () => DashboardCache::remember('summaryPerAY', $scope, fn () => $this->getSummaryPerAY()), 'charts'),
+            'summaryPerHEI' => Inertia::defer(fn () => DashboardCache::remember('summaryPerHEI', $scope, fn () => $this->getSummaryPerHEI()), 'charts'),
+            'statusDistribution' => Inertia::defer(fn () => DashboardCache::remember('statusDistribution', $scope, fn () => $this->getLiquidationStatusDistribution()), 'charts'),
             'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates(), 'charts'),
-            'overviewStats' => Inertia::defer(fn () => $this->getOverviewStats(), 'charts'),
-            'fundSourceData' => Inertia::defer(fn () => $this->computeFundSourceData(), 'charts-extra'),
+            'overviewStats' => Inertia::defer(fn () => DashboardCache::remember('overviewStats', $scope, fn () => $this->getOverviewStats()), 'charts'),
+            'fundSourceData' => Inertia::defer(fn () => DashboardCache::remember('fundSourceData', $scope, fn () => $this->computeFundSourceData()), 'charts-extra'),
         ]);
     }
 
@@ -54,6 +57,16 @@ class DashboardController extends Controller
         $userRole = $user->role ? $user->role->name : null;
         $canViewFundSource = $user->hasPermission('view_fund_source_filter');
 
+        // Scope identifies what data this user sees — included in every cache
+        // key so role/region/HEI/program boundaries never leak across users.
+        $scope = [
+            'role'       => $userRole,
+            'region_id'  => $user->region_id,
+            'hei_id'     => $user->hei_id,
+            'scoped'     => $userRole === 'STUFAPS Focal' ? $user->getScopedProgramIds() : null,
+            'parent_scoped' => $userRole === 'STUFAPS Focal' ? $user->getParentScopedProgramIds() : null,
+        ];
+
         // Only compute the stat cards eagerly (fast, small queries)
         $userStats = match ($userRole) {
             'Regional Coordinator' => $this->getRCUserStats($user),
@@ -64,14 +77,14 @@ class DashboardController extends Controller
             default => ['my_liquidations' => 0, 'pending_action' => 0, 'completed' => 0, 'total_amount' => 0],
         };
 
-        $totalStats = match ($userRole) {
+        $totalStats = DashboardCache::remember('totalStats', $scope, fn () => match ($userRole) {
             'Regional Coordinator' => $this->getTotalStats($user->region_id, null, true),
             'Accountant' => $this->getTotalStats(endorsedOnly: true),
             'COA' => $this->getTotalStats(coaEndorsedOnly: true),
             'HEI' => $user->hei_id ? $this->getHEITotalStats($user->hei_id) : [],
             'STUFAPS Focal' => $this->getTotalStats(null, $user->getParentScopedProgramIds()),
             default => [],
-        };
+        });
 
         return Inertia::render('dashboard', [
             'isAdmin' => false,
@@ -81,45 +94,37 @@ class DashboardController extends Controller
 
             // Deferred — heavy queries run only after initial paint is sent to browser
             // Group into 2 batches: core charts (1 request) + fund source (1 request)
-            'summaryPerAY' => Inertia::defer(function () use ($user, $userRole) {
-                return match ($userRole) {
-                    'Regional Coordinator' => $this->getSummaryPerAY(null, $user->region_id, null, true),
-                    'Accountant' => $this->getSummaryPerAY(endorsedOnly: true),
-                    'COA' => $this->getSummaryPerAY(coaEndorsedOnly: true),
-                    'HEI' => $user->hei_id ? $this->getSummaryPerAY($user->hei_id) : [],
-                    'STUFAPS Focal' => $this->getSummaryPerAY(null, null, $user->getParentScopedProgramIds()),
-                    default => [],
-                };
-            }, 'charts'),
-            'summaryPerHEI' => Inertia::defer(function () use ($user, $userRole) {
-                return match ($userRole) {
-                    'Regional Coordinator' => $this->getSummaryPerHEI($user->region_id, null, true),
-                    'Accountant' => $this->getSummaryPerHEI(endorsedOnly: true),
-                    'COA' => $this->getSummaryPerHEI(coaEndorsedOnly: true),
-                    'STUFAPS Focal' => $this->getSummaryPerHEI(null, $user->getParentScopedProgramIds()),
-                    default => [],
-                };
-            }, 'charts'),
-            'statusDistribution' => Inertia::defer(function () use ($user, $userRole) {
-                return match ($userRole) {
-                    'Regional Coordinator' => $this->getLiquidationStatusDistribution(null, $user->region_id, null, true),
-                    'Accountant' => $this->getLiquidationStatusDistribution(endorsedOnly: true),
-                    'COA' => $this->getLiquidationStatusDistribution(coaEndorsedOnly: true),
-                    'HEI' => $user->hei_id ? $this->getLiquidationStatusDistribution($user->hei_id) : [],
-                    'STUFAPS Focal' => $this->getLiquidationStatusDistribution(null, null, $user->getParentScopedProgramIds()),
-                    default => [],
-                };
-            }, 'charts'),
+            'summaryPerAY' => Inertia::defer(fn () => DashboardCache::remember('summaryPerAY', $scope, fn () => match ($userRole) {
+                'Regional Coordinator' => $this->getSummaryPerAY(null, $user->region_id, null, true),
+                'Accountant' => $this->getSummaryPerAY(endorsedOnly: true),
+                'COA' => $this->getSummaryPerAY(coaEndorsedOnly: true),
+                'HEI' => $user->hei_id ? $this->getSummaryPerAY($user->hei_id) : [],
+                'STUFAPS Focal' => $this->getSummaryPerAY(null, null, $user->getParentScopedProgramIds()),
+                default => [],
+            }), 'charts'),
+            'summaryPerHEI' => Inertia::defer(fn () => DashboardCache::remember('summaryPerHEI', $scope, fn () => match ($userRole) {
+                'Regional Coordinator' => $this->getSummaryPerHEI($user->region_id, null, true),
+                'Accountant' => $this->getSummaryPerHEI(endorsedOnly: true),
+                'COA' => $this->getSummaryPerHEI(coaEndorsedOnly: true),
+                'STUFAPS Focal' => $this->getSummaryPerHEI(null, $user->getParentScopedProgramIds()),
+                default => [],
+            }), 'charts'),
+            'statusDistribution' => Inertia::defer(fn () => DashboardCache::remember('statusDistribution', $scope, fn () => match ($userRole) {
+                'Regional Coordinator' => $this->getLiquidationStatusDistribution(null, $user->region_id, null, true),
+                'Accountant' => $this->getLiquidationStatusDistribution(endorsedOnly: true),
+                'COA' => $this->getLiquidationStatusDistribution(coaEndorsedOnly: true),
+                'HEI' => $user->hei_id ? $this->getLiquidationStatusDistribution($user->hei_id) : [],
+                'STUFAPS Focal' => $this->getLiquidationStatusDistribution(null, null, $user->getParentScopedProgramIds()),
+                default => [],
+            }), 'charts'),
             'recentLiquidations' => Inertia::defer(fn () => $this->getRecentLiquidations($user, $userRole), 'charts'),
             'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates($user, $userRole), 'charts'),
-            'fundSourceData' => Inertia::defer(function () use ($user, $userRole, $canViewFundSource) {
-                return match ($userRole) {
-                    'Accountant' => $canViewFundSource ? $this->computeFundSourceData(endorsedOnly: true) : null,
-                    'COA' => $canViewFundSource ? $this->computeFundSourceData(coaEndorsedOnly: true) : null,
-                    'HEI' => $user->hei_id ? $this->computeFundSourceData($user->hei_id) : null,
-                    default => null,
-                };
-            }, 'charts-extra'),
+            'fundSourceData' => Inertia::defer(fn () => DashboardCache::remember('fundSourceData', $scope + ['fs' => $canViewFundSource], fn () => match ($userRole) {
+                'Accountant' => $canViewFundSource ? $this->computeFundSourceData(endorsedOnly: true) : null,
+                'COA' => $canViewFundSource ? $this->computeFundSourceData(coaEndorsedOnly: true) : null,
+                'HEI' => $user->hei_id ? $this->computeFundSourceData($user->hei_id) : null,
+                default => null,
+            }), 'charts-extra'),
         ]);
     }
 
