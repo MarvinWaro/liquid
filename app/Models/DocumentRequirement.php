@@ -62,7 +62,11 @@ class DocumentRequirement extends Model
         if (!$this->reference_image_path) {
             return null;
         }
-        return Storage::disk('s3')->temporaryUrl($this->reference_image_path, now()->addHours(2));
+        try {
+            return Storage::disk('s3')->temporaryUrl($this->reference_image_path, now()->addHours(2));
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     protected static function getActivityHiddenFields(): array
