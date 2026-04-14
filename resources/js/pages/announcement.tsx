@@ -3,6 +3,7 @@ import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { Calendar, ChevronRight, Megaphone, Pencil, Plus, Trash2, User as UserIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -36,8 +37,14 @@ interface Post {
     end_date: string | null;
     cover_thumb: string | null;
     cover_display: string | null;
+    cover_focal_x: number;
+    cover_focal_y: number;
     author_name: string | null;
 }
+
+const focalStyle = (post: Post): React.CSSProperties => ({
+    objectPosition: `${post.cover_focal_x ?? 50}% ${post.cover_focal_y ?? 50}%`,
+});
 
 interface PageProps {
     posts: Post[];
@@ -135,13 +142,25 @@ export default function Announcement() {
                                 <HeroFeatured post={featured} can={can} onDelete={handleDelete} />
                             </div>
 
-                            {/* Sidebar — latest 3 non-featured */}
+                            {/* Sidebar — latest 3 non-featured, each card divides the sidebar evenly */}
                             {otherFeaturedLike.length > 0 && (
-                                <div className="space-y-4">
-                                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Other Featured Posts</h3>
-                                    <div className="space-y-3">
+                                <div className="flex flex-col min-h-[340px] h-full">
+                                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">Other Featured Posts</h3>
+                                    <div
+                                        className={cn(
+                                            'flex-1 grid gap-3',
+                                            otherFeaturedLike.length > 1 && 'divide-y',
+                                        )}
+                                        style={{ gridTemplateRows: `repeat(${otherFeaturedLike.length}, minmax(0, 1fr))` }}
+                                    >
                                         {otherFeaturedLike.map((p) => (
-                                            <SidebarCard key={p.id} post={p} can={can} onDelete={handleDelete} />
+                                            <SidebarCard
+                                                key={p.id}
+                                                post={p}
+                                                can={can}
+                                                onDelete={handleDelete}
+                                                variant={otherFeaturedLike.length === 1 ? 'large' : otherFeaturedLike.length === 2 ? 'medium' : 'compact'}
+                                            />
                                         ))}
                                     </div>
                                 </div>
@@ -166,13 +185,18 @@ export default function Announcement() {
     );
 }
 
-/* ─── Hero Featured Banner ─── */
+/* ─── Hero Featured (overlay style) ─── */
 function HeroFeatured({ post, can, onDelete }: { post: Post; can: PageProps['permissions']; onDelete: (slug: string) => void }) {
     const cat = CATEGORY_CONFIG[post.category] ?? CATEGORY_CONFIG.news;
     return (
         <article className="relative overflow-hidden rounded-lg group h-full min-h-[340px] flex flex-col">
             {post.cover_display ? (
-                <img src={post.cover_display} alt="" className="absolute inset-0 h-full w-full object-cover rounded-lg transition-transform duration-500 group-hover:scale-105" />
+                <img
+                    src={post.cover_display}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover rounded-lg transition-transform duration-500 group-hover:scale-105"
+                    style={focalStyle(post)}
+                />
             ) : (
                 <div className={`absolute inset-0 rounded-lg ${PLACEHOLDER_BG}`} />
             )}
@@ -215,36 +239,104 @@ function HeroFeatured({ post, can, onDelete }: { post: Post; can: PageProps['per
     );
 }
 
-/* ─── Sidebar compact card ─── */
-function SidebarCard({ post, can, onDelete }: { post: Post; can: PageProps['permissions']; onDelete: (slug: string) => void }) {
+/* ─── Sidebar card (scales with available space) ─── */
+function SidebarCard({
+    post,
+    can,
+    onDelete,
+    variant = 'compact',
+}: {
+    post: Post;
+    can: PageProps['permissions'];
+    onDelete: (slug: string) => void;
+    variant?: 'large' | 'medium' | 'compact';
+}) {
     const cat = CATEGORY_CONFIG[post.category] ?? CATEGORY_CONFIG.news;
-    return (
-        <article className="flex gap-3 rounded-lg border bg-card p-3 hover:shadow-sm transition-shadow group">
-            <Link href={`/announcement/${post.slug}`} className="shrink-0 relative">
-                {post.cover_thumb ? (
-                    <img src={post.cover_thumb} alt="" className="h-20 w-28 rounded object-cover" loading="lazy" />
+
+    // Large variant (only card in sidebar) — overlay hero-style
+    if (variant === 'large') {
+        return (
+            <article className="relative overflow-hidden rounded-lg group flex flex-col min-h-0 shadow-sm hover:shadow-lg transition-shadow">
+                {post.cover_display ? (
+                    <img
+                        src={post.cover_display}
+                        alt=""
+                        className="absolute inset-0 h-full w-full object-cover rounded-lg transition-transform duration-500 group-hover:scale-105"
+                        loading="lazy"
+                        style={focalStyle(post)}
+                    />
                 ) : (
-                    <div className={`h-20 w-28 rounded ${PLACEHOLDER_BG} flex items-center justify-center`}>
+                    <div className={`absolute inset-0 rounded-lg ${PLACEHOLDER_BG}`} />
+                )}
+                <div className="absolute inset-0 rounded-lg bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
+
+                <div className="absolute top-3 right-3 z-20">
+                    <PostActions post={post} can={can} onDelete={onDelete} light />
+                </div>
+
+                <div className="relative z-10 mt-auto p-4 space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold tracking-widest uppercase ${cat.color}`}>
+                            {cat.label}
+                        </span>
+                        <StatusBadge status={post.status} />
+                    </div>
+                    <Link href={`/announcement/${post.slug}`}>
+                        <h3 className="text-base font-bold text-white leading-snug hover:underline line-clamp-2 break-words [overflow-wrap:anywhere]">
+                            {post.title}
+                        </h3>
+                    </Link>
+                    {post.excerpt && (
+                        <p className="text-xs text-white/80 leading-snug line-clamp-2 break-words [overflow-wrap:anywhere]">
+                            {post.excerpt}
+                        </p>
+                    )}
+                    <span className="text-[10px] text-white/70 flex items-center gap-1 pt-0.5">
+                        <Calendar className="h-2.5 w-2.5" /> {formatDate(post.published_at)}
+                    </span>
+                </div>
+            </article>
+        );
+    }
+
+    // Medium variant (2 in sidebar) — larger thumbnail, 2-line title, excerpt
+    // Compact variant (3 in sidebar) — small thumbnail, tight layout
+    const isMedium = variant === 'medium';
+    const thumbClass = isMedium ? 'h-24 w-24' : 'h-16 w-16';
+    const titleClass = isMedium ? 'text-sm' : 'text-[13px]';
+
+    return (
+        <article className={cn('flex gap-3 group min-h-0 items-center', variant === 'compact' ? 'py-2 first:pt-0 last:pb-0' : 'py-3 first:pt-0 last:pb-0')}>
+            <Link href={`/announcement/${post.slug}`} className="shrink-0 relative self-center">
+                {post.cover_thumb ? (
+                    <img src={post.cover_thumb} alt="" className={cn(thumbClass, 'rounded-lg object-cover')} loading="lazy" style={focalStyle(post)} />
+                ) : (
+                    <div className={cn(thumbClass, 'rounded-lg flex items-center justify-center', PLACEHOLDER_BG)}>
                         <Megaphone className="h-5 w-5 text-muted-foreground/30" />
                     </div>
                 )}
-                <span className={`absolute top-1 left-1 inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold tracking-widest uppercase ${cat.color}`}>
+                <span className={`absolute top-1 left-1 inline-flex items-center px-1 py-0.5 rounded text-[7px] font-bold tracking-widest uppercase ${cat.color}`}>
                     {cat.label}
                 </span>
             </Link>
-            <div className="flex-1 min-w-0 space-y-1">
-                <div className="flex items-center gap-1.5">
-                    <StatusBadge status={post.status} />
-                    <div className="ml-auto">
+            <div className="flex-1 min-w-0 self-center">
+                <div className="flex items-start gap-1.5">
+                    <Link href={`/announcement/${post.slug}`} className="flex-1 min-w-0">
+                        <h4 className={cn('font-semibold text-foreground leading-snug line-clamp-2 group-hover:underline break-words [overflow-wrap:anywhere]', titleClass)}>
+                            {post.title}
+                        </h4>
+                    </Link>
+                    <div className="shrink-0 flex items-center gap-1">
+                        <StatusBadge status={post.status} />
                         <PostActions post={post} can={can} onDelete={onDelete} />
                     </div>
                 </div>
-                <Link href={`/announcement/${post.slug}`}>
-                    <h4 className="text-xs font-semibold text-foreground leading-snug line-clamp-2 group-hover:underline">
-                        {post.title}
-                    </h4>
-                </Link>
-                <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                {isMedium && post.excerpt && (
+                    <p className="mt-1 text-xs text-muted-foreground leading-snug line-clamp-2 break-words [overflow-wrap:anywhere]">
+                        {post.excerpt}
+                    </p>
+                )}
+                <span className="mt-1 text-[10px] text-muted-foreground flex items-center gap-1">
                     <Calendar className="h-2.5 w-2.5" /> {formatDate(post.published_at)}
                 </span>
             </div>
@@ -252,64 +344,57 @@ function SidebarCard({ post, can, onDelete }: { post: Post; can: PageProps['perm
     );
 }
 
-/* ─── Grid Card ─── */
+/* ─── Grid Card (overlay style) ─── */
 function PostCard({ post, can, onDelete }: { post: Post; can: PageProps['permissions']; onDelete: (slug: string) => void }) {
     const cat = CATEGORY_CONFIG[post.category] ?? CATEGORY_CONFIG.news;
     return (
-        <article className={`rounded-xl border bg-card shadow-sm overflow-hidden hover:shadow-lg transition-shadow flex flex-col group ${post.status === 'expired' ? 'opacity-60' : ''}`}>
-            <Link href={`/announcement/${post.slug}`} className="block relative overflow-hidden">
-                {post.cover_thumb ? (
-                    <img src={post.cover_thumb} alt="" className="h-48 w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
-                ) : (
-                    <div className={`h-48 w-full ${PLACEHOLDER_BG} flex items-center justify-center`}>
-                        <Megaphone className="h-10 w-10 text-muted-foreground/30" />
-                    </div>
-                )}
-                <div className="absolute top-3 left-3 flex items-center gap-1.5">
+        <article className={`relative overflow-hidden rounded-lg group h-64 flex flex-col shadow-sm hover:shadow-lg transition-shadow ${post.status === 'expired' ? 'opacity-60' : ''}`}>
+            {post.cover_thumb ? (
+                <img
+                    src={post.cover_thumb}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover rounded-lg transition-transform duration-500 group-hover:scale-105"
+                    loading="lazy"
+                    style={focalStyle(post)}
+                />
+            ) : (
+                <div className={`absolute inset-0 rounded-lg ${PLACEHOLDER_BG}`} />
+            )}
+            <div className="absolute inset-0 rounded-lg bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+
+            <div className="absolute top-3 right-3 z-20">
+                <PostActions post={post} can={can} onDelete={onDelete} light />
+            </div>
+
+            <div className="relative z-10 mt-auto p-4 space-y-2">
+                <div className="flex items-center gap-1.5 flex-wrap">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold tracking-widest uppercase ${cat.color}`}>
                         {cat.label}
                     </span>
                     {post.status !== 'live' && (
-                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase ${post.status === 'expired' ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'}`}>
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase ${post.status === 'expired' ? 'bg-red-500/80 text-white' : 'bg-amber-500/80 text-white'}`}>
                             {post.status}
                         </span>
                     )}
                 </div>
-            </Link>
-
-            <div className="p-5 flex-1 flex flex-col space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" /> {formatDate(post.published_at)}
-                        </span>
-                        {post.author_name && (
-                            <>
-                                <span className="text-muted-foreground/40">|</span>
-                                <span className="flex items-center gap-1">
-                                    <UserIcon className="h-3 w-3" /> {post.author_name}
-                                </span>
-                            </>
-                        )}
-                    </div>
-                    <PostActions post={post} can={can} onDelete={onDelete} />
-                </div>
-
                 <Link href={`/announcement/${post.slug}`}>
-                    <h3 className="text-base font-semibold text-foreground leading-snug line-clamp-2 hover:underline">
+                    <h3 className="text-base sm:text-lg font-bold text-white leading-snug line-clamp-2 hover:underline decoration-2 underline-offset-2">
                         {post.title}
                     </h3>
                 </Link>
-
-                {post.excerpt && (
-                    <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3 flex-1">
-                        {post.excerpt}
-                    </p>
-                )}
-
-                <Link href={`/announcement/${post.slug}`} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:text-primary/80 transition-colors mt-auto pt-1">
-                    Read more <ChevronRight className="h-3.5 w-3.5" />
-                </Link>
+                <div className="flex items-center gap-2 text-[11px] text-white/70">
+                    <span className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" /> {formatDate(post.published_at)}
+                    </span>
+                    {post.author_name && (
+                        <>
+                            <span className="text-white/40">|</span>
+                            <span className="flex items-center gap-1">
+                                <UserIcon className="h-3 w-3" /> {post.author_name}
+                            </span>
+                        </>
+                    )}
+                </div>
             </div>
         </article>
     );

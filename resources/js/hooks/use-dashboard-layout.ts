@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 interface CardState {
     visible: boolean;
@@ -64,9 +64,14 @@ export function useDashboardLayout(availableCardIds: string[], storageKey: strin
         return { order, cards };
     }, [availableCardIds, stored]);
 
-    // Persist to localStorage whenever the effective layout changes
+    // Persist to localStorage only when the serialized layout actually changes
+    const lastWrittenRef = useRef<string>('');
     useEffect(() => {
-        localStorage.setItem(storageKey, JSON.stringify({ order: layout.order, cards: layout.cards }));
+        const serialized = JSON.stringify({ order: layout.order, cards: layout.cards });
+        if (serialized !== lastWrittenRef.current) {
+            localStorage.setItem(storageKey, serialized);
+            lastWrittenRef.current = serialized;
+        }
     }, [layout, storageKey]);
 
     const updateOrder = useCallback((newOrder: string[]) => {
@@ -120,7 +125,10 @@ export function useDashboardLayout(availableCardIds: string[], storageKey: strin
         });
     }, [availableCardIds]);
 
-    const hiddenCardIds = layout.order.filter((id) => !layout.cards[id]?.visible);
+    const hiddenCardIds = useMemo(
+        () => layout.order.filter((id) => !layout.cards[id]?.visible),
+        [layout],
+    );
 
     return { layout, updateOrder, toggleVisibility, cycleExpand, showCard, resetLayout, hiddenCardIds };
 }

@@ -6,21 +6,23 @@ use App\Models\Liquidation;
 use App\Models\LiquidationStatus;
 use App\Models\HEI;
 use App\Models\Program;
+use App\Models\Region;
 use App\Services\DashboardCache;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         $user = auth()->user();
         $isAdmin = $user->role && in_array($user->role->name, ['Admin', 'Super Admin']);
 
         // Only show consolidated data for Admin roles
         if ($isAdmin) {
-            return $this->adminDashboard();
+            return $this->adminDashboard($request);
         }
 
         // For non-admin users (RC, Accountant, HEI)
@@ -30,23 +32,93 @@ class DashboardController extends Controller
     /**
      * Admin dashboard with consolidated data.
      */
-    private function adminDashboard()
+    private function adminDashboard(Request $request)
     {
-        $scope = ['role' => 'admin'];
+        $regionId      = $request->query('region_id') ?: null;
+        $programFilter = $request->query('program_id') ?: null;
+
+        $programs = Program::select('id', 'name', 'code', 'parent_id')->orderBy('name')->get();
+        $regions  = Region::select('id', 'name', 'code')->orderBy('name')->get();
+
+        // Validate region_id — fall back silently if unknown.
+        if ($regionId && !$regions->firstWhere('id', $regionId)) {
+            $regionId = null;
+        }
+
+        $programIds = $this->resolveProgramIdsFromFilter($programFilter, $programs);
+        // If the filter value is invalid, reset it so the UI and cache stay consistent.
+        if ($programFilter && $programIds === null && !in_array($programFilter, ['all', 'unifast', 'stufaps'], true)) {
+            $programFilter = null;
+        }
+
+        $scope = [
+            'role'       => 'admin',
+            'region_id'  => $regionId,
+            'program'    => $programFilter,
+        ];
 
         return Inertia::render('dashboard', [
             'isAdmin' => true,
-            'totalStats' => DashboardCache::remember('totalStats', $scope, fn () => $this->getTotalStats()),
+            'regions' => $regions,
+            'programs' => $programs,
+            'filters' => [
+                'region_id'  => $regionId,
+                'program_id' => $programFilter,
+            ],
+            'totalStats' => DashboardCache::remember('totalStats', $scope, fn () => $this->getTotalStats($regionId, $programIds)),
 
             // Deferred — queries run only after initial paint is sent to browser
             // Group into 2 batches: core charts (1 request) + supplementary (1 request)
-            'summaryPerAY' => Inertia::defer(fn () => DashboardCache::remember('summaryPerAY', $scope, fn () => $this->getSummaryPerAY()), 'charts'),
-            'summaryPerHEI' => Inertia::defer(fn () => DashboardCache::remember('summaryPerHEI', $scope, fn () => $this->getSummaryPerHEI()), 'charts'),
-            'statusDistribution' => Inertia::defer(fn () => DashboardCache::remember('statusDistribution', $scope, fn () => $this->getLiquidationStatusDistribution()), 'charts'),
-            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates(), 'charts'),
-            'overviewStats' => Inertia::defer(fn () => DashboardCache::remember('overviewStats', $scope, fn () => $this->getOverviewStats()), 'charts'),
-            'fundSourceData' => Inertia::defer(fn () => DashboardCache::remember('fundSourceData', $scope, fn () => $this->computeFundSourceData()), 'charts-extra'),
+            'summaryPerAY' => Inertia::defer(fn () => DashboardCache::remember('summaryPerAY', $scope, fn () => $this->getSummaryPerAY(null, $regionId, $programIds)), 'charts'),
+            'summaryPerHEI' => Inertia::defer(fn () => DashboardCache::remember('summaryPerHEI', $scope, fn () => $this->getSummaryPerHEI($regionId, $programIds)), 'charts'),
+            'statusDistribution' => Inertia::defer(fn () => DashboardCache::remember('statusDistribution', $scope, fn () => $this->getLiquidationStatusDistribution(null, $regionId, $programIds)), 'charts'),
+            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates(null, null, $regionId, $programIds), 'charts'),
+            'overviewStats' => Inertia::defer(fn () => DashboardCache::remember('overviewStats', $scope, fn () => $this->getOverviewStats($regionId, $programIds)), 'charts'),
+            'fundSourceData' => Inertia::defer(fn () => DashboardCache::remember('fundSourceData', $scope, fn () => $this->computeFundSourceData(null, $regionId)), 'charts-extra'),
         ]);
+    }
+
+    /**
+     * Resolve a program filter value (one of: 'all', 'unifast', 'stufaps', program UUID)
+     * into an array of concrete program IDs. Returns null when no scoping is needed.
+     */
+    private function resolveProgramIdsFromFilter(?string $value, Collection $programs): ?array
+    {
+        if (!$value || $value === 'all') {
+            return null;
+        }
+
+        $unifastCodes = ['TES', 'TDP'];
+        $unifastParentIds = $programs
+            ->whereNull('parent_id')
+            ->filter(fn ($p) => in_array(strtoupper($p->code ?? ''), $unifastCodes, true))
+            ->pluck('id');
+
+        if ($value === 'unifast') {
+            $childIds = $programs->whereIn('parent_id', $unifastParentIds)->pluck('id');
+            return $unifastParentIds->concat($childIds)->unique()->values()->all() ?: null;
+        }
+
+        if ($value === 'stufaps') {
+            return $programs
+                ->reject(fn ($p) => $p->parent_id === null && in_array(strtoupper($p->code ?? ''), $unifastCodes, true))
+                ->pluck('id')
+                ->values()
+                ->all() ?: null;
+        }
+
+        // Specific program ID — include children if it's a parent.
+        $program = $programs->firstWhere('id', $value);
+        if (!$program) {
+            return null;
+        }
+
+        if ($program->parent_id === null) {
+            $childIds = $programs->where('parent_id', $program->id)->pluck('id');
+            return collect([$program->id])->concat($childIds)->unique()->values()->all();
+        }
+
+        return [$program->id];
     }
 
     /**
@@ -480,15 +552,30 @@ class DashboardController extends Controller
     /**
      * Overview stats for Admin/Super Admin: HEI count, total grantees, per-program breakdown.
      */
-    private function getOverviewStats(): array
+    private function getOverviewStats(?string $regionId = null, ?array $programIds = null): array
     {
-        $totalHeis = HEI::where('status', 'active')->count();
+        $heiQuery = HEI::where('status', 'active');
+        if ($regionId) {
+            $heiQuery->where('region_id', $regionId);
+        }
+        $totalHeis = $heiQuery->count();
 
         // Grantees per program (only leaf programs that have liquidations)
         $programStats = DB::table('liquidations')
             ->join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->join('programs', 'liquidations.program_id', '=', 'programs.id')
-            ->whereNull('liquidations.deleted_at')
+            ->whereNull('liquidations.deleted_at');
+
+        if ($regionId) {
+            $programStats->join('heis', 'liquidations.hei_id', '=', 'heis.id')
+                ->where('heis.region_id', $regionId);
+        }
+
+        if ($programIds) {
+            $programStats->whereIn('liquidations.program_id', $programIds);
+        }
+
+        $programStats = $programStats
             ->select(
                 'programs.id as program_id',
                 'programs.code',
@@ -1006,7 +1093,7 @@ class DashboardController extends Controller
     /**
      * Get calendar due dates for the dashboard, scoped by role.
      */
-    private function getCalendarDueDates($user = null, ?string $userRole = null): array
+    private function getCalendarDueDates($user = null, ?string $userRole = null, ?string $adminRegionId = null, ?array $adminProgramIds = null): array
     {
         $query = Liquidation::with([
             'financial:id,liquidation_id,due_date,amount_received',
@@ -1034,8 +1121,15 @@ class DashboardController extends Controller
             if ($programIds) {
                 $query->whereIn('program_id', $programIds);
             }
+        } else {
+            // Admin/Super Admin: honour optional region + program filters.
+            if ($adminRegionId) {
+                $query->whereHas('hei', fn($q) => $q->where('region_id', $adminRegionId));
+            }
+            if ($adminProgramIds) {
+                $query->whereIn('program_id', $adminProgramIds);
+            }
         }
-        // Admin/Super Admin: no filter — sees all
 
         $unifastCodes = ['TES', 'TDP'];
 

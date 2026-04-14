@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useForm } from '@inertiajs/react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,11 +26,17 @@ export interface AnnouncementFormValues {
     end_date: string;
     cover: File | null;
     remove_cover: boolean;
+    cover_focal_x: number;
+    cover_focal_y: number;
     _method?: 'PUT';
 }
 
 interface Props {
-    initial?: Partial<AnnouncementFormValues> & { cover_display?: string | null };
+    initial?: Partial<AnnouncementFormValues> & {
+        cover_display?: string | null;
+        cover_focal_x?: number;
+        cover_focal_y?: number;
+    };
     submitUrl: string;
     isUpdate?: boolean;
     cancelUrl?: string;
@@ -68,8 +74,25 @@ export function AnnouncementForm({ initial, submitUrl, isUpdate, cancelUrl = '/a
         end_date: initial?.end_date ?? '',
         cover: null,
         remove_cover: false,
+        cover_focal_x: initial?.cover_focal_x ?? 50,
+        cover_focal_y: initial?.cover_focal_y ?? 50,
         ...(isUpdate ? { _method: 'PUT' as const } : {}),
     });
+
+    const previewRef = useRef<HTMLDivElement>(null);
+
+    const handleFocalClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        const el = previewRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+        const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+        setData((prev) => ({
+            ...prev,
+            cover_focal_x: Math.max(0, Math.min(100, x)),
+            cover_focal_y: Math.max(0, Math.min(100, y)),
+        }));
+    };
 
     const handleCoverChange = (file: File | null) => {
         if (!file) {
@@ -81,14 +104,27 @@ export function AnnouncementForm({ initial, submitUrl, isUpdate, cancelUrl = '/a
             toast.error('Cover image must be 8MB or less.');
             return;
         }
-        setData((prev) => ({ ...prev, cover: file, remove_cover: false }));
+        // Reset focal to center for a freshly chosen image.
+        setData((prev) => ({
+            ...prev,
+            cover: file,
+            remove_cover: false,
+            cover_focal_x: 50,
+            cover_focal_y: 50,
+        }));
         const reader = new FileReader();
         reader.onload = (e) => setPreview(typeof e.target?.result === 'string' ? e.target.result : null);
         reader.readAsDataURL(file);
     };
 
     const clearCover = () => {
-        setData((prev) => ({ ...prev, cover: null, remove_cover: true }));
+        setData((prev) => ({
+            ...prev,
+            cover: null,
+            remove_cover: true,
+            cover_focal_x: 50,
+            cover_focal_y: 50,
+        }));
         setPreview(null);
     };
 
@@ -112,17 +148,41 @@ export function AnnouncementForm({ initial, submitUrl, isUpdate, cancelUrl = '/a
                     <div className="space-y-2">
                         <Label>Cover image <span className="text-xs text-muted-foreground font-normal">(optional — up to 8MB)</span></Label>
                         {preview ? (
-                            <div className="relative rounded-lg border overflow-hidden bg-muted">
-                                <img src={preview} alt="cover preview" className="w-full h-56 object-cover" />
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="destructive"
-                                    className="absolute top-2 right-2 h-7"
-                                    onClick={clearCover}
+                            <div className="space-y-2">
+                                <div
+                                    ref={previewRef}
+                                    className="relative rounded-lg border overflow-hidden bg-muted cursor-crosshair select-none"
+                                    onClick={handleFocalClick}
+                                    title="Click to set the focal point used for thumbnails"
                                 >
-                                    <X className="mr-1 h-3.5 w-3.5" /> Remove
-                                </Button>
+                                    <img
+                                        src={preview}
+                                        alt="cover preview"
+                                        className="w-full h-56 object-cover pointer-events-none"
+                                        style={{ objectPosition: `${data.cover_focal_x}% ${data.cover_focal_y}%` }}
+                                        draggable={false}
+                                    />
+                                    {/* Focal marker */}
+                                    <div
+                                        className="absolute pointer-events-none h-6 w-6 -ml-3 -mt-3 rounded-full border-2 border-white shadow-[0_0_0_2px_rgba(0,0,0,0.4)]"
+                                        style={{ left: `${data.cover_focal_x}%`, top: `${data.cover_focal_y}%` }}
+                                    />
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="destructive"
+                                        className="absolute top-2 right-2 h-7"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            clearCover();
+                                        }}
+                                    >
+                                        <X className="mr-1 h-3.5 w-3.5" /> Remove
+                                    </Button>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground">
+                                    Click anywhere on the image to set the focal point — this is the part that stays visible in cropped thumbnails ({data.cover_focal_x}% × {data.cover_focal_y}%).
+                                </p>
                             </div>
                         ) : (
                             <label className="flex flex-col items-center justify-center gap-2 h-40 rounded-lg border border-dashed bg-muted/30 hover:bg-muted/60 cursor-pointer transition-colors">

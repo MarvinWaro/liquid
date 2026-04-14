@@ -1,8 +1,8 @@
 import AppLayout from '@/layouts/app-layout';
 import { dashboard } from '@/routes';
 import { type BreadcrumbItem } from '@/types';
-import { Head } from '@inertiajs/react';
-import { useCallback, useMemo, useState } from 'react';
+import { Head, router } from '@inertiajs/react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
     Card,
@@ -13,7 +13,10 @@ import {
 import {
     Select,
     SelectContent,
+    SelectGroup,
     SelectItem,
+    SelectLabel,
+    SelectSeparator,
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
@@ -105,6 +108,19 @@ interface CardConfig {
     colSpan: number;
 }
 
+interface ProgramOption {
+    id: string;
+    name: string;
+    code: string | null;
+    parent_id: string | null;
+}
+
+interface RegionOption {
+    id: string;
+    name: string;
+    code: string | null;
+}
+
 interface DashboardProps {
     isAdmin?: boolean;
     summaryPerAY: AYSummary[];
@@ -122,6 +138,12 @@ interface DashboardProps {
         stufaps: FundSourceStats;
     };
     overviewStats?: OverviewStats;
+    regions?: RegionOption[];
+    programs?: ProgramOption[];
+    filters?: {
+        region_id: string | null;
+        program_id: string | null;
+    };
 }
 
 // ---------- Helpers ----------
@@ -148,7 +170,42 @@ export default function Dashboard({
     calendarDueDates = [],
     fundSourceData,
     overviewStats,
+    regions = [],
+    programs = [],
+    filters,
 }: DashboardProps) {
+    // Admin server-side filter selections (Region + Program) — default to 'all'.
+    const regionValue = filters?.region_id ?? 'all';
+    const programValue = filters?.program_id ?? 'all';
+
+    const applyAdminFilters = useCallback((next: { region_id?: string; program_id?: string }) => {
+        const params: Record<string, string> = {};
+        const resolvedRegion = next.region_id ?? regionValue;
+        const resolvedProgram = next.program_id ?? programValue;
+        if (resolvedRegion && resolvedRegion !== 'all') params.region_id = resolvedRegion;
+        if (resolvedProgram && resolvedProgram !== 'all') params.program_id = resolvedProgram;
+        router.get('/dashboard', params, {
+            preserveState: true,
+            preserveScroll: true,
+            replace: true,
+        });
+    }, [regionValue, programValue]);
+
+    // Group STuFAPs programs under their parents for the Program select.
+    const { unifastPrograms, stufapsParents, stufapsChildrenByParent } = useMemo(() => {
+        const unifastCodes = ['TES', 'TDP'];
+        const unifast = programs.filter(p => !p.parent_id && unifastCodes.includes((p.code ?? '').toUpperCase()));
+        const stufapsP = programs.filter(p => !p.parent_id && !unifastCodes.includes((p.code ?? '').toUpperCase()));
+        const children = programs.filter(p => p.parent_id);
+        const byParent = new Map<string, ProgramOption[]>();
+        children.forEach(p => {
+            const list = byParent.get(p.parent_id!) ?? [];
+            list.push(p);
+            byParent.set(p.parent_id!, list);
+        });
+        return { unifastPrograms: unifast, stufapsParents: stufapsP, stufapsChildrenByParent: byParent };
+    }, [programs]);
+
     // Deferred props are undefined until loaded
     const chartsLoading = summaryPerAY === undefined;
 
@@ -320,8 +377,9 @@ export default function Dashboard({
     }, [statCardDefs, showBarChart, showPieChart, isAdmin, recentLiquidations, chartsLoading]);
 
     const storageKey = `dashboard-layout-v9-${isAdmin ? 'admin' : userRole || 'default'}`;
+    const cardIds = useMemo(() => cardConfigs.map(c => c.id), [cardConfigs]);
     const { layout, updateOrder, toggleVisibility, cycleExpand, showCard, resetLayout, hiddenCardIds } = useDashboardLayout(
-        cardConfigs.map(c => c.id),
+        cardIds,
         storageKey,
     );
 
@@ -399,8 +457,60 @@ export default function Dashboard({
                                 Overview of liquidation data and analytics.
                             </p>
                         </div>
-                        <div className="flex items-center gap-2">
-                            {fundSourceData && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                            {isAdmin && regions.length > 0 && (
+                                <Select value={regionValue} onValueChange={(v) => applyAdminFilters({ region_id: v })}>
+                                    <SelectTrigger className="w-[160px] h-8 text-xs">
+                                        <SelectValue placeholder="All Regions" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all" className="text-xs">All Regions</SelectItem>
+                                        {regions.map(r => (
+                                            <SelectItem key={r.id} value={r.id} className="text-xs">
+                                                {r.code ? `${r.code} — ${r.name}` : r.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            )}
+                            {isAdmin && programs.length > 0 && (
+                                <Select value={programValue} onValueChange={(v) => applyAdminFilters({ program_id: v })}>
+                                    <SelectTrigger className="w-[180px] h-8 text-xs">
+                                        <SelectValue placeholder="All Programs" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all" className="text-xs">All Programs</SelectItem>
+                                        <SelectSeparator />
+                                        <SelectGroup>
+                                            <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">UniFAST</SelectLabel>
+                                            <SelectItem value="unifast" className="text-xs">All UniFAST</SelectItem>
+                                            {unifastPrograms.map(p => (
+                                                <SelectItem key={p.id} value={p.id} className="pl-6 text-xs">{p.code ?? p.name}</SelectItem>
+                                            ))}
+                                        </SelectGroup>
+                                        <SelectSeparator />
+                                        <SelectGroup>
+                                            <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">STuFAPs</SelectLabel>
+                                            <SelectItem value="stufaps" className="text-xs">All STuFAPs</SelectItem>
+                                            {stufapsParents.map(parent => {
+                                                const children = stufapsChildrenByParent.get(parent.id) ?? [];
+                                                if (children.length > 0) {
+                                                    return (
+                                                        <React.Fragment key={parent.id}>
+                                                            <SelectItem value={parent.id} className="pl-6 text-xs font-medium">{parent.code ?? parent.name}</SelectItem>
+                                                            {children.map(child => (
+                                                                <SelectItem key={child.id} value={child.id} className="pl-10 text-[11px]">{child.code ?? child.name}</SelectItem>
+                                                            ))}
+                                                        </React.Fragment>
+                                                    );
+                                                }
+                                                return <SelectItem key={parent.id} value={parent.id} className="pl-6 text-xs">{parent.code ?? parent.name}</SelectItem>;
+                                            })}
+                                        </SelectGroup>
+                                    </SelectContent>
+                                </Select>
+                            )}
+                            {fundSourceData && !isAdmin && (
                                 <Select value={fundSourceFilter} onValueChange={(v) => handleFundSourceChange(v as ProgramFilter)}>
                                     <SelectTrigger className="w-[160px] h-8 text-xs">
                                         <SelectValue placeholder="All Programs" />

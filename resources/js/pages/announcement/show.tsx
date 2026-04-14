@@ -14,6 +14,7 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import AnnouncementComments, { type AnnouncementComment } from '@/components/announcement-comments';
 
 type Category = 'news' | 'event' | 'important' | 'update';
 
@@ -34,8 +35,19 @@ interface Post {
     author_name: string | null;
 }
 
+interface Viewer {
+    id: string | null;
+    name: string | null;
+    avatar_url: string | null;
+    can_moderate: boolean;
+}
+
 interface PageProps {
     post: Post;
+    comments: AnnouncementComment[];
+    comments_has_more: boolean;
+    comments_total: number;
+    viewer: Viewer;
     permissions: { edit: boolean; delete: boolean };
     [key: string]: unknown;
 }
@@ -54,7 +66,7 @@ const formatDate = (iso: string | null): string => {
 };
 
 export default function ShowAnnouncement() {
-    const { post, permissions: can } = usePage<PageProps>().props;
+    const { post, comments, comments_has_more, comments_total, viewer, permissions: can } = usePage<PageProps>().props;
     const cat = CATEGORY_CONFIG[post.category] ?? CATEGORY_CONFIG.news;
 
     const breadcrumbs: BreadcrumbItem[] = [
@@ -150,6 +162,18 @@ export default function ShowAnnouncement() {
                             />
                         </div>
                     </article>
+
+                    {/* Discussion */}
+                    {viewer.id && (
+                        <AnnouncementComments
+                            slug={post.slug}
+                            initialComments={comments}
+                            initialHasMore={comments_has_more}
+                            initialTotal={comments_total}
+                            currentUserId={viewer.id}
+                            canModerate={viewer.can_moderate}
+                        />
+                    )}
                 </div>
             </div>
         </AppLayout>

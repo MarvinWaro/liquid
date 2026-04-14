@@ -240,6 +240,8 @@ class AnnouncementController extends Controller
             'cover_original_path'  => $paths['original'] ?? null,
             'cover_display_path'   => $paths['display']  ?? null,
             'cover_thumb_path'     => $paths['thumb']    ?? null,
+            'cover_focal_x'        => $this->focal($data['cover_focal_x'] ?? null),
+            'cover_focal_y'        => $this->focal($data['cover_focal_y'] ?? null),
         ]);
 
         if ($announcement->is_featured) {
@@ -267,11 +269,33 @@ class AnnouncementController extends Controller
 
         $announcement->load('author:id,name');
 
+        $commentQuery = \App\Models\AnnouncementComment::where('announcement_id', $announcement->id)
+            ->whereNull('parent_id')
+            ->with(['user.role', 'reactions', 'allReplies.user.role', 'allReplies.reactions', 'allReplies.allReplies.user.role', 'allReplies.allReplies.reactions'])
+            ->orderBy('created_at');
+
+        $totalComments = $commentQuery->count();
+        $commentPage = $commentQuery->paginate(10);
+        $viewerId = $user?->id;
+        $comments = collect($commentPage->items())->map(fn ($c) => $c->format($viewerId))->values()->all();
+
+        $viewer = auth()->user();
+        $isPrivileged = in_array($viewer?->role?->name, ['Super Admin', 'Admin'], true);
+
         return Inertia::render('announcement/show', [
             'post' => $this->toDetailPayload($announcement),
+            'comments'          => $comments,
+            'comments_has_more' => $commentPage->hasMorePages(),
+            'comments_total'    => $totalComments,
+            'viewer' => [
+                'id'            => $viewer?->id,
+                'name'          => $viewer?->name,
+                'avatar_url'    => $viewer?->avatar_url,
+                'can_moderate'  => $isPrivileged,
+            ],
             'permissions' => [
-                'edit'   => auth()->user()?->hasPermission('edit_announcements') ?? false,
-                'delete' => auth()->user()?->hasPermission('delete_announcements') ?? false,
+                'edit'   => $viewer?->hasPermission('edit_announcements') ?? false,
+                'delete' => $viewer?->hasPermission('delete_announcements') ?? false,
             ],
         ]);
     }
@@ -313,11 +337,20 @@ class AnnouncementController extends Controller
             $payload['cover_original_path'] = $paths['original'];
             $payload['cover_display_path']  = $paths['display'];
             $payload['cover_thumb_path']    = $paths['thumb'];
+            // New cover → reset focal to center unless caller supplied one.
+            $payload['cover_focal_x'] = $this->focal($data['cover_focal_x'] ?? null);
+            $payload['cover_focal_y'] = $this->focal($data['cover_focal_y'] ?? null);
         } elseif ($request->boolean('remove_cover')) {
             $announcement->deleteCoverFiles();
             $payload['cover_original_path'] = null;
             $payload['cover_display_path']  = null;
             $payload['cover_thumb_path']    = null;
+            $payload['cover_focal_x'] = 50;
+            $payload['cover_focal_y'] = 50;
+        } elseif (array_key_exists('cover_focal_x', $data) || array_key_exists('cover_focal_y', $data)) {
+            // Focal adjusted without replacing the image.
+            $payload['cover_focal_x'] = $this->focal($data['cover_focal_x'] ?? $announcement->cover_focal_x);
+            $payload['cover_focal_y'] = $this->focal($data['cover_focal_y'] ?? $announcement->cover_focal_y);
         }
 
         $announcement->update($payload);
@@ -328,7 +361,8 @@ class AnnouncementController extends Controller
                 ->update(['is_featured' => false]);
         }
 
-        return redirect()->route('announcements.index')->with('success', 'Announcement updated.');
+        $slug = $announcement->slug;
+        return redirect()->route('announcements.show', $slug)->with('success', 'Announcement updated.');
     }
 
     public function destroy(Announcement $announcement)
@@ -348,18 +382,31 @@ class AnnouncementController extends Controller
     private function validatePayload(Request $request, bool $updating = false): array
     {
         return $request->validate([
-            'title'        => ['required', 'string', 'max:255'],
-            'category'     => ['nullable', 'string', 'in:news,event,important,update'],
-            'tag_color'    => ['nullable', 'string', 'in:blue,emerald,violet,amber,sky,rose'],
-            'excerpt'      => ['nullable', 'string', 'max:500'],
-            'content'      => ['required', 'string'],
-            'is_featured'  => ['nullable', 'boolean'],
-            'show_to_hei'  => ['nullable', 'boolean'],
-            'published_at' => ['nullable', 'date'],
-            'end_date'     => ['nullable', 'date'],
-            'cover'        => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
-            'remove_cover' => ['nullable', 'boolean'],
+            'title'         => ['required', 'string', 'max:255'],
+            'category'      => ['nullable', 'string', 'in:news,event,important,update'],
+            'tag_color'     => ['nullable', 'string', 'in:blue,emerald,violet,amber,sky,rose'],
+            'excerpt'       => ['nullable', 'string', 'max:500'],
+            'content'       => ['required', 'string'],
+            'is_featured'   => ['nullable', 'boolean'],
+            'show_to_hei'   => ['nullable', 'boolean'],
+            'published_at'  => ['nullable', 'date'],
+            'end_date'      => ['nullable', 'date'],
+            'cover'         => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
+            'remove_cover'  => ['nullable', 'boolean'],
+            'cover_focal_x' => ['nullable', 'integer', 'between:0,100'],
+            'cover_focal_y' => ['nullable', 'integer', 'between:0,100'],
         ]);
+    }
+
+    /**
+     * Clamp a focal-point coordinate to [0, 100]. Falls back to 50 (center).
+     */
+    private function focal(mixed $value): int
+    {
+        if ($value === null || $value === '') {
+            return 50;
+        }
+        return max(0, min(100, (int) $value));
     }
 
     /**
@@ -409,6 +456,8 @@ class AnnouncementController extends Controller
             'end_date'      => $a->end_date?->copy()->setTimezone('Asia/Manila')->toIso8601String(),
             'cover_thumb'   => $a->cover_thumb_url,
             'cover_display' => $a->cover_display_url,
+            'cover_focal_x' => (int) ($a->cover_focal_x ?? 50),
+            'cover_focal_y' => (int) ($a->cover_focal_y ?? 50),
             'author_name'   => $a->author?->name,
         ];
     }
@@ -430,6 +479,8 @@ class AnnouncementController extends Controller
             'cover_thumb'    => $a->cover_thumb_url,
             'cover_display'  => $a->cover_display_url,
             'cover_original' => $a->cover_original_url,
+            'cover_focal_x'  => (int) ($a->cover_focal_x ?? 50),
+            'cover_focal_y'  => (int) ($a->cover_focal_y ?? 50),
             'author_name'    => $a->author?->name,
         ];
     }

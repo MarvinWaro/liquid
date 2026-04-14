@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Traits\HasUuid;
+use App\Traits\LogsActivity;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -32,13 +34,14 @@ use Illuminate\Support\Str;
  */
 class Announcement extends Model
 {
-    use HasFactory, HasUuid, SoftDeletes;
+    use HasFactory, HasUuid, LogsActivity, SoftDeletes;
 
     public const CATEGORIES = ['news', 'event', 'important', 'update'];
 
     protected $fillable = [
         'title', 'slug', 'category', 'tag_color', 'excerpt', 'content',
         'cover_original_path', 'cover_display_path', 'cover_thumb_path',
+        'cover_focal_x', 'cover_focal_y',
         'is_featured', 'show_to_hei', 'published_at', 'end_date', 'created_by',
     ];
 
@@ -49,12 +52,39 @@ class Announcement extends Model
             'show_to_hei' => 'boolean',
             'published_at' => 'datetime',
             'end_date' => 'datetime',
+            'cover_focal_x' => 'integer',
+            'cover_focal_y' => 'integer',
         ];
     }
 
     public function author(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function comments(): HasMany
+    {
+        return $this->hasMany(AnnouncementComment::class);
+    }
+
+    /**
+     * Hide machine-y fields from the change diff in activity logs.
+     */
+    protected static function getActivityHiddenFields(): array
+    {
+        return ['slug', 'cover_original_path', 'cover_display_path', 'cover_thumb_path'];
+    }
+
+    protected static function getActivityFieldLabels(): array
+    {
+        return [
+            'is_featured'   => 'Featured',
+            'show_to_hei'   => 'Visible to HEI',
+            'end_date'      => 'End Date',
+            'published_at'  => 'Publish Date',
+            'cover_focal_x' => 'Focal X',
+            'cover_focal_y' => 'Focal Y',
+        ];
     }
 
     /**

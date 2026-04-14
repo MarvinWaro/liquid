@@ -16,6 +16,8 @@ interface PostPayload {
     published_at: string | null;
     end_date: string | null;
     cover_display: string | null;
+    cover_focal_x: number;
+    cover_focal_y: number;
 }
 
 interface PageProps {
@@ -56,6 +58,8 @@ export default function EditAnnouncement() {
                             published_at: post.published_at ?? '',
                             end_date: post.end_date ?? '',
                             cover_display: post.cover_display,
+                            cover_focal_x: post.cover_focal_x ?? 50,
+                            cover_focal_y: post.cover_focal_y ?? 50,
                         }}
                     />
                 </div>
