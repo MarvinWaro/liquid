@@ -50,7 +50,8 @@
       "Bash(xargs grep:*)",
       "Bash(grep -E \"\\\\.\\(php|tsx|ts\\)$\")",
       "Bash(grep -iE \"^\\(gd|imagick\\)$\")",
-      "Bash(cat c:/Users/MARVIN/projects/liquid/tailwind.config.*)"
+      "Bash(cat c:/Users/MARVIN/projects/liquid/tailwind.config.*)",
+      "Bash(python3 -c ':*)"
     ]
   }
 }

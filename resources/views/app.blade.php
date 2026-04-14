@@ -40,7 +40,7 @@
         <link rel="icon" href="/assets/img/unifast.png" type="image/png">
         <link rel="apple-touch-icon" href="/assets/img/unifast.png">
 
-        @routes
+        <script id="ziggy-routes-json" type="application/json">{!! json_encode((new \Tighten\Ziggy\Ziggy())->toArray()) !!}</script>
         @viteReactRefresh
         @vite(['resources/js/app.tsx'])
         @inertiaHead
