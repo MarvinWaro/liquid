@@ -97,7 +97,11 @@ class User extends Authenticatable
             return null;
         }
 
-        return Storage::disk('s3')->temporaryUrl($this->avatar, now()->addHours(2));
+        try {
+            return Storage::disk('s3')->temporaryUrl($this->avatar, now()->addHours(2));
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

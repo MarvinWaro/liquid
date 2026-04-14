@@ -124,23 +124,29 @@ class Announcement extends Model
 
     public function getCoverThumbUrlAttribute(): ?string
     {
-        return $this->cover_thumb_path
-            ? Storage::disk('s3')->temporaryUrl($this->cover_thumb_path, now()->addHours(2))
-            : null;
+        return $this->s3TempUrl($this->cover_thumb_path);
     }
 
     public function getCoverDisplayUrlAttribute(): ?string
     {
-        return $this->cover_display_path
-            ? Storage::disk('s3')->temporaryUrl($this->cover_display_path, now()->addHours(2))
-            : null;
+        return $this->s3TempUrl($this->cover_display_path);
     }
 
     public function getCoverOriginalUrlAttribute(): ?string
     {
-        return $this->cover_original_path
-            ? Storage::disk('s3')->temporaryUrl($this->cover_original_path, now()->addHours(2))
-            : null;
+        return $this->s3TempUrl($this->cover_original_path);
+    }
+
+    private function s3TempUrl(?string $path): ?string
+    {
+        if (!$path) {
+            return null;
+        }
+        try {
+            return Storage::disk('s3')->temporaryUrl($path, now()->addHours(2));
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
