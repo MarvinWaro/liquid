@@ -34,18 +34,18 @@ class CleanOrphanedStorage extends Command
             ->pluck('file_path')
             ->flip(); // use as set for O(1) lookup
 
-        $files = Storage::disk('public')->allFiles('liquidation_documents');
+        $files = Storage::disk('s3')->allFiles('liquidation_documents');
 
         foreach ($files as $file) {
             if (!$knownPaths->has($file)) {
-                $size = Storage::disk('public')->size($file);
+                $size = Storage::disk('s3')->size($file);
                 $totalSize += $size;
                 $totalDeleted++;
 
                 $this->line("  <fg=red>orphan:</> {$file} (" . $this->formatBytes($size) . ')');
 
                 if (!$dryRun) {
-                    Storage::disk('public')->delete($file);
+                    Storage::disk('s3')->delete($file);
                 }
             }
         }
@@ -63,18 +63,18 @@ class CleanOrphanedStorage extends Command
             ->pluck('reference_image_path')
             ->flip();
 
-        $imageFiles = Storage::disk('public')->allFiles('document_requirements');
+        $imageFiles = Storage::disk('s3')->allFiles('document_requirements');
 
         foreach ($imageFiles as $file) {
             if (!$knownImages->has($file)) {
-                $size = Storage::disk('public')->size($file);
+                $size = Storage::disk('s3')->size($file);
                 $totalSize += $size;
                 $totalDeleted++;
 
                 $this->line("  <fg=red>orphan:</> {$file} (" . $this->formatBytes($size) . ')');
 
                 if (!$dryRun) {
-                    Storage::disk('public')->delete($file);
+                    Storage::disk('s3')->delete($file);
                 }
             }
         }
@@ -103,7 +103,7 @@ class CleanOrphanedStorage extends Command
      */
     private function pruneEmptyDirs(string $directory): void
     {
-        $disk = Storage::disk('public');
+        $disk = Storage::disk('s3');
         foreach ($disk->directories($directory) as $dir) {
             if (empty($disk->allFiles($dir))) {
                 $disk->deleteDirectory($dir);

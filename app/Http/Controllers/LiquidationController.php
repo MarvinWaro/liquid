@@ -516,7 +516,8 @@ class LiquidationController extends Controller
         $validateToken = $request->input('validate_token') ?: Str::uuid()->toString();
         $progressKey = "validate_progress_{$validateToken}";
         $progressTtl = now()->addMinutes(15);
-        Cache::put($progressKey, ['processed' => 0, 'total' => $totalDataRows, 'done' => false], $progressTtl);
+        $fileCache = Cache::store('file');
+        $fileCache->put($progressKey, ['processed' => 0, 'total' => $totalDataRows, 'done' => false], $progressTtl);
 
         $validatedRows  = [];
         $importableRows = [];
@@ -537,7 +538,7 @@ class LiquidationController extends Controller
 
             // Update progress every 50 rows to avoid cache overhead
             if ($processedCount % 50 === 0 || $processedCount === $totalDataRows) {
-                Cache::put($progressKey, ['processed' => $processedCount, 'total' => $totalDataRows, 'done' => false], $progressTtl);
+                $fileCache->put($progressKey, ['processed' => $processedCount, 'total' => $totalDataRows, 'done' => false], $progressTtl);
             }
 
             $parsed = $this->parseImportRow($row, $user, $existingControlNos, $academicYearsMap, $existingFingerprints);
@@ -577,11 +578,11 @@ class LiquidationController extends Controller
         $errorCount = collect($validatedRows)->where('valid', false)->count();
 
         // Mark validation as complete
-        Cache::put($progressKey, ['processed' => $totalDataRows, 'total' => $totalDataRows, 'done' => true], $progressTtl);
+        $fileCache->put($progressKey, ['processed' => $totalDataRows, 'total' => $totalDataRows, 'done' => true], $progressTtl);
 
         // Cache pre-resolved rows server-side — import step uses token, not file
         $token = Str::uuid()->toString();
-        Cache::put("liquidation_import_{$token}", [
+        $fileCache->put("liquidation_import_{$token}", [
             'user_id'   => $user->id,
             'file_name' => $file->getClientOriginalName(),
             'rows'      => $importableRows,
@@ -627,8 +628,9 @@ class LiquidationController extends Controller
             ], 422);
         }
 
+        $fileCache = Cache::store('file');
         $cacheKey = "liquidation_import_{$token}";
-        $cached   = Cache::get($cacheKey);
+        $cached   = $fileCache->get($cacheKey);
 
         if (!$cached) {
             return response()->json([
@@ -658,7 +660,7 @@ class LiquidationController extends Controller
         // Publish initial progress so the frontend can start polling immediately
         $progressKey = "import_progress_{$token}";
         $progressTtl = now()->addMinutes(15);
-        Cache::put($progressKey, [
+        $fileCache->put($progressKey, [
             'processed' => 0,
             'total'     => $totalRows,
             'imported'  => 0,
@@ -670,7 +672,7 @@ class LiquidationController extends Controller
 
         // Process in chunks: smaller transactions = faster, more resilient
         foreach (array_chunk($rows, self::IMPORT_CHUNK_SIZE) as $chunk) {
-            DB::transaction(function () use ($chunk, $user, $batch, &$imported, &$errors, &$processed, $progressKey, $progressTtl, $totalRows) {
+            DB::transaction(function () use ($chunk, $user, $batch, &$imported, &$errors, &$processed, $progressKey, $progressTtl, $totalRows, $fileCache) {
                 foreach ($chunk as $rowData) {
                     $processed++;
                     try {
@@ -701,7 +703,7 @@ class LiquidationController extends Controller
 
                     // Update progress every 25 rows so the frontend poll catches it
                     if ($processed % 25 === 0) {
-                        Cache::put($progressKey, [
+                        $fileCache->put($progressKey, [
                             'processed' => $processed,
                             'total'     => $totalRows,
                             'imported'  => $imported,
@@ -714,7 +716,7 @@ class LiquidationController extends Controller
 
             // Always persist after each completed chunk
             $batch->update(['imported_count' => $imported]);
-            Cache::put($progressKey, [
+            $fileCache->put($progressKey, [
                 'processed' => $processed,
                 'total'     => $totalRows,
                 'imported'  => $imported,
@@ -724,7 +726,7 @@ class LiquidationController extends Controller
         }
 
         // Mark done so frontend knows to stop polling
-        Cache::put($progressKey, [
+        $fileCache->put($progressKey, [
             'processed' => $totalRows,
             'total'     => $totalRows,
             'imported'  => $imported,
@@ -733,7 +735,7 @@ class LiquidationController extends Controller
         ], now()->addMinutes(5));
 
         // One-time token — clear regardless of outcome
-        Cache::forget($cacheKey);
+        $fileCache->forget($cacheKey);
 
         if ($imported > 0) {
             ActivityLog::log('bulk_imported', "Bulk imported {$imported} liquidation(s) (batch: {$batch->id})", null, 'Liquidation');
@@ -760,7 +762,7 @@ class LiquidationController extends Controller
             return response()->json(['found' => false], 422);
         }
 
-        $progress = Cache::get("validate_progress_{$token}");
+        $progress = Cache::store('file')->get("validate_progress_{$token}");
         if (!$progress) {
             return response()->json(['found' => false]);
         }
@@ -779,7 +781,7 @@ class LiquidationController extends Controller
             return response()->json(['found' => false], 422);
         }
 
-        $progress = Cache::get("import_progress_{$token}");
+        $progress = Cache::store('file')->get("import_progress_{$token}");
         if (!$progress) {
             return response()->json(['found' => false]);
         }
@@ -860,7 +862,7 @@ class LiquidationController extends Controller
                     $liquidation->financial()->forceDelete();
                     $liquidation->documents()->each(function ($doc) {
                         if (!$doc->is_gdrive && $doc->file_path) {
-                            Storage::disk('public')->delete($doc->file_path);
+                            Storage::disk('s3')->delete($doc->file_path);
                         }
                         $doc->forceDelete();
                     });
@@ -1030,7 +1032,7 @@ class LiquidationController extends Controller
 
         $file = $request->file('file');
         $fileName = time() . '_' . $file->getClientOriginalName();
-        $filePath = $file->storeAs('liquidation_documents/' . $liquidation->id, $fileName, 'public');
+        $filePath = $file->storeAs('liquidation_documents/' . $liquidation->id, $fileName, 's3');
 
         LiquidationDocument::create([
             'liquidation_id' => $liquidation->id,
@@ -1113,11 +1115,11 @@ class LiquidationController extends Controller
 
         $this->authorizeView($user, $liquidation);
 
-        if (!Storage::disk('public')->exists($document->file_path)) {
+        if (!Storage::disk('s3')->exists($document->file_path)) {
             abort(404, 'File not found.');
         }
 
-        return Storage::disk('public')->download($document->file_path, $document->file_name);
+        return Storage::disk('s3')->download($document->file_path, $document->file_name);
     }
 
     /**
@@ -1130,11 +1132,11 @@ class LiquidationController extends Controller
 
         $this->authorizeView($user, $liquidation);
 
-        if (!Storage::disk('public')->exists($document->file_path)) {
+        if (!Storage::disk('s3')->exists($document->file_path)) {
             abort(404, 'File not found.');
         }
 
-        return Storage::disk('public')->response($document->file_path, $document->file_name, [
+        return Storage::disk('s3')->response($document->file_path, $document->file_name, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="' . $document->file_name . '"',
         ]);
@@ -1155,7 +1157,7 @@ class LiquidationController extends Controller
         }
 
         if (!$document->is_gdrive && $document->file_path) {
-            Storage::disk('public')->delete($document->file_path);
+            Storage::disk('s3')->delete($document->file_path);
         }
 
         $documentName = $document->file_name;
@@ -1177,7 +1179,7 @@ class LiquidationController extends Controller
 
         foreach ($liquidation->documents as $document) {
             if (!$document->is_gdrive && $document->file_path) {
-                Storage::disk('public')->delete($document->file_path);
+                Storage::disk('s3')->delete($document->file_path);
             }
         }
 

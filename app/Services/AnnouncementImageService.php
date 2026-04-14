@@ -24,7 +24,7 @@ class AnnouncementImageService
 {
     private const DISPLAY_MAX_WIDTH = 1600;
     private const THUMB_MAX_WIDTH   = 800;
-    private const DISK              = 'public';
+    private const DISK              = 's3';
     private const DIR               = 'announcements/covers';
 
     private ImageManager $manager;

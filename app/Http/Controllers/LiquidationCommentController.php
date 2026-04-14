@@ -74,7 +74,7 @@ class LiquidationCommentController extends Controller
         if ($hasAttachments) {
             foreach ($request->file('attachments') as $file) {
                 $fileName = time() . '_' . $file->getClientOriginalName();
-                $filePath = $file->storeAs('comment_attachments/' . $liquidation->id, $fileName, 'public');
+                $filePath = $file->storeAs('comment_attachments/' . $liquidation->id, $fileName, 's3');
                 $attachments[] = [
                     'path' => $filePath,
                     'name' => $file->getClientOriginalName(),
@@ -113,11 +113,11 @@ class LiquidationCommentController extends Controller
     {
         $attachments = $comment->attachments ?? [];
 
-        if (!isset($attachments[$index]) || !Storage::disk('public')->exists($attachments[$index]['path'])) {
+        if (!isset($attachments[$index]) || !Storage::disk('s3')->exists($attachments[$index]['path'])) {
             abort(404, 'Attachment not found.');
         }
 
-        return Storage::disk('public')->download($attachments[$index]['path'], $attachments[$index]['name']);
+        return Storage::disk('s3')->download($attachments[$index]['path'], $attachments[$index]['name']);
     }
 
     /**
