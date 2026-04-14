@@ -24,6 +24,9 @@ export const SEMESTERS = [
     { value: '1st Semester', label: '1st Semester' },
     { value: '2nd Semester', label: '2nd Semester' },
     { value: 'Summer', label: 'Summer' },
+    { value: 'TES3A', label: 'TES3A' },
+    { value: 'TES3B', label: 'TES3B' },
+    { value: '1st and 2nd Semester', label: '1st and 2nd Semester' },
 ] as const;
 
 export const DOCUMENT_STATUSES = [

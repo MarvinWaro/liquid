@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, Filter, BarChart3, TableIcon } from 'lucide-react';
+import { Search, Filter, BarChart3, TableIcon, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import {
     BarChart,
     Bar,
@@ -35,8 +35,9 @@ import {
     Tooltip as RechartsTooltip,
     Legend,
     ResponsiveContainer,
-    Line,
-    ComposedChart,
+    ScatterChart,
+    Scatter,
+    ZAxis,
 } from 'recharts';
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -94,6 +95,48 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
     const [page, setPage] = useState(1);
     const PAGE_SIZE = 25;
 
+    type SortKey =
+        | 'name' | 'grantees' | 'disbursements' | 'liquidated'
+        | 'for_endorsement' | 'unliquidated_net' | 'unliquidated_not_submitted'
+        | 'for_compliance' | 'total_with_submission'
+        | 'pct_liquidation' | 'pct_compliance' | 'pct_submission';
+    const [sortKey, setSortKey] = useState<SortKey | null>('name');
+    const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+    const handleSort = (key: SortKey) => {
+        if (sortKey === key) {
+            setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortKey(key);
+            setSortDir('asc');
+        }
+        setPage(1);
+    };
+
+    const SortIcon = ({ col }: { col: SortKey }) => {
+        if (sortKey !== col) return <ChevronsUpDown className="h-3 w-3 ml-1 opacity-40" />;
+        return sortDir === 'asc'
+            ? <ChevronUp className="h-3 w-3 ml-1 text-primary" />
+            : <ChevronDown className="h-3 w-3 ml-1 text-primary" />;
+    };
+
+    const getSortValue = (row: HEISummary, key: SortKey): number | string => {
+        switch (key) {
+            case 'name': return row.hei?.name?.toLowerCase() ?? '';
+            case 'grantees': return Number(row.total_grantees) || 0;
+            case 'disbursements': return Number(row.total_disbursements) || 0;
+            case 'liquidated': return Number(row.total_amount_liquidated) || 0;
+            case 'for_endorsement': return Number(row.for_endorsement) || 0;
+            case 'unliquidated_net': return Number(row.total_disbursements) - Number(row.total_amount_liquidated) - Number(row.for_endorsement);
+            case 'unliquidated_not_submitted': return Number(row.total_disbursements) - Number(row.total_amount_liquidated);
+            case 'for_compliance': return Number(row.for_compliance) || 0;
+            case 'total_with_submission': return Number(row.total_with_submission) || 0;
+            case 'pct_liquidation': return computePercentLiquidation(row);
+            case 'pct_compliance': return Number(row.percentage_compliance) || 0;
+            case 'pct_submission': return Number(row.percentage_submission) || 0;
+        }
+    };
+
     const filtered = summaryPerHEI.filter(item => {
         if (!searchQuery.trim()) return true;
         const q = searchQuery.toLowerCase();
@@ -103,9 +146,18 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
         );
     });
 
-    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    const sorted = sortKey
+        ? [...filtered].sort((a, b) => {
+            const av = getSortValue(a, sortKey);
+            const bv = getSortValue(b, sortKey);
+            const cmp = typeof av === 'string' ? av.localeCompare(bv as string) : (av as number) - (bv as number);
+            return sortDir === 'asc' ? cmp : -cmp;
+        })
+        : filtered;
+
+    const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
     const currentPage = Math.min(page, totalPages);
-    const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+    const paginated = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
     const selectedProgram = programs.find(p => p.id === filters?.program);
 
@@ -200,80 +252,140 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
                         </div>
                     </div>
 
-                    {showChart && filtered.length > 0 ? (
-                        <div className="space-y-6">
-                            {/* Financial Breakdown Chart */}
-                            <div className="rounded-lg border bg-card p-6">
-                                <h3 className="text-sm font-semibold mb-4">Financial Breakdown by HEI</h3>
-                                <ResponsiveContainer width="100%" height={Math.max(350, filtered.length * 40)}>
-                                    <BarChart
-                                        data={filtered.map(r => ({ ...r, name: r.hei?.name || 'N/A' }))}
-                                        layout="vertical"
-                                        margin={{ top: 5, right: 30, left: 10, bottom: 5 }}
-                                    >
-                                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                                        <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `₱${(v / 1_000_000).toFixed(1)}M`} />
-                                        <YAxis dataKey="name" type="category" width={180} tick={{ fontSize: 10 }} />
-                                        <RechartsTooltip
-                                            formatter={(value: number, name: string) => [formatCurrency(value), name]}
-                                            contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                                        />
-                                        <Legend wrapperStyle={{ fontSize: 12 }} />
-                                        <Bar dataKey="total_disbursements" name="Total Disbursements" fill="#6366f1" radius={[0, 4, 4, 0]} />
-                                        <Bar dataKey="total_amount_liquidated" name="Liquidated" fill="#22c55e" radius={[0, 4, 4, 0]} />
-                                        <Bar dataKey="unliquidated_amount" name="Unliquidated" fill="#ef4444" radius={[0, 4, 4, 0]} />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </div>
+                    {showChart && sorted.length > 0 ? (() => {
+                        // Top 15 HEIs by total disbursements for the stacked bar
+                        const top15 = [...sorted]
+                            .sort((a, b) => Number(b.total_disbursements) - Number(a.total_disbursements))
+                            .slice(0, 15)
+                            .map(r => ({
+                                name: (r.hei?.name || 'N/A').substring(0, 25),
+                                fullName: r.hei?.name || 'N/A',
+                                'Liquidated': Number(r.total_amount_liquidated),
+                                'For Endorsement': Number(r.for_endorsement),
+                                'For Compliance': Number(r.for_compliance),
+                                'Unliquidated': Math.max(0, Number(r.total_disbursements) - Number(r.total_amount_liquidated) - Number(r.for_endorsement) - Number(r.for_compliance)),
+                            }));
 
-                            {/* Percentage & Grantees Chart */}
-                            <div className="rounded-lg border bg-card p-6">
-                                <h3 className="text-sm font-semibold mb-4">Liquidation Rates & Grantees</h3>
-                                <ResponsiveContainer width="100%" height={300}>
-                                    <ComposedChart
-                                        data={filtered.map(r => ({ ...r, name: r.hei?.name?.substring(0, 30) || 'N/A', computed_pct_liquidation: computePercentLiquidation(r) }))}
-                                        margin={{ top: 5, right: 30, left: 20, bottom: 60 }}
-                                    >
-                                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                                        <XAxis dataKey="name" tick={{ fontSize: 9, angle: -45, textAnchor: 'end' }} interval={0} height={80} />
-                                        <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
-                                        <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} tickFormatter={(v) => v.toLocaleString()} />
-                                        <RechartsTooltip
-                                            formatter={(value: number, name: string) =>
-                                                name === 'Grantees' ? [value.toLocaleString(), name] : [`${Number(value).toFixed(2)}%`, name]
-                                            }
-                                            contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                                        />
-                                        <Legend wrapperStyle={{ fontSize: 12 }} />
-                                        <Bar yAxisId="right" dataKey="total_grantees" name="Grantees" fill="#0ea5e9" radius={[4, 4, 0, 0]} opacity={0.4} />
-                                        <Line yAxisId="left" type="monotone" dataKey="computed_pct_liquidation" name="% Liquidation" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} />
-                                        <Line yAxisId="left" type="monotone" dataKey="percentage_submission" name="% Submission" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} />
-                                    </ComposedChart>
-                                </ResponsiveContainer>
+                        // Scatter data — all HEIs: x = % Liquidation, y = % Submission, size = grantees
+                        const scatterData = sorted.map(r => ({
+                            name: r.hei?.name || 'N/A',
+                            x: Number(computePercentLiquidation(r).toFixed(2)),
+                            y: Number((Number(r.percentage_submission) || 0).toFixed(2)),
+                            z: Number(r.total_grantees) || 1,
+                        }));
+
+                        const customTooltip = ({ active, payload, label }: any) => {
+                            if (!active || !payload?.length) return null;
+                            return (
+                                <div className="bg-background border border-border rounded-lg shadow-xl p-3 min-w-[220px]">
+                                    <p className="font-semibold text-sm mb-2 pb-2 border-b border-border">{label || payload[0]?.payload?.fullName || payload[0]?.payload?.name}</p>
+                                    <div className="space-y-1.5">
+                                        {payload.map((entry: any, i: number) => (
+                                            <div key={i} className="flex items-center justify-between gap-4">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: entry.color }} />
+                                                    <span className="text-xs text-muted-foreground">{entry.name}</span>
+                                                </div>
+                                                <span className="font-mono text-xs font-medium">
+                                                    {formatCurrency(entry.value)}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        };
+
+                        const scatterTooltip = ({ active, payload }: any) => {
+                            if (!active || !payload?.length) return null;
+                            const d = payload[0].payload;
+                            return (
+                                <div className="bg-background border border-border rounded-lg shadow-xl p-3 min-w-[200px]">
+                                    <p className="font-semibold text-sm mb-2 pb-2 border-b border-border">{d.name}</p>
+                                    <div className="space-y-1">
+                                        <div className="flex justify-between text-xs"><span className="text-muted-foreground">% Liquidation</span><span className="font-mono font-medium">{d.x}%</span></div>
+                                        <div className="flex justify-between text-xs"><span className="text-muted-foreground">% Submission</span><span className="font-mono font-medium">{d.y}%</span></div>
+                                        <div className="flex justify-between text-xs"><span className="text-muted-foreground">Grantees</span><span className="font-mono font-medium">{d.z.toLocaleString()}</span></div>
+                                    </div>
+                                </div>
+                            );
+                        };
+
+                        return (
+                            <div className="space-y-6">
+                                {/* Chart 1: Top 15 HEIs — horizontal stacked bar */}
+                                <div className="rounded-lg border bg-card p-6">
+                                    <h3 className="text-sm font-semibold mb-1">Top 15 HEIs by Disbursement</h3>
+                                    <p className="text-xs text-muted-foreground mb-4">Fund utilization breakdown for the largest disbursements</p>
+                                    <ResponsiveContainer width="100%" height={Math.max(400, top15.length * 36)}>
+                                        <BarChart data={top15} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} horizontal={false} />
+                                            <XAxis type="number" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} tickFormatter={(v) => `₱${(v / 1_000_000).toFixed(0)}M`} />
+                                            <YAxis dataKey="name" type="category" width={170} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
+                                            <RechartsTooltip content={customTooltip} />
+                                            <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} formatter={(v) => <span className="text-foreground text-xs">{v}</span>} />
+                                            <Bar dataKey="Liquidated" stackId="a" fill="#10b981" isAnimationActive={false} />
+                                            <Bar dataKey="For Endorsement" stackId="a" fill="#f59e0b" isAnimationActive={false} />
+                                            <Bar dataKey="For Compliance" stackId="a" fill="#8b5cf6" isAnimationActive={false} />
+                                            <Bar dataKey="Unliquidated" stackId="a" fill="#ef4444" radius={[0, 4, 4, 0]} isAnimationActive={false} />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+
+                                {/* Chart 2: Scatter — % Liquidation vs % Submission */}
+                                <div className="rounded-lg border bg-card p-6">
+                                    <h3 className="text-sm font-semibold mb-1">Liquidation vs Submission Rates</h3>
+                                    <p className="text-xs text-muted-foreground mb-4">Each dot is an HEI. Dot size = number of grantees. Top-right = best performance.</p>
+                                    <ResponsiveContainer width="100%" height={400}>
+                                        <ScatterChart margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
+                                            <XAxis type="number" dataKey="x" name="% Liquidation" domain={[0, 110]} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} label={{ value: '% Liquidation', position: 'insideBottom', offset: -5, fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
+                                            <YAxis type="number" dataKey="y" name="% Submission" domain={[0, 110]} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} label={{ value: '% Submission', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
+                                            <ZAxis type="number" dataKey="z" range={[40, 400]} />
+                                            <RechartsTooltip content={scatterTooltip} />
+                                            <Scatter data={scatterData} fill="#10b981" fillOpacity={0.6} stroke="#10b981" strokeWidth={1} isAnimationActive={false} />
+                                        </ScatterChart>
+                                    </ResponsiveContainer>
+                                </div>
                             </div>
-                        </div>
-                    ) : (
+                        );
+                    })() : (
                         <div className="rounded-lg border bg-card overflow-hidden [&_td]:border-r [&_td]:border-border/40 [&_th]:border-r [&_th]:border-border/40 [&_td:last-child]:border-r-0 [&_th:last-child]:border-r-0">
                             <Table>
                                 <TableHeader>
                                     <TableRow className="border-b hover:bg-transparent">
                                         <TableHead className="h-9 pl-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">No.</TableHead>
-                                        <TableHead className="h-9 min-w-[200px] text-xs font-medium tracking-wider text-muted-foreground uppercase">Name of HEI</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase text-right">Grantees</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Disbursements</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Amount Liquidated</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Endorsement</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated (net of endorsement)</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated (not submitted)</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">For Compliance</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Amount With Submission</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Liquidation</TableHead>
-                                        <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Compliance</TableHead>
-                                        <TableHead className="h-9 pr-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">% Submission</TableHead>
+                                        {(
+                                            [
+                                                { col: 'name', label: 'Name of HEI', className: 'min-w-[200px]' },
+                                                { col: 'grantees', label: 'Grantees', className: 'text-right' },
+                                                { col: 'disbursements', label: 'Total Disbursements', className: '' },
+                                                { col: 'liquidated', label: 'Total Amount Liquidated', className: '' },
+                                                { col: 'for_endorsement', label: 'For Endorsement', className: '' },
+                                                { col: 'unliquidated_net', label: 'Unliquidated (net of endorsement)', className: '' },
+                                                { col: 'unliquidated_not_submitted', label: 'Unliquidated (not submitted)', className: '' },
+                                                { col: 'for_compliance', label: 'For Compliance', className: '' },
+                                                { col: 'total_with_submission', label: 'Total Amount With Submission', className: '' },
+                                                { col: 'pct_liquidation', label: '% Liquidation', className: '' },
+                                                { col: 'pct_compliance', label: '% Compliance', className: '' },
+                                                { col: 'pct_submission', label: '% Submission', className: 'pr-6' },
+                                            ] as { col: SortKey; label: string; className: string }[]
+                                        ).map(({ col, label, className }) => (
+                                            <TableHead
+                                                key={col}
+                                                className={`h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase cursor-pointer select-none hover:text-foreground transition-colors ${className}`}
+                                                onClick={() => handleSort(col)}
+                                            >
+                                                <span className="inline-flex items-center">
+                                                    {label}
+                                                    <SortIcon col={col} />
+                                                </span>
+                                            </TableHead>
+                                        ))}
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {filtered.length === 0 ? (
+                                    {sorted.length === 0 ? (
                                         <TableRow>
                                             <TableCell colSpan={13} className="text-center py-12 text-muted-foreground">
                                                 {searchQuery ? 'No matching HEIs found.' : 'No data available.'}
@@ -336,10 +448,10 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
                             </Table>
 
                             {/* Pagination footer */}
-                            {filtered.length > PAGE_SIZE && (
+                            {sorted.length > PAGE_SIZE && (
                                 <div className="flex items-center justify-between px-6 py-3 border-t text-sm text-muted-foreground">
                                     <span>
-                                        Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} HEIs
+                                        Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, sorted.length)} of {sorted.length} HEIs
                                     </span>
                                     <div className="flex items-center gap-1">
                                         <Button

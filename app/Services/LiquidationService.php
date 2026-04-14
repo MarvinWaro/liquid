@@ -183,6 +183,20 @@ class LiquidationService
                 $query->where('liquidation_status_id', $liquidationStatus->id);
             }
         }
+
+        // Filter by academic year
+        if (!empty($filters['academic_year']) && $filters['academic_year'] !== 'all') {
+            $query->where('academic_year_id', $filters['academic_year']);
+        }
+
+        // Filter by RC note status
+        if (!empty($filters['rc_note_status']) && $filters['rc_note_status'] !== 'all') {
+            if ($filters['rc_note_status'] === 'none') {
+                $query->whereNull('rc_note_status_id');
+            } else {
+                $query->where('rc_note_status_id', $filters['rc_note_status']);
+            }
+        }
     }
 
     /**
@@ -603,6 +617,9 @@ class LiquidationService
             '1', '1st', '1st semester', 'first', 'first semester' => Semester::CODE_FIRST,
             '2', '2nd', '2nd semester', 'second', 'second semester' => Semester::CODE_SECOND,
             '3', 'summer', 'sum', 'summer semester' => Semester::CODE_SUMMER,
+            '1st and 2nd', '1st & 2nd', '1st and 2nd semester', '1st&2nd' => '1ST&2ND',
+            'tes3a', 'tes 3a' => 'TES3A',
+            'tes3b', 'tes 3b' => 'TES3B',
             default => null,
         };
 
@@ -610,9 +627,11 @@ class LiquidationService
             return $this->getCachedSemesters()->firstWhere('code', $code)?->id;
         }
 
-        // Try matching against semester names in the database
-        $semester = $this->getCachedSemesters()->first(function ($sem) use ($value) {
-            return strtolower($sem->name) === strtolower($value);
+        // Normalize: strip spaces and compare against code and name
+        $normalized = strtoupper(str_replace(' ', '', $value));
+        $semester = $this->getCachedSemesters()->first(function ($sem) use ($value, $normalized) {
+            return strtolower($sem->name) === strtolower($value)
+                || strtoupper($sem->code) === $normalized;
         });
 
         return $semester?->id;

@@ -41,6 +41,8 @@ const actionColors: Record<string, string> = {
     mentioned_in_comment: 'bg-pink-500',
     replied_to_thread: 'bg-violet-500',
     commented_on_requirement: 'bg-sky-500',
+    mentioned_in_announcement_comment: 'bg-pink-500',
+    replied_to_announcement_thread: 'bg-violet-500',
     created: 'bg-green-500',
     updated: 'bg-blue-500',
     deleted: 'bg-red-500',
@@ -77,6 +79,11 @@ function getSubjectUrl(subjectType: string | null, subjectId: string | null, act
         case 'LiquidationTransmittal':
         case 'LiquidationCompliance':
             return '/liquidation';
+        case 'Announcement':
+            if (metadata?.slug) {
+                return `/announcement/${metadata.slug}#discussion`;
+            }
+            return '/announcement';
         case 'User':
             return '/users';
         case 'HEI':

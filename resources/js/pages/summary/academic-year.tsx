@@ -34,8 +34,6 @@ import {
     Tooltip as RechartsTooltip,
     Legend,
     ResponsiveContainer,
-    Line,
-    ComposedChart,
 } from 'recharts';
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -190,55 +188,89 @@ export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], fi
                         </div>
                     </div>
 
-                    {showChart && filtered.length > 0 ? (
-                        <div className="space-y-6">
-                            {/* Financial Breakdown Chart */}
-                            <div className="rounded-lg border bg-card p-6">
-                                <h3 className="text-sm font-semibold mb-4">Financial Breakdown</h3>
-                                <ResponsiveContainer width="100%" height={350}>
-                                    <BarChart data={filtered.map(r => ({ ...r, total_unliquidated: r.total_disbursements - r.liquidated_amount }))} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                                        <XAxis dataKey="academic_year" className="text-xs" tick={{ fontSize: 11 }} />
-                                        <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => `₱${(v / 1_000_000).toFixed(1)}M`} />
-                                        <RechartsTooltip
-                                            formatter={(value: number, name: string) => [formatCurrency(value), name]}
-                                            contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                                        />
-                                        <Legend wrapperStyle={{ fontSize: 12 }} />
-                                        <Bar dataKey="total_disbursements" name="Total Disbursements" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                                        <Bar dataKey="liquidated_amount" name="Liquidated" fill="#22c55e" radius={[4, 4, 0, 0]} />
-                                        <Bar dataKey="total_unliquidated" name="Unliquidated" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                                        <Bar dataKey="for_endorsement" name="For Endorsement" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                                        <Bar dataKey="for_compliance" name="For Compliance" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </div>
+                    {showChart && filtered.length > 0 ? (() => {
+                        const chartData = filtered
+                            .slice()
+                            .sort((a, b) => a.academic_year.localeCompare(b.academic_year))
+                            .map(r => ({
+                                name: r.academic_year,
+                                'Liquidated': Number(r.liquidated_amount),
+                                'For Endorsement': Number(r.for_endorsement),
+                                'For Compliance': Number(r.for_compliance),
+                                'Unliquidated': Math.max(0, Number(r.total_disbursements) - Number(r.liquidated_amount) - Number(r.for_endorsement) - Number(r.for_compliance)),
+                                '% Liquidation': Number(computePercentLiquidation(r).toFixed(2)),
+                                '% Compliance': Number((Number(r.percentage_compliance) || 0).toFixed(2)),
+                                '% Submission': Number((Number(r.percentage_submission) || 0).toFixed(2)),
+                                'Grantees': Number(r.total_grantees),
+                            }));
 
-                            {/* Percentage & Grantees Chart */}
-                            <div className="rounded-lg border bg-card p-6">
-                                <h3 className="text-sm font-semibold mb-4">Rates & Grantees</h3>
-                                <ResponsiveContainer width="100%" height={300}>
-                                    <ComposedChart data={filtered.map(r => ({ ...r, computed_pct_liquidation: computePercentLiquidation(r) }))} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                                        <XAxis dataKey="academic_year" className="text-xs" tick={{ fontSize: 11 }} />
-                                        <YAxis yAxisId="left" className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
-                                        <YAxis yAxisId="right" orientation="right" className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v.toLocaleString()} />
-                                        <RechartsTooltip
-                                            formatter={(value: number, name: string) =>
-                                                name === 'Grantees' ? [value.toLocaleString(), name] : [`${Number(value).toFixed(2)}%`, name]
-                                            }
-                                            contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                                        />
-                                        <Legend wrapperStyle={{ fontSize: 12 }} />
-                                        <Bar yAxisId="right" dataKey="total_grantees" name="Grantees" fill="#0ea5e9" radius={[4, 4, 0, 0]} opacity={0.4} />
-                                        <Line yAxisId="left" type="monotone" dataKey="computed_pct_liquidation" name="% Liquidation" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} />
-                                        <Line yAxisId="left" type="monotone" dataKey="percentage_compliance" name="% Compliance" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 4 }} />
-                                        <Line yAxisId="left" type="monotone" dataKey="percentage_submission" name="% Submission" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} />
-                                    </ComposedChart>
-                                </ResponsiveContainer>
+                        const customTooltip = ({ active, payload, label }: any) => {
+                            if (!active || !payload?.length) return null;
+                            return (
+                                <div className="bg-background border border-border rounded-lg shadow-xl p-3 min-w-[220px]">
+                                    <p className="font-semibold text-sm mb-2 pb-2 border-b border-border">{label}</p>
+                                    <div className="space-y-1.5">
+                                        {payload.map((entry: any, i: number) => (
+                                            <div key={i} className="flex items-center justify-between gap-4">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: entry.color }} />
+                                                    <span className="text-xs text-muted-foreground">{entry.name}</span>
+                                                </div>
+                                                <span className="font-mono text-xs font-medium">
+                                                    {typeof entry.value === 'number' && entry.name?.startsWith('%')
+                                                        ? `${entry.value.toFixed(2)}%`
+                                                        : typeof entry.value === 'number' && entry.name === 'Grantees'
+                                                            ? entry.value.toLocaleString()
+                                                            : formatCurrency(entry.value)}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        };
+
+                        return (
+                            <div className="space-y-6">
+                                {/* Chart 1: Stacked bar — Disbursed = Liquidated + Endorsed + Compliance + Remaining */}
+                                <div className="rounded-lg border bg-card p-6">
+                                    <h3 className="text-sm font-semibold mb-1">Disbursement Breakdown</h3>
+                                    <p className="text-xs text-muted-foreground mb-4">How funds are distributed across liquidation categories per academic year</p>
+                                    <ResponsiveContainer width="100%" height={350}>
+                                        <BarChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
+                                            <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
+                                            <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} tickFormatter={(v) => `₱${(v / 1_000_000).toFixed(0)}M`} />
+                                            <RechartsTooltip content={customTooltip} />
+                                            <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} formatter={(v) => <span className="text-foreground text-xs">{v}</span>} />
+                                            <Bar dataKey="Liquidated" stackId="a" fill="#10b981" isAnimationActive={false} />
+                                            <Bar dataKey="For Endorsement" stackId="a" fill="#f59e0b" isAnimationActive={false} />
+                                            <Bar dataKey="For Compliance" stackId="a" fill="#8b5cf6" isAnimationActive={false} />
+                                            <Bar dataKey="Unliquidated" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+
+                                {/* Chart 2: Grouped percentage bars */}
+                                <div className="rounded-lg border bg-card p-6">
+                                    <h3 className="text-sm font-semibold mb-1">Liquidation Rates</h3>
+                                    <p className="text-xs text-muted-foreground mb-4">Percentage comparison across academic years</p>
+                                    <ResponsiveContainer width="100%" height={300}>
+                                        <BarChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
+                                            <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
+                                            <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                                            <RechartsTooltip content={customTooltip} />
+                                            <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} formatter={(v) => <span className="text-foreground text-xs">{v}</span>} />
+                                            <Bar dataKey="% Liquidation" fill="#10b981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                                            <Bar dataKey="% Compliance" fill="#8b5cf6" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                                            <Bar dataKey="% Submission" fill="#f59e0b" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
                             </div>
-                        </div>
-                    ) : (
+                        );
+                    })() : (
                         <div className="rounded-lg border bg-card overflow-hidden [&_td]:border-r [&_td]:border-border/40 [&_th]:border-r [&_th]:border-border/40 [&_td:last-child]:border-r-0 [&_th:last-child]:border-r-0">
                             <Table>
                                 <TableHeader>

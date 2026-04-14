@@ -86,6 +86,18 @@ class Liquidation extends Model
     }
 
     /**
+     * Invalidate the dashboard aggregate cache on any liquidation write so
+     * subsequent reloads show fresh numbers without waiting for TTL expiry.
+     */
+    protected static function booted(): void
+    {
+        $flush = fn () => \App\Services\DashboardCache::flush();
+        static::saved($flush);
+        static::deleted($flush);
+        static::restored($flush);
+    }
+
+    /**
      * The attributes that are mass assignable.
      *
      * @var array<string>

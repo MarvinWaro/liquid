@@ -538,12 +538,10 @@ export function CreateLiquidationModal({
                             <Label htmlFor="batch_no">Batch No.</Label>
                             <Input
                                 id="batch_no"
-                                type="number"
-                                min="0"
-                                step="0.01"
+                                type="text"
                                 value={formData.batch_no}
                                 onChange={(e) => handleInputChange('batch_no', e.target.value)}
-                                placeholder="e.g., 1, 2, 3"
+                                placeholder="e.g., 1, 2, 1 & 2"
                                 className={fieldErrors.batch_no ? 'border-red-500' : ''}
                             />
                             {fieldErrors.batch_no && (

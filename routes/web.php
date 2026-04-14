@@ -7,6 +7,7 @@ use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\HEIController;
 use App\Http\Controllers\RegionController;
+use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\LiquidationController;
 use App\Http\Controllers\ProgramController;
 use App\Http\Controllers\ActivityLogController;
@@ -17,11 +18,24 @@ use App\Http\Controllers\SemesterController;
 use App\Http\Controllers\AcademicYearController;
 use App\Http\Controllers\AcademicYearRequirementController;
 
-Route::get('/', function () {
-    return Inertia::render('welcome');
-})->name('home');
+Route::get('/', [AnnouncementController::class, 'welcome'])->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
+    // Announcement CRUD Routes
+    Route::get('announcement', [AnnouncementController::class, 'index'])->name('announcements.index');
+    Route::get('announcement/create', [AnnouncementController::class, 'create'])->name('announcements.create');
+    Route::post('announcement', [AnnouncementController::class, 'store'])->name('announcements.store');
+    Route::get('announcement/{announcement:slug}', [AnnouncementController::class, 'show'])->name('announcements.show');
+    Route::get('announcement/{announcement:slug}/edit', [AnnouncementController::class, 'edit'])->name('announcements.edit');
+    Route::put('announcement/{announcement:slug}', [AnnouncementController::class, 'update'])->name('announcements.update');
+    Route::delete('announcement/{announcement:slug}', [AnnouncementController::class, 'destroy'])->name('announcements.destroy');
+
+    // Announcement Comments (threaded + mentions)
+    Route::get('announcement/{announcement:slug}/comments', [\App\Http\Controllers\AnnouncementCommentController::class, 'index'])->name('announcement-comments.index');
+    Route::post('announcement/{announcement:slug}/comments', [\App\Http\Controllers\AnnouncementCommentController::class, 'store'])->name('announcement-comments.store');
+    Route::delete('announcement/{announcement:slug}/comments/{comment}', [\App\Http\Controllers\AnnouncementCommentController::class, 'destroy'])->name('announcement-comments.destroy');
+    Route::post('announcement/{announcement:slug}/comments/{comment}/react', [\App\Http\Controllers\AnnouncementCommentController::class, 'toggleReaction'])->name('announcement-comments.react');
+    Route::get('announcement/{announcement:slug}/mentionable-users', [\App\Http\Controllers\AnnouncementCommentController::class, 'mentionableUsers'])->name('announcement-comments.mentionable-users');
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('summary/academic-year', [DashboardController::class, 'summaryPerAY'])->name('summary.academic-year');
     Route::get('summary/hei', [DashboardController::class, 'summaryPerHEI'])->name('summary.hei');
@@ -130,6 +144,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // RC Bulk Liquidation Routes
     Route::get('liquidation/rc-template/download', [LiquidationController::class, 'downloadRCTemplate'])->name('liquidation.download-rc-template');
     Route::post('liquidation/validate-import', [LiquidationController::class, 'validateImport'])->name('liquidation.validate-import');
+    Route::get('liquidation/validate-progress', [LiquidationController::class, 'validateProgress'])->name('liquidation.validate-progress');
     Route::post('liquidation/bulk-import', [LiquidationController::class, 'bulkImportLiquidations'])->name('liquidation.bulk-import');
     Route::get('liquidation/import-progress', [LiquidationController::class, 'importProgress'])->name('liquidation.import-progress');
     Route::get('liquidation/import-batches', [LiquidationController::class, 'importBatches'])->name('liquidation.import-batches');

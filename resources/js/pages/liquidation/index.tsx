@@ -62,6 +62,8 @@ interface Props {
         program?: string;
         document_status?: string;
         liquidation_status?: string;
+        academic_year?: string;
+        rc_note_status?: string;
     };
     permissions: {
         review: boolean;
@@ -80,6 +82,8 @@ export default function Index({ liquidations, tableSummary, programs, createProg
     const [programFilter, setProgramFilter] = useState(filters.program || '');
     const [documentStatusFilter, setDocumentStatusFilter] = useState(filters.document_status || '');
     const [liquidationStatusFilter, setLiquidationStatusFilter] = useState(filters.liquidation_status || '');
+    const [academicYearFilter, setAcademicYearFilter] = useState(filters.academic_year || '');
+    const [rcNoteStatusFilter, setRcNoteStatusFilter] = useState(filters.rc_note_status || '');
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isBulkEntryOpen, setIsBulkEntryOpen] = useState(false);
     const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
@@ -110,6 +114,8 @@ export default function Index({ liquidations, tableSummary, programs, createProg
         program: programFilter,
         document_status: documentStatusFilter,
         liquidation_status: liquidationStatusFilter,
+        academic_year: academicYearFilter,
+        rc_note_status: rcNoteStatusFilter,
         ...overrides,
     });
 
@@ -127,7 +133,7 @@ export default function Index({ liquidations, tableSummary, programs, createProg
             preserveState: true,
             preserveScroll: true,
         });
-    }, [searchQuery, documentStatusFilter, liquidationStatusFilter]);
+    }, [searchQuery, documentStatusFilter, liquidationStatusFilter, academicYearFilter, rcNoteStatusFilter]);
 
     const handleDocumentStatusFilter = useCallback((value: string) => {
         setDocumentStatusFilter(value);
@@ -135,7 +141,7 @@ export default function Index({ liquidations, tableSummary, programs, createProg
             preserveState: true,
             preserveScroll: true,
         });
-    }, [searchQuery, programFilter, liquidationStatusFilter]);
+    }, [searchQuery, programFilter, liquidationStatusFilter, academicYearFilter, rcNoteStatusFilter]);
 
     const handleLiquidationStatusFilter = useCallback((value: string) => {
         setLiquidationStatusFilter(value);
@@ -143,7 +149,23 @@ export default function Index({ liquidations, tableSummary, programs, createProg
             preserveState: true,
             preserveScroll: true,
         });
-    }, [searchQuery, programFilter, documentStatusFilter]);
+    }, [searchQuery, programFilter, documentStatusFilter, academicYearFilter, rcNoteStatusFilter]);
+
+    const handleAcademicYearFilter = useCallback((value: string) => {
+        setAcademicYearFilter(value);
+        router.get(route('liquidation.index'), getFilterParams({ academic_year: value }), {
+            preserveState: true,
+            preserveScroll: true,
+        });
+    }, [searchQuery, programFilter, documentStatusFilter, liquidationStatusFilter, rcNoteStatusFilter]);
+
+    const handleRcNoteStatusFilter = useCallback((value: string) => {
+        setRcNoteStatusFilter(value);
+        router.get(route('liquidation.index'), getFilterParams({ rc_note_status: value }), {
+            preserveState: true,
+            preserveScroll: true,
+        });
+    }, [searchQuery, programFilter, documentStatusFilter, liquidationStatusFilter, academicYearFilter]);
 
     const handleDownloadTemplate = () => {
         window.location.href = route('liquidation.download-rc-template');
@@ -491,6 +513,12 @@ export default function Index({ liquidations, tableSummary, programs, createProg
                                 onDocumentStatusFilter={handleDocumentStatusFilter}
                                 liquidationStatusFilter={liquidationStatusFilter}
                                 onLiquidationStatusFilter={handleLiquidationStatusFilter}
+                                academicYearFilter={academicYearFilter}
+                                onAcademicYearFilter={handleAcademicYearFilter}
+                                academicYears={academicYears ?? []}
+                                rcNoteStatusFilter={rcNoteStatusFilter}
+                                onRcNoteStatusFilter={handleRcNoteStatusFilter}
+                                rcNoteStatuses={rcNoteStatuses ?? []}
                             />
 
                             {/* Summary stats bar */}

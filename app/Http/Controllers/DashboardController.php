@@ -6,20 +6,23 @@ use App\Models\Liquidation;
 use App\Models\LiquidationStatus;
 use App\Models\HEI;
 use App\Models\Program;
+use App\Models\Region;
+use App\Services\DashboardCache;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         $user = auth()->user();
         $isAdmin = $user->role && in_array($user->role->name, ['Admin', 'Super Admin']);
 
         // Only show consolidated data for Admin roles
         if ($isAdmin) {
-            return $this->adminDashboard();
+            return $this->adminDashboard($request);
         }
 
         // For non-admin users (RC, Accountant, HEI)
@@ -29,20 +32,93 @@ class DashboardController extends Controller
     /**
      * Admin dashboard with consolidated data.
      */
-    private function adminDashboard()
+    private function adminDashboard(Request $request)
     {
+        $regionId      = $request->query('region_id') ?: null;
+        $programFilter = $request->query('program_id') ?: null;
+
+        $programs = Program::select('id', 'name', 'code', 'parent_id')->orderBy('name')->get();
+        $regions  = Region::select('id', 'name', 'code')->orderBy('name')->get();
+
+        // Validate region_id — fall back silently if unknown.
+        if ($regionId && !$regions->firstWhere('id', $regionId)) {
+            $regionId = null;
+        }
+
+        $programIds = $this->resolveProgramIdsFromFilter($programFilter, $programs);
+        // If the filter value is invalid, reset it so the UI and cache stay consistent.
+        if ($programFilter && $programIds === null && !in_array($programFilter, ['all', 'unifast', 'stufaps'], true)) {
+            $programFilter = null;
+        }
+
+        $scope = [
+            'role'       => 'admin',
+            'region_id'  => $regionId,
+            'program'    => $programFilter,
+        ];
+
         return Inertia::render('dashboard', [
             'isAdmin' => true,
-            'totalStats' => $this->getTotalStats(),
+            'regions' => $regions,
+            'programs' => $programs,
+            'filters' => [
+                'region_id'  => $regionId,
+                'program_id' => $programFilter,
+            ],
+            'totalStats' => DashboardCache::remember('totalStats', $scope, fn () => $this->getTotalStats($regionId, $programIds)),
 
             // Deferred — queries run only after initial paint is sent to browser
-            'summaryPerAY' => Inertia::defer(fn () => $this->getSummaryPerAY(), 'charts-1'),
-            'summaryPerHEI' => Inertia::defer(fn () => $this->getSummaryPerHEI(), 'charts-2'),
-            'statusDistribution' => Inertia::defer(fn () => $this->getLiquidationStatusDistribution(), 'charts-3'),
-            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates(), 'charts-4'),
-            'fundSourceData' => Inertia::defer(fn () => $this->computeFundSourceData(), 'charts-5'),
-            'overviewStats' => Inertia::defer(fn () => $this->getOverviewStats(), 'charts-6'),
+            // Group into 2 batches: core charts (1 request) + supplementary (1 request)
+            'summaryPerAY' => Inertia::defer(fn () => DashboardCache::remember('summaryPerAY', $scope, fn () => $this->getSummaryPerAY(null, $regionId, $programIds)), 'charts'),
+            'summaryPerHEI' => Inertia::defer(fn () => DashboardCache::remember('summaryPerHEI', $scope, fn () => $this->getSummaryPerHEI($regionId, $programIds)), 'charts'),
+            'statusDistribution' => Inertia::defer(fn () => DashboardCache::remember('statusDistribution', $scope, fn () => $this->getLiquidationStatusDistribution(null, $regionId, $programIds)), 'charts'),
+            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates(null, null, $regionId, $programIds), 'charts'),
+            'overviewStats' => Inertia::defer(fn () => DashboardCache::remember('overviewStats', $scope, fn () => $this->getOverviewStats($regionId, $programIds)), 'charts'),
+            'fundSourceData' => Inertia::defer(fn () => DashboardCache::remember('fundSourceData', $scope, fn () => $this->computeFundSourceData(null, $regionId)), 'charts-extra'),
         ]);
+    }
+
+    /**
+     * Resolve a program filter value (one of: 'all', 'unifast', 'stufaps', program UUID)
+     * into an array of concrete program IDs. Returns null when no scoping is needed.
+     */
+    private function resolveProgramIdsFromFilter(?string $value, Collection $programs): ?array
+    {
+        if (!$value || $value === 'all') {
+            return null;
+        }
+
+        $unifastCodes = ['TES', 'TDP'];
+        $unifastParentIds = $programs
+            ->whereNull('parent_id')
+            ->filter(fn ($p) => in_array(strtoupper($p->code ?? ''), $unifastCodes, true))
+            ->pluck('id');
+
+        if ($value === 'unifast') {
+            $childIds = $programs->whereIn('parent_id', $unifastParentIds)->pluck('id');
+            return $unifastParentIds->concat($childIds)->unique()->values()->all() ?: null;
+        }
+
+        if ($value === 'stufaps') {
+            return $programs
+                ->reject(fn ($p) => $p->parent_id === null && in_array(strtoupper($p->code ?? ''), $unifastCodes, true))
+                ->pluck('id')
+                ->values()
+                ->all() ?: null;
+        }
+
+        // Specific program ID — include children if it's a parent.
+        $program = $programs->firstWhere('id', $value);
+        if (!$program) {
+            return null;
+        }
+
+        if ($program->parent_id === null) {
+            $childIds = $programs->where('parent_id', $program->id)->pluck('id');
+            return collect([$program->id])->concat($childIds)->unique()->values()->all();
+        }
+
+        return [$program->id];
     }
 
     /**
@@ -52,6 +128,16 @@ class DashboardController extends Controller
     {
         $userRole = $user->role ? $user->role->name : null;
         $canViewFundSource = $user->hasPermission('view_fund_source_filter');
+
+        // Scope identifies what data this user sees — included in every cache
+        // key so role/region/HEI/program boundaries never leak across users.
+        $scope = [
+            'role'       => $userRole,
+            'region_id'  => $user->region_id,
+            'hei_id'     => $user->hei_id,
+            'scoped'     => $userRole === 'STUFAPS Focal' ? $user->getScopedProgramIds() : null,
+            'parent_scoped' => $userRole === 'STUFAPS Focal' ? $user->getParentScopedProgramIds() : null,
+        ];
 
         // Only compute the stat cards eagerly (fast, small queries)
         $userStats = match ($userRole) {
@@ -63,14 +149,14 @@ class DashboardController extends Controller
             default => ['my_liquidations' => 0, 'pending_action' => 0, 'completed' => 0, 'total_amount' => 0],
         };
 
-        $totalStats = match ($userRole) {
+        $totalStats = DashboardCache::remember('totalStats', $scope, fn () => match ($userRole) {
             'Regional Coordinator' => $this->getTotalStats($user->region_id, null, true),
             'Accountant' => $this->getTotalStats(endorsedOnly: true),
             'COA' => $this->getTotalStats(coaEndorsedOnly: true),
             'HEI' => $user->hei_id ? $this->getHEITotalStats($user->hei_id) : [],
             'STUFAPS Focal' => $this->getTotalStats(null, $user->getParentScopedProgramIds()),
             default => [],
-        };
+        });
 
         return Inertia::render('dashboard', [
             'isAdmin' => false,
@@ -79,45 +165,38 @@ class DashboardController extends Controller
             'userRole' => $userRole,
 
             // Deferred — heavy queries run only after initial paint is sent to browser
-            'summaryPerAY' => Inertia::defer(function () use ($user, $userRole) {
-                return match ($userRole) {
-                    'Regional Coordinator' => $this->getSummaryPerAY(null, $user->region_id, null, true),
-                    'Accountant' => $this->getSummaryPerAY(endorsedOnly: true),
-                    'COA' => $this->getSummaryPerAY(coaEndorsedOnly: true),
-                    'HEI' => $user->hei_id ? $this->getSummaryPerAY($user->hei_id) : [],
-                    'STUFAPS Focal' => $this->getSummaryPerAY(null, null, $user->getParentScopedProgramIds()),
-                    default => [],
-                };
-            }, 'charts-1'),
-            'summaryPerHEI' => Inertia::defer(function () use ($user, $userRole) {
-                return match ($userRole) {
-                    'Regional Coordinator' => $this->getSummaryPerHEI($user->region_id, null, true),
-                    'Accountant' => $this->getSummaryPerHEI(endorsedOnly: true),
-                    'COA' => $this->getSummaryPerHEI(coaEndorsedOnly: true),
-                    'STUFAPS Focal' => $this->getSummaryPerHEI(null, $user->getParentScopedProgramIds()),
-                    default => [],
-                };
-            }, 'charts-2'),
-            'statusDistribution' => Inertia::defer(function () use ($user, $userRole) {
-                return match ($userRole) {
-                    'Regional Coordinator' => $this->getLiquidationStatusDistribution(null, $user->region_id, null, true),
-                    'Accountant' => $this->getLiquidationStatusDistribution(endorsedOnly: true),
-                    'COA' => $this->getLiquidationStatusDistribution(coaEndorsedOnly: true),
-                    'HEI' => $user->hei_id ? $this->getLiquidationStatusDistribution($user->hei_id) : [],
-                    'STUFAPS Focal' => $this->getLiquidationStatusDistribution(null, null, $user->getParentScopedProgramIds()),
-                    default => [],
-                };
-            }, 'charts-3'),
-            'recentLiquidations' => Inertia::defer(fn () => $this->getRecentLiquidations($user, $userRole), 'charts-4'),
-            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates($user, $userRole), 'charts-5'),
-            'fundSourceData' => Inertia::defer(function () use ($user, $userRole, $canViewFundSource) {
-                return match ($userRole) {
-                    'Accountant' => $canViewFundSource ? $this->computeFundSourceData(endorsedOnly: true) : null,
-                    'COA' => $canViewFundSource ? $this->computeFundSourceData(coaEndorsedOnly: true) : null,
-                    'HEI' => $user->hei_id ? $this->computeFundSourceData($user->hei_id) : null,
-                    default => null,
-                };
-            }, 'charts-6'),
+            // Group into 2 batches: core charts (1 request) + fund source (1 request)
+            'summaryPerAY' => Inertia::defer(fn () => DashboardCache::remember('summaryPerAY', $scope, fn () => match ($userRole) {
+                'Regional Coordinator' => $this->getSummaryPerAY(null, $user->region_id, null, true),
+                'Accountant' => $this->getSummaryPerAY(endorsedOnly: true),
+                'COA' => $this->getSummaryPerAY(coaEndorsedOnly: true),
+                'HEI' => $user->hei_id ? $this->getSummaryPerAY($user->hei_id) : [],
+                'STUFAPS Focal' => $this->getSummaryPerAY(null, null, $user->getParentScopedProgramIds()),
+                default => [],
+            }), 'charts'),
+            'summaryPerHEI' => Inertia::defer(fn () => DashboardCache::remember('summaryPerHEI', $scope, fn () => match ($userRole) {
+                'Regional Coordinator' => $this->getSummaryPerHEI($user->region_id, null, true),
+                'Accountant' => $this->getSummaryPerHEI(endorsedOnly: true),
+                'COA' => $this->getSummaryPerHEI(coaEndorsedOnly: true),
+                'STUFAPS Focal' => $this->getSummaryPerHEI(null, $user->getParentScopedProgramIds()),
+                default => [],
+            }), 'charts'),
+            'statusDistribution' => Inertia::defer(fn () => DashboardCache::remember('statusDistribution', $scope, fn () => match ($userRole) {
+                'Regional Coordinator' => $this->getLiquidationStatusDistribution(null, $user->region_id, null, true),
+                'Accountant' => $this->getLiquidationStatusDistribution(endorsedOnly: true),
+                'COA' => $this->getLiquidationStatusDistribution(coaEndorsedOnly: true),
+                'HEI' => $user->hei_id ? $this->getLiquidationStatusDistribution($user->hei_id) : [],
+                'STUFAPS Focal' => $this->getLiquidationStatusDistribution(null, null, $user->getParentScopedProgramIds()),
+                default => [],
+            }), 'charts'),
+            'recentLiquidations' => Inertia::defer(fn () => $this->getRecentLiquidations($user, $userRole), 'charts'),
+            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates($user, $userRole), 'charts'),
+            'fundSourceData' => Inertia::defer(fn () => DashboardCache::remember('fundSourceData', $scope + ['fs' => $canViewFundSource], fn () => match ($userRole) {
+                'Accountant' => $canViewFundSource ? $this->computeFundSourceData(endorsedOnly: true) : null,
+                'COA' => $canViewFundSource ? $this->computeFundSourceData(coaEndorsedOnly: true) : null,
+                'HEI' => $user->hei_id ? $this->computeFundSourceData($user->hei_id) : null,
+                default => null,
+            }), 'charts-extra'),
         ]);
     }
 
@@ -156,15 +235,26 @@ class DashboardController extends Controller
     {
         $allPrograms = Program::all(['id', 'code', 'parent_id']);
 
-        $unifastIds = $allPrograms->filter(fn($p) =>
-            in_array(strtoupper($p->code), ['TES', 'TDP']) && $p->parent_id === null
+        $tesIds = $allPrograms->filter(fn($p) =>
+            strtoupper($p->code) === 'TES' && $p->parent_id === null
         )->pluck('id')->toArray();
+
+        $tdpIds = $allPrograms->filter(fn($p) =>
+            strtoupper($p->code) === 'TDP' && $p->parent_id === null
+        )->pluck('id')->toArray();
+
+        $unifastIds = array_merge($tesIds, $tdpIds);
 
         $stufapsIds = $allPrograms->reject(fn($p) =>
             in_array($p->id, $unifastIds)
         )->pluck('id')->toArray();
 
-        return ['unifast' => $unifastIds, 'stufaps' => $stufapsIds];
+        return [
+            'unifast'  => $unifastIds,
+            'tes'      => $tesIds,
+            'tdp'      => $tdpIds,
+            'stufaps'  => $stufapsIds,
+        ];
     }
 
     /**
@@ -180,7 +270,7 @@ class DashboardController extends Controller
         ];
 
         $result = [];
-        foreach (['unifast', 'stufaps'] as $source) {
+        foreach (['unifast', 'tes', 'tdp', 'stufaps'] as $source) {
             $ids = $fs[$source];
             $result[$source] = [
                 'totalStats' => !empty($ids) ? $this->getTotalStats($regionId, $ids, false, $heiId, $endorsedOnly, $coaEndorsedOnly) : $empty,
@@ -329,7 +419,8 @@ class DashboardController extends Controller
     {
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id');
+            ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id')
+            ->leftJoin('document_statuses', 'liquidations.document_status_id', '=', 'document_statuses.id');
         $this->applyBaseExclusions($query);
 
         if ($coaEndorsedOnly) {
@@ -366,6 +457,8 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0)), 0) as total_unliquidated')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_compliance')
+            // Total With Submission = Liquidated + Unliquidated where docs submitted (COMPLETE/PARTIAL)
+            ->selectRaw('COALESCE(SUM(COALESCE(liquidation_financials.amount_liquidated, 0)), 0) + COALESCE(SUM(CASE WHEN document_statuses.code IN ("COMPLETE", "PARTIAL") THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as total_with_submission')
             ->first();
 
         // Pending review = submitted but not yet endorsed to COA
@@ -407,6 +500,7 @@ class DashboardController extends Controller
             'total_unliquidated' => $stats->total_unliquidated ?? 0,
             'for_endorsement' => $stats->for_endorsement ?? 0,
             'for_compliance' => $stats->for_compliance ?? 0,
+            'total_with_submission' => $stats->total_with_submission ?? 0,
             'pending_review' => $pendingReview,
         ];
 
@@ -458,15 +552,30 @@ class DashboardController extends Controller
     /**
      * Overview stats for Admin/Super Admin: HEI count, total grantees, per-program breakdown.
      */
-    private function getOverviewStats(): array
+    private function getOverviewStats(?string $regionId = null, ?array $programIds = null): array
     {
-        $totalHeis = HEI::where('status', 'active')->count();
+        $heiQuery = HEI::where('status', 'active');
+        if ($regionId) {
+            $heiQuery->where('region_id', $regionId);
+        }
+        $totalHeis = $heiQuery->count();
 
         // Grantees per program (only leaf programs that have liquidations)
         $programStats = DB::table('liquidations')
             ->join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->join('programs', 'liquidations.program_id', '=', 'programs.id')
-            ->whereNull('liquidations.deleted_at')
+            ->whereNull('liquidations.deleted_at');
+
+        if ($regionId) {
+            $programStats->join('heis', 'liquidations.hei_id', '=', 'heis.id')
+                ->where('heis.region_id', $regionId);
+        }
+
+        if ($programIds) {
+            $programStats->whereIn('liquidations.program_id', $programIds);
+        }
+
+        $programStats = $programStats
             ->select(
                 'programs.id as program_id',
                 'programs.code',
@@ -775,6 +884,8 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursed')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code IN ("FULLY_ENDORSED", "PARTIALLY_ENDORSED") THEN COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as total_liquidated')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(CASE WHEN rc_note_statuses.code IN ("FULLY_ENDORSED", "PARTIALLY_ENDORSED") THEN COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as total_unliquidated')
+            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
+            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_compliance')
             ->first();
 
         // Pending review = submitted but not endorsed to COA
@@ -788,6 +899,8 @@ class DashboardController extends Controller
             'total_disbursed' => $stats->total_disbursed ?? 0,
             'total_liquidated' => $stats->total_liquidated ?? 0,
             'total_unliquidated' => $stats->total_unliquidated ?? 0,
+            'for_endorsement' => $stats->for_endorsement ?? 0,
+            'for_compliance' => $stats->for_compliance ?? 0,
             'pending_review' => $pendingReview,
         ];
     }
@@ -980,7 +1093,7 @@ class DashboardController extends Controller
     /**
      * Get calendar due dates for the dashboard, scoped by role.
      */
-    private function getCalendarDueDates($user = null, ?string $userRole = null): array
+    private function getCalendarDueDates($user = null, ?string $userRole = null, ?string $adminRegionId = null, ?array $adminProgramIds = null): array
     {
         $query = Liquidation::with([
             'financial:id,liquidation_id,due_date,amount_received',
@@ -1008,8 +1121,15 @@ class DashboardController extends Controller
             if ($programIds) {
                 $query->whereIn('program_id', $programIds);
             }
+        } else {
+            // Admin/Super Admin: honour optional region + program filters.
+            if ($adminRegionId) {
+                $query->whereHas('hei', fn($q) => $q->where('region_id', $adminRegionId));
+            }
+            if ($adminProgramIds) {
+                $query->whereIn('program_id', $adminProgramIds);
+            }
         }
-        // Admin/Super Admin: no filter — sees all
 
         $unifastCodes = ['TES', 'TDP'];
 

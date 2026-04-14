@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { GripVertical, Maximize2, Minimize2, Plus, RotateCcw, Square, X } from 'lucide-react';
-import { type ReactNode, useEffect, useRef } from 'react';
+import { memo, type ReactNode, useEffect, useRef } from 'react';
 import Sortable from 'sortablejs';
 
 /* ------------------------------------------------------------------ */
@@ -129,7 +129,7 @@ interface DashboardCardProps {
     className?: string;
 }
 
-export function DashboardCard({
+export const DashboardCard = memo(function DashboardCard({
     id,
     title,
     colSpan = 12,
@@ -226,7 +226,7 @@ export function DashboardCard({
             </Card>
         </div>
     );
-}
+});
 
 /* ------------------------------------------------------------------ */
 /*  DashboardToolbar – reset & re-add hidden cards                    */

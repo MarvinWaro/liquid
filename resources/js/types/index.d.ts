@@ -37,6 +37,9 @@ export interface NavigationAbilities {
     canViewActivityLogs: boolean;
     canViewSummaryAY: boolean;
     canViewSummaryHEI: boolean;
+    canCreateAnnouncements: boolean;
+    canEditAnnouncements: boolean;
+    canDeleteAnnouncements: boolean;
 }
 
 export interface AppNotification {

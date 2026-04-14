@@ -10,6 +10,7 @@ class RcNoteStatusSeeder extends Seeder
     public function run(): void
     {
         $statuses = [
+            ['code' => 'NO_SUBMISSION',       'name' => 'No Submission',       'badge_color' => 'gray',   'sort_order' => 0],
             ['code' => 'FOR_REVIEW',          'name' => 'For Review',          'badge_color' => 'blue',   'sort_order' => 1],
             ['code' => 'FOR_COMPLIANCE',      'name' => 'For Compliance',      'badge_color' => 'yellow', 'sort_order' => 2],
             ['code' => 'FOR_ENDORSEMENT',     'name' => 'For Endorsement',     'badge_color' => 'orange', 'sort_order' => 3],
