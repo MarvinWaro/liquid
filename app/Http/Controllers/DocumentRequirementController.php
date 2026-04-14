@@ -69,7 +69,7 @@ class DocumentRequirementController extends Controller
 
         if ($request->hasFile('reference_image')) {
             $validated['reference_image_path'] = $request->file('reference_image')
-                ->store('document_requirements', 'public');
+                ->store('document_requirements', 's3');
         }
         unset($validated['reference_image']);
 
@@ -110,7 +110,7 @@ class DocumentRequirementController extends Controller
         // Handle reference image removal
         if ($request->boolean('remove_reference_image')) {
             if ($requirement->reference_image_path) {
-                Storage::disk('public')->delete($requirement->reference_image_path);
+                Storage::disk('s3')->delete($requirement->reference_image_path);
             }
             $validated['reference_image_path'] = null;
         }
@@ -118,10 +118,10 @@ class DocumentRequirementController extends Controller
         // Handle reference image upload
         if ($request->hasFile('reference_image')) {
             if ($requirement->reference_image_path) {
-                Storage::disk('public')->delete($requirement->reference_image_path);
+                Storage::disk('s3')->delete($requirement->reference_image_path);
             }
             $validated['reference_image_path'] = $request->file('reference_image')
-                ->store('document_requirements', 'public');
+                ->store('document_requirements', 's3');
         }
         unset($validated['reference_image'], $validated['remove_reference_image']);
 
@@ -145,7 +145,7 @@ class DocumentRequirementController extends Controller
 
         $programId = $requirement->program_id;
         if ($requirement->reference_image_path) {
-            Storage::disk('public')->delete($requirement->reference_image_path);
+            Storage::disk('s3')->delete($requirement->reference_image_path);
         }
         $requirement->delete();
         $this->clearRequirementCache($programId);

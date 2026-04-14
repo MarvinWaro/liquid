@@ -124,17 +124,23 @@ class Announcement extends Model
 
     public function getCoverThumbUrlAttribute(): ?string
     {
-        return $this->cover_thumb_path ? '/storage/' . $this->cover_thumb_path : null;
+        return $this->cover_thumb_path
+            ? Storage::disk('s3')->temporaryUrl($this->cover_thumb_path, now()->addHours(2))
+            : null;
     }
 
     public function getCoverDisplayUrlAttribute(): ?string
     {
-        return $this->cover_display_path ? '/storage/' . $this->cover_display_path : null;
+        return $this->cover_display_path
+            ? Storage::disk('s3')->temporaryUrl($this->cover_display_path, now()->addHours(2))
+            : null;
     }
 
     public function getCoverOriginalUrlAttribute(): ?string
     {
-        return $this->cover_original_path ? '/storage/' . $this->cover_original_path : null;
+        return $this->cover_original_path
+            ? Storage::disk('s3')->temporaryUrl($this->cover_original_path, now()->addHours(2))
+            : null;
     }
 
     /**
@@ -142,7 +148,8 @@ class Announcement extends Model
      */
     public function deleteCoverFiles(): void
     {
-        $disk = Storage::disk('public');
+        $disk = Storage::disk('s3'); // Changed from 'public' to 's3'
+
         foreach (['cover_original_path', 'cover_display_path', 'cover_thumb_path'] as $field) {
             if ($this->{$field} && $disk->exists($this->{$field})) {
                 $disk->delete($this->{$field});

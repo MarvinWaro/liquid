@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Storage;
 
 class DocumentRequirement extends Model
 {
@@ -61,7 +62,7 @@ class DocumentRequirement extends Model
         if (!$this->reference_image_path) {
             return null;
         }
-        return '/storage/' . $this->reference_image_path;
+        return Storage::disk('s3')->temporaryUrl($this->reference_image_path, now()->addHours(2));
     }
 
     protected static function getActivityHiddenFields(): array
