@@ -90,7 +90,6 @@ class AnnouncementController extends Controller
     ): array {
         $query = DB::table('liquidations')
             ->join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id')
             ->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
             ->leftJoin('regions', 'heis.region_id', '=', 'regions.id')
             ->whereNull('liquidations.deleted_at');
@@ -121,10 +120,6 @@ class AnnouncementController extends Controller
             }
         }
 
-        $fullyLiquidatedClause = $fullyLiquidatedId
-            ? "CASE WHEN liquidations.liquidation_status_id = '{$fullyLiquidatedId}' THEN COALESCE(liquidation_financials.amount_received, 0) ELSE COALESCE(liquidation_financials.amount_liquidated, 0) END"
-            : 'COALESCE(liquidation_financials.amount_liquidated, 0)';
-
         $rows = $query
             ->select(
                 'liquidations.hei_id',
@@ -133,10 +128,14 @@ class AnnouncementController extends Controller
                 'regions.name as region_name'
             )
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursements')
-            ->selectRaw("COALESCE(SUM({$fullyLiquidatedClause}), 0) as total_liquidated")
-            ->selectRaw("COALESCE(SUM(CASE WHEN rc_note_statuses.code = 'FOR_ENDORSEMENT' AND (liquidations.liquidation_status_id != ? OR liquidations.liquidation_status_id IS NULL) THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement", $fullyLiquidatedId ? [$fullyLiquidatedId] : ['__none__'])
-            ->selectRaw("ROUND((COALESCE(SUM({$fullyLiquidatedClause}), 0) + COALESCE(SUM(CASE WHEN rc_note_statuses.code = 'FOR_ENDORSEMENT' AND (liquidations.liquidation_status_id != ? OR liquidations.liquidation_status_id IS NULL) THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0)) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as pct_liquidation", $fullyLiquidatedId ? [$fullyLiquidatedId] : ['__none__'])
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_liquidated')
+            ->selectRaw('ROUND(COALESCE(SUM(liquidation_financials.amount_liquidated), 0) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as pct_liquidation')
             ->selectRaw('COUNT(DISTINCT liquidations.id) as liquidation_count')
+            ->when($fullyLiquidatedId, fn ($q) => $q
+                ->selectRaw("SUM(CASE WHEN liquidations.liquidation_status_id = ? THEN 1 ELSE 0 END) as fully_liquidated_count", [$fullyLiquidatedId])
+            , fn ($q) => $q
+                ->selectRaw('0 as fully_liquidated_count')
+            )
             ->groupBy('liquidations.hei_id', 'heis.name', 'heis.uii', 'regions.name')
             ->get();
 
@@ -145,6 +144,10 @@ class AnnouncementController extends Controller
 
         foreach ($rows as $row) {
             $pct = (float) $row->pct_liquidation;
+            $total = (int) $row->liquidation_count;
+            $fullyLiquidated = (int) $row->fully_liquidated_count;
+            $allFullyLiquidated = $total > 0 && $fullyLiquidated === $total;
+
             $item = [
                 'hei_id'              => $row->hei_id,
                 'hei_name'            => $row->hei_name,
@@ -153,10 +156,10 @@ class AnnouncementController extends Controller
                 'total_disbursements' => (float) $row->total_disbursements,
                 'total_liquidated'    => (float) $row->total_liquidated,
                 'pct_liquidation'     => $pct,
-                'liquidation_count'   => (int) $row->liquidation_count,
+                'liquidation_count'   => $total,
             ];
 
-            if ($pct >= 100) {
+            if ($allFullyLiquidated) {
                 $honor[] = $item;
             } else {
                 $shame[] = $item;
