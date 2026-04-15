@@ -133,7 +133,7 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
                     {liquidation.liquidation_status}
                 </Badge>
             </TableCell>
-            <TableCell className="text-right font-medium py-3">
+            <TableCell className="text-center px-3 font-medium py-3">
                 {(liquidation.percentage_liquidation ?? 0).toFixed(0)}%
             </TableCell>
             <TableCell className="text-right py-3">

@@ -158,7 +158,21 @@ export const LiquidationProgressChart = memo(function LiquidationProgressChart({
                     />
                     <Legend
                         wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }}
-                        formatter={(value) => <span className="text-foreground text-xs">{value}</span>}
+                        content={() => (
+                            <div className="flex items-center justify-center gap-4 pt-2.5">
+                                {[
+                                    { label: 'Total Disbursements', color: BAR_COLORS.totalDisbursements },
+                                    { label: 'Amount Liquidated', color: BAR_COLORS.liquidatedAmount },
+                                    { label: 'Unliquidated Amount', color: BAR_COLORS.unliquidatedAmount },
+                                    { label: 'For Compliance', color: BAR_COLORS.forCompliance },
+                                ].map(({ label, color }) => (
+                                    <div key={label} className="flex items-center gap-1.5">
+                                        <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
+                                        <span className="text-foreground text-xs">{label}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     />
                     <Bar dataKey="Total Disbursements" fill={BAR_COLORS.totalDisbursements} radius={[4, 4, 0, 0]} isAnimationActive={false} />
                     <Bar dataKey="Amount Liquidated" fill={BAR_COLORS.liquidatedAmount} radius={[4, 4, 0, 0]} isAnimationActive={false} />

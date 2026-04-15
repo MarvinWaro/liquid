@@ -342,7 +342,7 @@ export default function Dashboard({
             defs.push(
                 { id: 'stat-pct-liquidation', title: '%Age of Liquidation', value: `${pctLiquidation.toFixed(2)}%`, subtitle: '(Liquidated + Endorsed) / Disbursed', icon: <Percent className="h-4 w-4 text-muted-foreground" /> },
                 { id: 'stat-pct-compliance', title: '%Age of Compliance', value: `${pctCompliance.toFixed(2)}%`, subtitle: 'For Compliance / Disbursed', icon: <Percent className="h-4 w-4 text-muted-foreground" /> },
-                { id: 'stat-pct-submission', title: '%Age of Submission', value: `${pctSubmission.toFixed(2)}%`, subtitle: 'With Submission / Disbursed', icon: <Percent className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-pct-submission', title: '%Age of Submission', value: `${pctSubmission.toFixed(2)}%`, subtitle: '(Liquidated + Endorsed + Compliance) / Disbursed', icon: <Percent className="h-4 w-4 text-muted-foreground" /> },
             );
         }
 

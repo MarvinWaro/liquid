@@ -135,8 +135,8 @@ export default function DocumentTrackingTable({
                                     <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Reviewed by</th>
                                     <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Date Reviewed</th>
                                     <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">RC Note</th>
-                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Endorsement</th>
-                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Liquidation</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Date of Endorsement</th>
+                                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5 text-xs whitespace-nowrap">Status of Liquidation</th>
                                     {canModify && <th className="px-3 py-2.5 w-8"></th>}
                                 </tr>
                             </thead>
