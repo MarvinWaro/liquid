@@ -596,12 +596,12 @@ export function BulkEntryModal({
             else if (!row.total_disbursements) errors[i] = 'Total Disbursements is required.';
             else if (row.dv_control_no.trim()) {
                 // Validate format only when user provides a control number
-                if (row.dv_control_no.trim() !== row.dv_control_no) errors[i] = 'Control No. has leading/trailing spaces.';
-                else if (!SUFFIX_REGEX.test(row.dv_control_no)) errors[i] = 'Control No. format invalid. Use: YYYY-NNNN (e.g., 2026-0001).';
+                if (row.dv_control_no.trim() !== row.dv_control_no) errors[i] = 'Control / Ledger No. has leading/trailing spaces.';
+                else if (!SUFFIX_REGEX.test(row.dv_control_no)) errors[i] = 'Control / Ledger No. format invalid. Use: YYYY-NNNN (e.g., 2026-0001).';
                 else {
                     const fullControlNo = getProgramPrefix(row.program_id) + row.dv_control_no;
                     if (seenControlNos.has(fullControlNo)) {
-                        errors[i] = `Control No. "${fullControlNo}" is duplicated with Row ${(seenControlNos.get(fullControlNo)!) + 1}.`;
+                        errors[i] = `Control / Ledger No. "${fullControlNo}" is duplicated with Row ${(seenControlNos.get(fullControlNo)!) + 1}.`;
                     } else {
                         seenControlNos.set(fullControlNo, i);
                     }
@@ -725,7 +725,7 @@ export function BulkEntryModal({
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Acad. Year *</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Semester</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Batch</th>
-                                <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Control No. *</th>
+                                <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Control / Ledger No. *</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Grantees</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Disbursements *</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Amt Liquidated</th>

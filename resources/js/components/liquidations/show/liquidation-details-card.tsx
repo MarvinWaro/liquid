@@ -201,7 +201,7 @@ export default function LiquidationDetailsCard({
                                         <DisplayValue>{liquidation.batch_no || 'N/A'}</DisplayValue>
                                     )}
                                 </FieldBlock>
-                                <FieldBlock label="Control No.">
+                                <FieldBlock label="Control / Ledger No.">
                                     <DisplayValue className="font-mono-nums">{liquidation.dv_control_no}</DisplayValue>
                                 </FieldBlock>
                                 <FieldBlock label="Date of Fund Release">

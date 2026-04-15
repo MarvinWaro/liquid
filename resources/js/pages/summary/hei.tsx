@@ -78,16 +78,12 @@ interface Props {
 }
 
 export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, userRole }: Props) {
-    // STuFAPs formula: Liquidated / Disbursed
-    // TES formula: (Liquidated + For Endorsement) / Disbursed
-    const isStufapsFocal = userRole === 'STUFAPS Focal';
     const computePercentLiquidation = (row: HEISummary) => {
         const disbursements = Number(row.total_disbursements) || 0;
         if (!disbursements) return 0;
         const liquidated = Number(row.total_amount_liquidated) || 0;
         const endorsed = Number(row.for_endorsement) || 0;
-        const numerator = isStufapsFocal ? liquidated : liquidated + endorsed;
-        return (numerator / disbursements) * 100;
+        return ((liquidated + endorsed) / disbursements) * 100;
     };
     const [searchQuery, setSearchQuery] = useState<string>('');
     const [showChart, setShowChart] = useState(false);

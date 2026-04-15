@@ -24,7 +24,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown } from 'lucide-react';
+import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown, Percent } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
 import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
@@ -43,6 +43,7 @@ interface TableSummary {
     total_disbursed: number;
     total_liquidated: number;
     total_unliquidated: number;
+    for_endorsement: number;
 }
 
 interface Props {
@@ -523,8 +524,8 @@ export default function Index({ liquidations, tableSummary, programs, createProg
 
                             {/* Summary stats bar */}
                             <Deferred data="tableSummary" fallback={
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                                    {[...Array(4)].map((_, i) => (
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+                                    {[...Array(5)].map((_, i) => (
                                         <div key={i} className="rounded-lg border bg-card p-3 animate-pulse">
                                             <div className="h-3 w-20 bg-muted rounded mb-2" />
                                             <div className="h-5 w-28 bg-muted rounded" />
@@ -533,7 +534,7 @@ export default function Index({ liquidations, tableSummary, programs, createProg
                                 </div>
                             }>
                                 {tableSummary && (
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
                                         <div className="rounded-lg border bg-card p-3">
                                             <div className="flex items-center gap-1.5 mb-1">
                                                 <FileBarChart2 className="h-3.5 w-3.5 text-blue-600" />
@@ -566,6 +567,17 @@ export default function Index({ liquidations, tableSummary, programs, createProg
                                             </div>
                                             <p className="text-lg font-bold tracking-tight text-red-600 dark:text-red-400">
                                                 {new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(tableSummary.total_unliquidated)}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-lg border bg-card p-3">
+                                            <div className="flex items-center gap-1.5 mb-1">
+                                                <Percent className="h-3.5 w-3.5 text-violet-600" />
+                                                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">%Age of Liquidation</p>
+                                            </div>
+                                            <p className="text-lg font-bold tracking-tight text-violet-700 dark:text-violet-400">
+                                                {tableSummary.total_disbursed > 0
+                                                    ? (((tableSummary.total_liquidated + tableSummary.for_endorsement) / tableSummary.total_disbursed) * 100).toFixed(2)
+                                                    : '0.00'}%
                                             </p>
                                         </div>
                                     </div>
@@ -647,7 +659,7 @@ const LiquidationTable = React.memo(function LiquidationTable({
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Period</TableHead>
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Dates</TableHead>
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Batch</TableHead>
-                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Control No.</TableHead>
+                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Control / Ledger No.</TableHead>
                             <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Grantees</TableHead>
                             <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Disbursements</TableHead>
                             <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Liquidated</TableHead>

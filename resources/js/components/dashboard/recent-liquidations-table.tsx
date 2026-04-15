@@ -116,7 +116,7 @@ export const RecentLiquidationsTable = memo(function RecentLiquidationsTable({ d
             <Table>
                 <TableHeader>
                     <TableRow className="border-b hover:bg-transparent">
-                        <TableHead className="h-9 pl-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">Control No.</TableHead>
+                        <TableHead className="h-9 pl-6 text-xs font-medium tracking-wider text-muted-foreground uppercase">Control / Ledger No.</TableHead>
                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">HEI</TableHead>
                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Academic Year</TableHead>
                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Total Disbursements</TableHead>

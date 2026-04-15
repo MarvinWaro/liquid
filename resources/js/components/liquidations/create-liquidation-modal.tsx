@@ -549,9 +549,9 @@ export function CreateLiquidationModal({
                             )}
                         </div>
 
-                        {/* Control No */}
+                        {/* Control / Ledger No */}
                         <div className="space-y-2">
-                            <Label htmlFor="dv_control_no">Control No.</Label>
+                            <Label htmlFor="dv_control_no">Control / Ledger No.</Label>
                             <div className={`flex items-center rounded-md border bg-background font-mono text-sm ${fieldErrors.dv_control_no ? 'border-red-500' : 'border-input'}`}>
                                 {controlNoPrefix && (
                                     <span className="px-3 py-2 text-muted-foreground bg-muted border-r border-input rounded-l-md select-none">

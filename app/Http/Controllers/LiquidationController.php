@@ -393,8 +393,8 @@ class LiquidationController extends Controller
             'entries.*.document_status'        => 'nullable|string|in:NONE,PARTIAL,COMPLETE',
             'entries.*.rc_notes'               => 'nullable|string|max:1000',
         ], [
-            'entries.*.dv_control_no.distinct'  => 'Control No. in row :position is duplicated.',
-            'entries.*.dv_control_no.unique'    => 'Control No. in row :position already exists in the system.',
+            'entries.*.dv_control_no.distinct'  => 'Control / Ledger No. in row :position is duplicated.',
+            'entries.*.dv_control_no.unique'    => 'Control / Ledger No. in row :position already exists in the system.',
         ]);
 
         $imported = 0;
@@ -551,7 +551,7 @@ class LiquidationController extends Controller
             if (!empty($controlNoInFile)) {
                 if (isset($seenControlNos[$controlNoInFile])) {
                     $parsed['valid'] = false;
-                    $parsed['errors'][] = "Control No '{$controlNoInFile}' (col J) appears more than once in this file (first seen at row {$seenControlNos[$controlNoInFile]}).";
+                    $parsed['errors'][] = "Control / Ledger No '{$controlNoInFile}' (col J) appears more than once in this file (first seen at row {$seenControlNos[$controlNoInFile]}).";
                 } else {
                     $seenControlNos[$controlNoInFile] = $parsed['row'];
                 }
@@ -1689,7 +1689,7 @@ class LiquidationController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        $templatePath = base_path('materials/RC-LIQUIDATION_TEMPLATE-ENTRY.xlsx');
+        $templatePath = base_path('materials/LIQUIDATION_TEMPLATE-ENTRY.xlsx');
 
         if (!file_exists($templatePath)) {
             abort(404, 'Template file not found.');
@@ -1697,7 +1697,7 @@ class LiquidationController extends Controller
 
         return response()->download(
             $templatePath,
-            'RC-LIQUIDATION_TEMPLATE-ENTRY.xlsx',
+            'LIQUIDATION_TEMPLATE-ENTRY.xlsx',
             ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
         );
     }
@@ -2177,15 +2177,15 @@ class LiquidationController extends Controller
         // ── Control number ────────────────────────────────────────────────────
         if (!empty($dvControlNo)) {
             if (!preg_match('/^(.+)-(\d{4})-(\d+)$/', $dvControlNo, $ctrlMatches)) {
-                $errors[] = "Control No '{$dvControlNo}' (col J) must follow format: PROGRAM-YYYY-XXXX (e.g. TES-2026-0001).";
+                $errors[] = "Control / Ledger No '{$dvControlNo}' (col J) must follow format: PROGRAM-YYYY-XXXX (e.g. TES-2026-0001).";
             } elseif ($program) {
                 $controlPrefix = strtoupper($ctrlMatches[1]);
                 if (strtoupper($program->code) !== $controlPrefix) {
-                    $errors[] = "Control No prefix '{$controlPrefix}' does not match Program '{$program->code}' (col B vs col J).";
+                    $errors[] = "Control / Ledger No prefix '{$controlPrefix}' does not match Program '{$program->code}' (col B vs col J).";
                 }
             }
             if (isset($existingControlNos[$dvControlNo])) {
-                $errors[] = "Control No '{$dvControlNo}' (col J) already exists.";
+                $errors[] = "Control / Ledger No '{$dvControlNo}' (col J) already exists.";
             }
         }
 
@@ -2328,7 +2328,7 @@ class LiquidationController extends Controller
             // Re-check: another import may have taken this number since validate step
             // Include soft-deleted records — MySQL unique constraint covers all rows
             if (Liquidation::withTrashed()->where('control_no', $controlNo)->lockForUpdate()->exists()) {
-                throw new \RuntimeException("Control No '{$controlNo}' was already taken. Please re-validate.");
+                throw new \RuntimeException("Control / Ledger No '{$controlNo}' was already taken. Please re-validate.");
             }
         }
 

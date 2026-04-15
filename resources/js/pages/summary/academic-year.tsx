@@ -70,16 +70,12 @@ interface Props {
 }
 
 export default function SummaryPerAcademicYear({ summaryPerAY, programs = [], filters, userRole }: Props) {
-    // STuFAPs formula: Liquidated / Disbursed
-    // TES formula: (Liquidated + For Endorsement) / Disbursed
-    const isStufapsFocal = userRole === 'STUFAPS Focal';
     const computePercentLiquidation = (row: AYSummary) => {
         const disbursements = Number(row.total_disbursements) || 0;
         if (!disbursements) return 0;
         const liquidated = Number(row.liquidated_amount) || 0;
         const endorsed = Number(row.for_endorsement) || 0;
-        const numerator = isStufapsFocal ? liquidated : liquidated + endorsed;
-        return (numerator / disbursements) * 100;
+        return ((liquidated + endorsed) / disbursements) * 100;
     };
     const [ayFilter, setAYFilter] = useState<string>('all');
     const [showChart, setShowChart] = useState(false);

@@ -722,7 +722,7 @@ export function ImportPreviewDialog({
                                                 <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground w-16">Program</th>
                                                 <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground">UII</th>
                                                 <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground">HEI Name</th>
-                                                <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground">Control No.</th>
+                                                <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground">Control / Ledger No.</th>
                                                 {!detailOpen && (
                                                     <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground">Error</th>
                                                 )}
@@ -885,7 +885,7 @@ export function ImportPreviewDialog({
                                                     <DetailField label="Date Fund Released" value={selectedRow.date_fund_released} />
                                                     <DetailField label="Due Date" value={selectedRow.due_date} />
                                                     <DetailField label="Batch No." value={selectedRow.batch_no} />
-                                                    <DetailField label="Control No." value={selectedRow.control_no || 'Auto-generated'} mono />
+                                                    <DetailField label="Control / Ledger No." value={selectedRow.control_no || 'Auto-generated'} mono />
                                                 </div>
                                             </DetailSection>
 

@@ -32,7 +32,8 @@ class LiquidationService
      */
     public function getTableSummary(User $user, array $filters = []): array
     {
-        $query = Liquidation::join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id');
+        $query = Liquidation::join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
+            ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id');
 
         $this->applyRoleFilter($query, $user);
 
@@ -47,6 +48,7 @@ class LiquidationService
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursed')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_liquidated')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received - liquidation_financials.amount_liquidated), 0) as total_unliquidated')
+            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
             ->first();
 
         return [
@@ -54,6 +56,7 @@ class LiquidationService
             'total_disbursed' => (float) ($stats->total_disbursed ?? 0),
             'total_liquidated' => (float) ($stats->total_liquidated ?? 0),
             'total_unliquidated' => (float) ($stats->total_unliquidated ?? 0),
+            'for_endorsement' => (float) ($stats->for_endorsement ?? 0),
         ];
     }
 
