@@ -24,6 +24,7 @@ class LiquidationTrackingEntry extends Model
         'date_reviewed',
         'rc_note',
         'date_endorsement',
+        'sort_order',
     ];
 
     protected function casts(): array

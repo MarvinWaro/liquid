@@ -150,10 +150,9 @@ class LiquidationFinancial extends Model
 
     /**
      * Calculate the lapsing period (days overdue).
-     * Formula: Date of Last Submission - Due Date
-     * Uses the last tracking entry's date_received as the actual submission date,
-     * since RC/STUFAPS Focal record when documents are physically received.
-     * Returns 0 if submission is before due date (early/on-time).
+     * - If the last tracking entry is "Complete Submission": freeze at (date_received - due_date).
+     * - If still partial/no submission: live counter using today (keeps ticking).
+     * - Returns 0 if reference date is on or before the due date.
      */
     public function getLapsingPeriodAttribute(): int
     {
@@ -164,20 +163,24 @@ class LiquidationFinancial extends Model
             return 0;
         }
 
-        // Use last tracking entry's date_received as the actual submission date
-        // Uses the already-loaded relation when available to avoid N+1 queries
-        $lastEntry = $liquidation->relationLoaded('trackingEntries')
-            ? $liquidation->trackingEntries->filter(fn($e) => $e->date_received !== null)->sortByDesc('date_received')->first()
-            : $liquidation->trackingEntries()->whereNotNull('date_received')->latest('date_received')->first();
-        $submissionDate = $lastEntry?->date_received ?? $liquidation->date_submitted;
+        $completeId = DocumentStatus::findByCode(DocumentStatus::CODE_COMPLETE)?->id;
 
-        // If not yet submitted, fall back to today (live overdue counter)
-        $referenceDate = $submissionDate ?? now();
+        // Find the last tracking entry (by sort_order) that has a date_received
+        $lastEntry = $liquidation->relationLoaded('trackingEntries')
+            ? $liquidation->trackingEntries->filter(fn($e) => $e->date_received !== null)->sortByDesc('sort_order')->first()
+            : $liquidation->trackingEntries()->whereNotNull('date_received')->reorder('sort_order', 'desc')->first();
+
+        // Only freeze lapsing when the last entry is a Complete Submission.
+        // Partial/no submission means documents are still outstanding → use today.
+        $isComplete = $lastEntry && $completeId && $lastEntry->document_status_id === $completeId;
+        $referenceDate = $isComplete
+            ? $lastEntry->date_received
+            : now();
 
         $diff = (int) $referenceDate->diffInDays($dueDate, false);
 
-        // If reference date is before due date (positive diff), return 0
-        // If reference date is after due date (negative diff), return the days overdue
+        // If reference date is before or on due date (diff >= 0), no lapsing
+        // If reference date is after due date (diff < 0), return the days overdue
         return $diff < 0 ? abs($diff) : 0;
     }
 

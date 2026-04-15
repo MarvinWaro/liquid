@@ -58,7 +58,6 @@ interface HEISummary {
     for_endorsement: number;
     unliquidated_amount: number;
     for_compliance: number;
-    unliquidated_with_submission: number;
     total_with_submission: number;
     percentage_liquidation: number;
     percentage_compliance: number;
@@ -97,7 +96,7 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
 
     type SortKey =
         | 'name' | 'grantees' | 'disbursements' | 'liquidated'
-        | 'for_endorsement' | 'unliquidated_net' | 'unliquidated_not_submitted'
+        | 'for_endorsement' | 'unliquidated_net'
         | 'for_compliance' | 'total_with_submission'
         | 'pct_liquidation' | 'pct_compliance' | 'pct_submission';
     const [sortKey, setSortKey] = useState<SortKey | null>('name');
@@ -128,7 +127,6 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
             case 'liquidated': return Number(row.total_amount_liquidated) || 0;
             case 'for_endorsement': return Number(row.for_endorsement) || 0;
             case 'unliquidated_net': return Number(row.total_disbursements) - Number(row.total_amount_liquidated) - Number(row.for_endorsement);
-            case 'unliquidated_not_submitted': return Number(row.total_disbursements) - Number(row.total_amount_liquidated);
             case 'for_compliance': return Number(row.for_compliance) || 0;
             case 'total_with_submission': return Number(row.total_with_submission) || 0;
             case 'pct_liquidation': return computePercentLiquidation(row);
@@ -363,7 +361,6 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
                                                 { col: 'liquidated', label: 'Total Amount Liquidated', className: '' },
                                                 { col: 'for_endorsement', label: 'For Endorsement', className: '' },
                                                 { col: 'unliquidated_net', label: 'Unliquidated (net of endorsement)', className: '' },
-                                                { col: 'unliquidated_not_submitted', label: 'Unliquidated (not submitted)', className: '' },
                                                 { col: 'for_compliance', label: 'For Compliance', className: '' },
                                                 { col: 'total_with_submission', label: 'Total Amount With Submission', className: '' },
                                                 { col: 'pct_liquidation', label: '% Liquidation', className: '' },
@@ -387,7 +384,7 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
                                 <TableBody>
                                     {sorted.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={13} className="text-center py-12 text-muted-foreground">
+                                            <TableCell colSpan={12} className="text-center py-12 text-muted-foreground">
                                                 {searchQuery ? 'No matching HEIs found.' : 'No data available.'}
                                             </TableCell>
                                         </TableRow>
@@ -420,7 +417,6 @@ export default function SummaryPerHEI({ summaryPerHEI, programs = [], filters, u
                                                 <TableCell className="font-mono">{formatCurrency(row.total_amount_liquidated)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.for_endorsement)}</TableCell>
                                                 <TableCell className="font-mono text-red-500">{formatCurrency(Number(row.total_disbursements) - Number(row.total_amount_liquidated) - Number(row.for_endorsement))}</TableCell>
-                                                <TableCell className="font-mono text-red-500">{formatCurrency(Number(row.total_disbursements) - Number(row.total_amount_liquidated))}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(row.for_compliance)}</TableCell>
                                                 <TableCell className="font-mono">{formatCurrency(Number(row.total_with_submission))}</TableCell>
                                                 <TableCell className={

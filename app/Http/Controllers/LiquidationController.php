@@ -1300,7 +1300,7 @@ class LiquidationController extends Controller
         $latestDocStatusId  = $noneId;
         $latestLiqStatusId  = $unliquidatedId;
 
-        foreach ($validated['entries'] as $entryData) {
+        foreach ($validated['entries'] as $sortOrder => $entryData) {
             $docStatusId = $docStatusMap[$entryData['document_status']]    ?? $noneId;
             $liqStatusId = $liqStatusMap[$entryData['liquidation_status']] ?? $unliquidatedId;
 
@@ -1314,6 +1314,7 @@ class LiquidationController extends Controller
                 'rc_note'             => $entryData['rc_note'] ?? null,
                 'date_endorsement'    => $entryData['date_endorsement'] ?? null,
                 'liquidation_status_id' => $liqStatusId,
+                'sort_order'          => $sortOrder,
             ];
 
             if (!empty($entryData['id'])) {

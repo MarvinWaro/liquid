@@ -655,7 +655,7 @@ const LiquidationTable = React.memo(function LiquidationTable({
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Documents Status</TableHead>
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">RC Notes</TableHead>
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Liquidation Status</TableHead>
-                            <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">%</TableHead>
+                            <TableHead className="h-9 text-center px-3 text-xs font-medium tracking-wider text-muted-foreground uppercase leading-tight">Percentage of<br />Liquidation</TableHead>
                             <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Lapsing</TableHead>
                             <TableHead className="h-9 text-right pr-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">Actions</TableHead>
                         </TableRow>
