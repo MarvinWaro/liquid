@@ -16,6 +16,7 @@ use App\Models\ActivityLog;
 use App\Models\DocumentLocation;
 use App\Models\DocumentRequirement;
 use App\Models\DocumentStatus;
+use App\Models\HEI;
 use App\Models\ImportBatch;
 use App\Models\Liquidation;
 use App\Models\Notification;
@@ -599,6 +600,153 @@ class LiquidationController extends Controller
                 'errors' => $errorCount,
             ],
         ]);
+    }
+
+    /**
+     * Validate pre-parsed import rows (sent as JSON from the frontend Web Worker).
+     *
+     * The frontend parses the Excel file client-side using SheetJS in a Web Worker,
+     * then sends the structured rows here for database-level validation (HEI lookup,
+     * duplicate check, program resolution, etc.). This avoids PhpSpreadsheet memory
+     * usage on the server and keeps the browser UI responsive during parsing.
+     */
+    /**
+     * Validate a chunk of pre-parsed import rows.
+     *
+     * Designed to be called multiple times for chunked validation:
+     * - First chunk: no import_token → creates a new cache entry, returns token.
+     * - Subsequent chunks: pass import_token → appends importable rows to cache.
+     * - Pass seen_control_nos between chunks for cross-chunk duplicate detection.
+     */
+    public function validateParsedImport(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if (!in_array($user->role?->name, ['Regional Coordinator', 'Admin', 'STUFAPS Focal']) && !$user->isSuperAdmin()) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $request->validate([
+            'rows'              => 'required|array|min:1',
+            'rows.*.seq'        => 'required',
+            'file_name'         => 'nullable|string|max:255',
+            'import_token'      => 'nullable|string',
+            'seen_control_nos'  => 'nullable|array',
+        ]);
+
+        $inputRows = $request->input('rows');
+        $fileName  = $request->input('file_name', 'import.xlsx');
+
+        // Pre-load all lookup data into memory (no per-row I/O)
+        $this->liquidationService->getCachedSemesters();
+        $this->liquidationService->getCachedRcNoteStatuses();
+        $this->cacheService->getPrograms();
+
+        $heiMap             = HEI::all()->keyBy(fn ($h) => strtolower(trim($h->uii)));
+        $existingControlNos = Liquidation::pluck('control_no')->filter()->flip()->all();
+        $academicYearsMap   = \App\Models\AcademicYear::all()->keyBy(fn ($ay) => trim($ay->code));
+
+        $existingFingerprints = DB::table('liquidations')
+            ->join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
+            ->select(
+                'liquidations.hei_id', 'liquidations.program_id', 'liquidations.academic_year_id',
+                'liquidations.semester_id', 'liquidations.batch_no', 'liquidations.control_no',
+                'liquidation_financials.date_fund_released'
+            )
+            ->whereNull('liquidations.deleted_at')
+            ->get()
+            ->map(fn ($r) => $r->hei_id . '|' . $r->program_id . '|' . $r->academic_year_id . '|' .
+                ($r->date_fund_released ?? '') . '|' . ($r->semester_id ?? '') . '|' . ($r->batch_no ?? ''))
+            ->flip()
+            ->all();
+
+        // Cross-chunk state: reuse token & seen control numbers from previous chunks
+        $fileCache     = Cache::store('file');
+        $token         = $request->input('import_token') ?: Str::uuid()->toString();
+        $seenControlNos = $request->input('seen_control_nos', []);
+
+        $validatedRows  = [];
+        $importableRows = [];
+
+        foreach ($inputRows as $parsedRow) {
+            $raw = $this->structuredToRawRow($parsedRow);
+
+            $parsed       = $this->parseImportRow($raw, $user, $existingControlNos, $academicYearsMap, $existingFingerprints, $heiMap);
+            $parsed['row'] = (int) ($parsedRow['row'] ?? 0);
+            $parsed['seq'] = (string) ($parsedRow['seq'] ?? '');
+
+            // Cross-chunk duplicate control_no detection
+            $controlNoInFile = $parsed['control_no'] ?? '';
+            if (!empty($controlNoInFile)) {
+                if (isset($seenControlNos[$controlNoInFile])) {
+                    $parsed['valid']    = false;
+                    $parsed['errors'][] = "Control / Ledger No '{$controlNoInFile}' (col J) appears more than once in this file (first seen at row {$seenControlNos[$controlNoInFile]}).";
+                } else {
+                    $seenControlNos[$controlNoInFile] = $parsed['row'];
+                }
+            }
+
+            $importable = $parsed['valid'] ? $parsed['importable'] : null;
+            if ($importable !== null) {
+                $importable['row_no']       = $parsed['row'];
+                $importable['seq']          = $parsed['seq'];
+                $importable['program_code'] = $parsed['program'];
+                $importable['uii']          = $parsed['uii'];
+            }
+            unset($parsed['importable']);
+            $validatedRows[] = $parsed;
+
+            if ($importable !== null) {
+                $importableRows[] = $importable;
+            }
+        }
+
+        $validCount = collect($validatedRows)->where('valid', true)->count();
+        $errorCount = collect($validatedRows)->where('valid', false)->count();
+
+        // Append importable rows to cached data (supports multi-chunk accumulation)
+        $cacheKey      = "liquidation_import_{$token}";
+        $existingCache = $fileCache->get($cacheKey, ['user_id' => $user->id, 'file_name' => $fileName, 'rows' => []]);
+        $existingCache['rows'] = array_merge($existingCache['rows'], $importableRows);
+        $fileCache->put($cacheKey, $existingCache, now()->addMinutes(self::IMPORT_TOKEN_TTL));
+
+        return response()->json([
+            'success'          => true,
+            'token'            => $token,
+            'rows'             => $validatedRows,
+            'seen_control_nos' => $seenControlNos,
+            'summary'          => [
+                'total'  => count($validatedRows),
+                'valid'  => $validCount,
+                'errors' => $errorCount,
+            ],
+        ]);
+    }
+
+    /**
+     * Convert a structured (named-key) row from the frontend Worker
+     * back into a positional array matching the COL_* column indices,
+     * so parseImportRow() can be reused unchanged.
+     */
+    private function structuredToRawRow(array $parsed): array
+    {
+        $raw = array_fill(0, 15, '');
+        $raw[self::COL_SEQ]                = $parsed['seq'] ?? '';
+        $raw[self::COL_PROGRAM]            = $parsed['program'] ?? '';
+        $raw[self::COL_UII]                = $parsed['uii'] ?? '';
+        $raw[self::COL_HEI_NAME]           = $parsed['hei_name'] ?? '';
+        $raw[self::COL_DATE_FUND_RELEASED] = $parsed['date_fund_released'] ?? '';
+        $raw[self::COL_DUE_DATE]           = $parsed['due_date'] ?? '';
+        $raw[self::COL_ACADEMIC_YEAR]      = $parsed['academic_year'] ?? '';
+        $raw[self::COL_SEMESTER]           = $parsed['semester'] ?? '';
+        $raw[self::COL_BATCH_NO]           = $parsed['batch_no'] ?? '';
+        $raw[self::COL_CONTROL_NO]         = $parsed['control_no'] ?? '';
+        $raw[self::COL_GRANTEES]           = $parsed['grantees'] ?? '';
+        $raw[self::COL_DISBURSEMENTS]      = $parsed['disbursements'] ?? '';
+        $raw[self::COL_AMOUNT_LIQUIDATED]  = $parsed['amount_liquidated'] ?? '';
+        $raw[self::COL_DOC_STATUS]         = $parsed['doc_status'] ?? '';
+        $raw[self::COL_RC_NOTES]           = $parsed['rc_notes'] ?? '';
+        return $raw;
     }
 
     /**
@@ -1679,6 +1827,161 @@ class LiquidationController extends Controller
     }
 
     /**
+     * Print liquidation report (Blade HTML for browser printing).
+     */
+    public function printReport(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user->hasPermission('view_liquidation')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $filters = $request->only(['search', 'program', 'document_status', 'liquidation_status', 'academic_year', 'rc_note_status']);
+
+        // Get all filtered records without pagination
+        $query = Liquidation::with(['hei', 'program', 'financial', 'semester', 'academicYear', 'documentStatus', 'liquidationStatus', 'rcNoteStatus', 'trackingEntries'])
+            ->orderBy('control_no', 'asc');
+
+        $this->liquidationService->applyRoleAndFilters($query, $user, $filters);
+
+        $liquidations = $query->get()->map(function ($liquidation, $index) {
+            $financial = $liquidation->financial;
+            $disbursements = (float) ($financial?->amount_received ?? 0);
+            $liquidated = (float) ($financial?->amount_liquidated ?? 0);
+            $unliquidated = $disbursements - $liquidated;
+
+            $isStufaps = $liquidation->program?->parent_id !== null;
+            $forEndorsement = (!$isStufaps && $liquidation->rcNoteStatus?->code === 'FOR_ENDORSEMENT')
+                ? $disbursements - $liquidated
+                : 0;
+            $percentage = $disbursements > 0
+                ? round((($liquidated + $forEndorsement) / $disbursements) * 100, 2)
+                : 0;
+
+            $documentStatusDisplay = match ($liquidation->documentStatus?->code) {
+                'COMPLETE' => 'Complete Submission',
+                'PARTIAL' => 'Partial Submission',
+                default => 'No Submission',
+            };
+
+            return [
+                'program_code' => $liquidation->program?->code ?? '',
+                'hei_name' => $liquidation->hei?->name ?? 'N/A',
+                'control_no' => $liquidation->control_no,
+                'academic_year' => $liquidation->academicYear?->name ?? '',
+                'semester' => $liquidation->semester?->name ?? '',
+                'batch_no' => $liquidation->batch_no ?? '',
+                'date_fund_released' => $financial?->date_fund_released?->format('M d, Y') ?? '',
+                'due_date' => $financial?->due_date?->format('M d, Y') ?? '',
+                'number_of_grantees' => $financial?->number_of_grantees ?? 0,
+                'total_disbursements' => number_format($disbursements, 2),
+                'amount_liquidated' => number_format($liquidated, 2),
+                'total_unliquidated' => number_format($unliquidated, 2),
+                'document_status' => $documentStatusDisplay,
+                'rc_notes' => $liquidation->rcNoteStatus?->name ?? '',
+                'liquidation_status' => $liquidation->liquidationStatus?->name ?? 'Unliquidated',
+                'percentage' => $percentage,
+                'lapsing' => $financial?->lapsing_period ?? 0,
+                '_raw_disbursements' => $disbursements,
+                '_raw_liquidated' => $liquidated,
+                '_raw_unliquidated' => $unliquidated,
+                '_raw_for_endorsement' => $forEndorsement,
+            ];
+        });
+
+        // Compute totals
+        $totals = [
+            'grantees' => $liquidations->sum('number_of_grantees'),
+            'disbursements' => $liquidations->sum('_raw_disbursements'),
+            'liquidated' => $liquidations->sum('_raw_liquidated'),
+            'unliquidated' => $liquidations->sum('_raw_unliquidated'),
+            'for_endorsement' => $liquidations->sum('_raw_for_endorsement'),
+        ];
+
+        // Build active filter description
+        $activeFilters = $this->buildFilterDescription($filters);
+
+        // Region name for header
+        $regionName = $user->region?->name ?? 'Central Office';
+
+        return view('reports.liquidation-print', [
+            'liquidations' => $liquidations,
+            'totals' => $totals,
+            'activeFilters' => $activeFilters,
+            'regionName' => $regionName,
+            'printedBy' => $user->name,
+        ]);
+    }
+
+    /**
+     * Build a human-readable description of active filters.
+     */
+    private function buildFilterDescription(array $filters): string
+    {
+        $parts = [];
+
+        // Helper: normalize to array, stripping empties and 'all'
+        $toArray = function ($value): array {
+            if (empty($value)) return [];
+            $arr = is_array($value) ? $value : [$value];
+            return array_values(array_filter($arr, fn ($v) => $v !== '' && $v !== 'all'));
+        };
+
+        $programs = $toArray($filters['program'] ?? null);
+        if (!empty($programs)) {
+            $names = [];
+            foreach ($programs as $id) {
+                $p = \App\Models\Program::find($id);
+                $names[] = $p?->code ?? $id;
+            }
+            $parts[] = 'Program: ' . implode(', ', $names);
+        }
+
+        $academicYears = $toArray($filters['academic_year'] ?? null);
+        if (!empty($academicYears)) {
+            $names = [];
+            foreach ($academicYears as $id) {
+                $ay = \App\Models\AcademicYear::find($id);
+                $names[] = $ay?->name ?? $id;
+            }
+            $parts[] = 'AY: ' . implode(', ', $names);
+        }
+
+        $docStatuses = $toArray($filters['document_status'] ?? null);
+        if (!empty($docStatuses)) {
+            $labels = array_map(fn ($c) => str_replace('_', ' ', ucfirst(strtolower($c))), $docStatuses);
+            $parts[] = 'Doc Status: ' . implode(', ', $labels);
+        }
+
+        $liqStatuses = $toArray($filters['liquidation_status'] ?? null);
+        if (!empty($liqStatuses)) {
+            $labels = array_map(fn ($c) => str_replace('_', ' ', ucfirst(strtolower($c))), $liqStatuses);
+            $parts[] = 'Liq Status: ' . implode(', ', $labels);
+        }
+
+        $rcNotes = $toArray($filters['rc_note_status'] ?? null);
+        if (!empty($rcNotes)) {
+            $labels = [];
+            foreach ($rcNotes as $val) {
+                if ($val === 'none') {
+                    $labels[] = 'None';
+                } else {
+                    $rcNote = RcNoteStatus::find($val);
+                    $labels[] = $rcNote?->name ?? $val;
+                }
+            }
+            $parts[] = 'RC Notes: ' . implode(', ', $labels);
+        }
+
+        if (!empty($filters['search'])) {
+            $parts[] = 'Search: "' . $filters['search'] . '"';
+        }
+
+        return implode(' | ', $parts);
+    }
+
+    /**
      * Download RC bulk liquidation template.
      */
     public function downloadRCTemplate(Request $request): \Symfony\Component\HttpFoundation\BinaryFileResponse
@@ -2087,7 +2390,7 @@ class LiquidationController extends Controller
      * containing pre-resolved IDs ready for DB insert — or null when invalid.
      * This single method replaces the old processImportRow + parseRowForPreview pair.
      */
-    private function parseImportRow(array $row, $user, array $existingControlNos = [], $academicYearsMap = null, array $existingFingerprints = []): array
+    private function parseImportRow(array $row, $user, array $existingControlNos = [], $academicYearsMap = null, array $existingFingerprints = [], $heiMap = null): array
     {
         $errors = [];
 
@@ -2142,7 +2445,8 @@ class LiquidationController extends Controller
         }
 
         // ── Lookup validations ────────────────────────────────────────────────
-        $hei     = $this->liquidationService->findHEIByUII($uii);
+        // Use pre-loaded HEI map when available (chunked validation), otherwise fall back
+        $hei = $heiMap ? $heiMap->get(strtolower($uii)) : $this->liquidationService->findHEIByUII($uii);
         $program = !empty($programCode) ? $this->findProgram($programCode) : null;
 
         if (!$hei) {
@@ -2176,14 +2480,19 @@ class LiquidationController extends Controller
 
         // ── Control number ────────────────────────────────────────────────────
         if (!empty($dvControlNo)) {
-            if (!preg_match('/^(.+)-(\d{4})-(\d+)$/', $dvControlNo, $ctrlMatches)) {
-                $errors[] = "Control / Ledger No '{$dvControlNo}' (col J) must follow format: PROGRAM-YYYY-XXXX (e.g. TES-2026-0001).";
-            } elseif ($program) {
-                $controlPrefix = strtoupper($ctrlMatches[1]);
-                if (strtoupper($program->code) !== $controlPrefix) {
-                    $errors[] = "Control / Ledger No prefix '{$controlPrefix}' does not match Program '{$program->code}' (col B vs col J).";
+            // Normalise: if the value doesn't already start with the program
+            // code, auto-prepend it. This handles both UniFAST-style partial
+            // numbers ("2026-0001" → "TES-2026-0001") and STUFAPS-style plain
+            // ledger numbers ("24094765" → "CMSP-24094765").
+            if ($program) {
+                $prefix = strtoupper($program->code) . '-';
+                if (!str_starts_with(strtoupper($dvControlNo), $prefix)) {
+                    $dvControlNo = $prefix . $dvControlNo;
                 }
             }
+
+            // Validate: only check uniqueness — format is flexible since
+            // different offices use different numbering conventions.
             if (isset($existingControlNos[$dvControlNo])) {
                 $errors[] = "Control / Ledger No '{$dvControlNo}' (col J) already exists.";
             }

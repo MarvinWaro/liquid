@@ -38,6 +38,7 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import axios from 'axios';
+import * as XLSX from 'xlsx';
 
 // --- Types ----------------------------------------------------------------
 
@@ -97,7 +98,7 @@ export function ImportPreviewDialog({
     const [rows, setRows] = useState<ValidatedRow[]>([]);
     const [summary, setSummary] = useState({ total: 0, valid: 0, errors: 0 });
     const [uploadProgress, setUploadProgress] = useState(0); // 0-100
-    const [uploadPhase, setUploadPhase] = useState<'uploading' | 'processing'>('uploading');
+    const [uploadPhase, setUploadPhase] = useState<'parsing' | 'processing'>('parsing');
     const [selectedRow, setSelectedRow] = useState<ValidatedRow | null>(null);
     const [detailOpen, setDetailOpen] = useState(false);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -119,14 +120,6 @@ export function ImportPreviewDialog({
     // Validation progress polling
     const [validateProgress, setValidateProgress] = useState<{ processed: number; total: number } | null>(null);
     const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-    const validatePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-    const stopValidatePolling = useCallback(() => {
-        if (validatePollRef.current) {
-            clearInterval(validatePollRef.current);
-            validatePollRef.current = null;
-        }
-    }, []);
 
     const stopPolling = useCallback(() => {
         if (pollIntervalRef.current) {
@@ -140,7 +133,7 @@ export function ImportPreviewDialog({
     }, []);
 
     // Clean up polling on unmount
-    useEffect(() => () => { stopPolling(); stopValidatePolling(); }, [stopPolling, stopValidatePolling]);
+    useEffect(() => () => { stopPolling(); }, [stopPolling]);
 
     // Import history state
     const [showHistory, setShowHistory] = useState(false);
@@ -186,7 +179,6 @@ export function ImportPreviewDialog({
 
     const reset = useCallback(() => {
         stopPolling();
-        stopValidatePolling();
         setStep('idle');
         setValidateProgress(null);
         setRows([]);
@@ -198,7 +190,7 @@ export function ImportPreviewDialog({
         setCurrentPage(1);
         setRowFilter('all');
         setUploadProgress(0);
-        setUploadPhase('uploading');
+        setUploadPhase('parsing');
         setShowHistory(false);
         setConfirmUndoId(null);
         setImportProgress(null);
@@ -217,67 +209,226 @@ export function ImportPreviewDialog({
         await validateFile(file);
     };
 
-    const startValidatePolling = useCallback((token: string) => {
-        stopValidatePolling();
-        validatePollRef.current = setInterval(async () => {
-            try {
-                const res = await axios.get(route('liquidation.validate-progress'), { params: { token } });
-                if (res.data.found) {
-                    setValidateProgress({ processed: res.data.processed, total: res.data.total });
-                    if (res.data.done) stopValidatePolling();
-                }
-            } catch {
-                // Silently ignore polling errors
-            }
-        }, 800);
-    }, [stopValidatePolling]);
+
+    /**
+     * Parse the Excel file client-side with SheetJS, then send the parsed rows
+     * to the backend in chunks for DB-level validation. This avoids both
+     * PhpSpreadsheet memory issues and long single-request timeouts.
+     */
+    const VALIDATION_CHUNK_SIZE = 500;
 
     const validateFile = async (file: File) => {
         setStep('validating');
         setUploadProgress(0);
-        setUploadPhase('uploading');
+        setUploadPhase('parsing');
         setValidateProgress(null);
         setSelectedRow(null);
         setDetailOpen(false);
 
-        const formData = new FormData();
-        formData.append('file', file);
+        // Phase 1 — Parse Excel client-side with SheetJS
+        let parsedRows: any[];
+        try {
+            parsedRows = await parseExcel(file);
+        } catch (err: any) {
+            toast.error(err?.message || 'Failed to parse Excel file.');
+            setStep('idle');
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            return;
+        }
 
-        // Pre-generate a token so we can start polling immediately once upload finishes
-        const clientToken = crypto.randomUUID();
-        formData.append('validate_token', clientToken);
+        if (parsedRows.length === 0) {
+            toast.error('No data rows found in the Excel file.');
+            setStep('idle');
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            return;
+        }
+
+        // Phase 2 — Send chunks to backend for DB-level validation
+        setUploadPhase('processing');
+
+        // Split into chunks
+        const chunks: any[][] = [];
+        for (let i = 0; i < parsedRows.length; i += VALIDATION_CHUNK_SIZE) {
+            chunks.push(parsedRows.slice(i, i + VALIDATION_CHUNK_SIZE));
+        }
+
+        let importToken: string | null = null;
+        let seenControlNos: Record<string, number> = {};
+        const allValidatedRows: ValidatedRow[] = [];
+        let totalValid = 0;
+        let totalErrors = 0;
 
         try {
-            const response = await axios.post(route('liquidation.validate-import'), formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-                onUploadProgress: (e) => {
-                    if (e.total) {
-                        const pct = Math.round((e.loaded / e.total) * 100);
-                        setUploadProgress(pct);
-                        if (pct >= 100) {
-                            setUploadPhase('processing');
-                            startValidatePolling(clientToken);
-                        }
-                    }
-                },
-            });
+            for (let i = 0; i < chunks.length; i++) {
+                const response = await axios.post(route('liquidation.validate-parsed-import'), {
+                    rows: chunks[i],
+                    file_name: file.name,
+                    import_token: importToken,
+                    seen_control_nos: seenControlNos,
+                });
 
-            stopValidatePolling();
+                if (response.data.success) {
+                    importToken = response.data.token;
+                    seenControlNos = response.data.seen_control_nos ?? seenControlNos;
+                    allValidatedRows.push(...response.data.rows);
+                    totalValid += response.data.summary.valid;
+                    totalErrors += response.data.summary.errors;
+                }
 
-            if (response.data.success) {
-                setRows(response.data.rows);
-                setSummary(response.data.summary);
-                setImportToken(response.data.token ?? null);
-                setStep('preview');
+                // Update progress after each chunk
+                const processed = Math.min((i + 1) * VALIDATION_CHUNK_SIZE, parsedRows.length);
+                setValidateProgress({ processed, total: parsedRows.length });
             }
+
+            setRows(allValidatedRows);
+            setSummary({ total: allValidatedRows.length, valid: totalValid, errors: totalErrors });
+            setImportToken(importToken);
+            setStep('preview');
         } catch (error: any) {
-            stopValidatePolling();
-            const msg = error.response?.data?.message || 'Failed to validate file.';
+            const msg = error.response?.data?.message || 'Failed to validate rows.';
             toast.error(msg);
             setStep('idle');
         }
 
         if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    /**
+     * Parse an Excel file using SheetJS on the main thread.
+     * Column indices match the backend COL_* constants.
+     *
+     * Handles over-formatted sheets (e.g. styles applied to all 1M+ rows)
+     * by clamping the sheet range before conversion.
+     */
+    const parseExcel = async (file: File): Promise<any[]> => {
+        const COL = {
+            SEQ: 0, PROGRAM: 1, UII: 2, HEI_NAME: 3,
+            DATE_FUND_RELEASED: 4, DUE_DATE: 5, ACADEMIC_YEAR: 6,
+            SEMESTER: 7, BATCH_NO: 8, CONTROL_NO: 9,
+            GRANTEES: 10, DISBURSEMENTS: 11, AMOUNT_LIQUIDATED: 12,
+            DOC_STATUS: 13, RC_NOTES: 14,
+        };
+
+        const cellStr = (v: unknown): string => {
+            if (v == null) return '';
+            if (v instanceof Date) return fmtDate(v);
+            return String(v).trim();
+        };
+
+        const fmtDate = (d: Date): string => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        };
+
+        const formatDate = (v: unknown): string => {
+            if (v == null || String(v).trim() === '') return '';
+            if (v instanceof Date) return fmtDate(v);
+            if (typeof v === 'number') {
+                const parsed = XLSX.SSF.parse_date_code(v);
+                if (parsed) return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
+                return '';
+            }
+            return String(v).trim();
+        };
+
+        /**
+         * A row is a real data row when SEQ is numeric AND at least one
+         * essential column (Program or UII) has content. This prevents
+         * counting rows where only SEQ is auto-filled (some templates
+         * auto-number column A all the way to row 1,048,576).
+         */
+        const isDataRow = (row: unknown[]): boolean => {
+            const seq = cellStr(row[COL.SEQ]);
+            if (seq === '' || isNaN(Number(seq))) return false;
+            const program = cellStr(row[COL.PROGRAM]);
+            const uii = cellStr(row[COL.UII]);
+            return program !== '' || uii !== '';
+        };
+
+        /**
+         * Clamp the sheet's row range to the actual data boundary.
+         * Some Excel files have formatting or auto-fill formulas applied to
+         * all 1,048,576 rows, causing sheet_to_json to return 1M+ entries.
+         * We scan backwards from the sheet end to find the last row where
+         * column B (Program) or C (UII) has content, then cap the range.
+         */
+        const clampSheetRange = (sheet: XLSX.WorkSheet) => {
+            if (!sheet['!ref']) return;
+            const range = XLSX.utils.decode_range(sheet['!ref']);
+            if (range.e.r <= 10000) return;
+
+            let lastDataRow = 0;
+            for (let r = range.e.r; r >= range.s.r; r--) {
+                const cellB = sheet[XLSX.utils.encode_cell({ r, c: 1 })]; // Program
+                const cellC = sheet[XLSX.utils.encode_cell({ r, c: 2 })]; // UII
+                const hasB = cellB && cellB.v != null && String(cellB.v).trim() !== '';
+                const hasC = cellC && cellC.v != null && String(cellC.v).trim() !== '';
+                if (hasB || hasC) { lastDataRow = r; break; }
+            }
+            range.e.r = lastDataRow + 10;
+            sheet['!ref'] = XLSX.utils.encode_range(range);
+        };
+
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+
+        // Clamp all sheets before conversion
+        for (const name of wb.SheetNames) {
+            clampSheetRange(wb.Sheets[name]);
+        }
+
+        // Find the sheet with data rows (mirrors backend logic)
+        let data: unknown[][] = XLSX.utils.sheet_to_json(
+            wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' },
+        );
+
+        if (!data.some(isDataRow) && wb.SheetNames.length > 1) {
+            for (const name of wb.SheetNames) {
+                const candidate: unknown[][] = XLSX.utils.sheet_to_json(
+                    wb.Sheets[name], { header: 1, defval: '' },
+                );
+                if (candidate.some(isDataRow)) { data = candidate; break; }
+            }
+        }
+
+        // Collect data rows with early termination
+        const rows: any[] = [];
+        let emptyStreak = 0;
+
+        for (let i = 0; i < data.length; i++) {
+            const raw = data[i] as unknown[];
+            if (!isDataRow(raw)) {
+                if (rows.length > 0) emptyStreak++;
+                // Stop after 50 consecutive non-data rows past the last data row
+                if (emptyStreak > 50) break;
+                continue;
+            }
+            emptyStreak = 0;
+
+            rows.push({
+                row: i + 1,
+                seq:                cellStr(raw[COL.SEQ]),
+                program:            cellStr(raw[COL.PROGRAM]),
+                uii:                cellStr(raw[COL.UII]),
+                hei_name:           cellStr(raw[COL.HEI_NAME]),
+                academic_year:      cellStr(raw[COL.ACADEMIC_YEAR]),
+                semester:           cellStr(raw[COL.SEMESTER]),
+                batch_no:           cellStr(raw[COL.BATCH_NO]),
+                control_no:         cellStr(raw[COL.CONTROL_NO]),
+                grantees:           cellStr(raw[COL.GRANTEES]),
+                disbursements:      cellStr(raw[COL.DISBURSEMENTS]),
+                amount_liquidated:  cellStr(raw[COL.AMOUNT_LIQUIDATED]),
+                date_fund_released: formatDate(raw[COL.DATE_FUND_RELEASED]),
+                due_date:           formatDate(raw[COL.DUE_DATE]),
+                doc_status:         cellStr(raw[COL.DOC_STATUS]),
+                rc_notes:           cellStr(raw[COL.RC_NOTES]),
+            });
+        }
+
+        setValidateProgress({ processed: rows.length, total: rows.length });
+        return rows;
     };
 
     const handleReUpload = () => {
@@ -550,12 +701,16 @@ export function ImportPreviewDialog({
                     {/* Validating with progress + skeleton */}
                     {!showHistory && step === 'validating' && (() => {
                         const isProcessing = uploadPhase === 'processing';
+                        const hasParseData = !isProcessing && validateProgress && validateProgress.total > 0;
                         const hasValidateData = isProcessing && validateProgress && validateProgress.total > 0;
+                        const parsePct = hasParseData
+                            ? Math.round((validateProgress!.processed / validateProgress!.total) * 100)
+                            : 0;
                         const validatePct = hasValidateData
                             ? Math.round((validateProgress!.processed / validateProgress!.total) * 100)
                             : 0;
-                        const displayPct = isProcessing ? validatePct : uploadProgress;
-                        const isDeterminate = !isProcessing || hasValidateData;
+                        const displayPct = isProcessing ? validatePct : parsePct;
+                        const isDeterminate = isProcessing ? hasValidateData : hasParseData;
 
                         return (
                             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -566,7 +721,7 @@ export function ImportPreviewDialog({
                                             <div className="flex items-center gap-2">
                                                 <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
                                                 <span className="text-sm font-medium">
-                                                    {isProcessing ? 'Validating rows...' : 'Uploading file...'}
+                                                    {isProcessing ? 'Validating rows...' : 'Parsing Excel file...'}
                                                 </span>
                                             </div>
                                             <span className="text-2xl font-bold font-mono tabular-nums text-foreground">
@@ -590,7 +745,9 @@ export function ImportPreviewDialog({
                                                 ? hasValidateData
                                                     ? `${validateProgress!.processed.toLocaleString()} of ${validateProgress!.total.toLocaleString()} rows checked`
                                                     : 'Preparing validation — this may take a moment for large files.'
-                                                : 'Uploading your Excel file to the server...'
+                                                : hasParseData
+                                                    ? `${validateProgress!.processed.toLocaleString()} of ${validateProgress!.total.toLocaleString()} rows parsed`
+                                                    : 'Reading Excel file in the background...'
                                             }
                                         </p>
                                     </div>

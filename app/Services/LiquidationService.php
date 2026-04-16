@@ -37,8 +37,7 @@ class LiquidationService
 
         $this->applyRoleFilter($query, $user);
 
-        $isFilteringVoided = ($filters['liquidation_status'] ?? '') === 'voided';
-        if (!$isFilteringVoided) {
+        if (!$this->isFilteringVoided($filters)) {
             $query->excludeVoided();
         }
 
@@ -71,14 +70,37 @@ class LiquidationService
         $this->applyRoleFilter($query, $user);
 
         // Exclude voided records unless explicitly filtering for them
-        $isFilteringVoided = ($filters['liquidation_status'] ?? '') === 'voided';
-        if (!$isFilteringVoided) {
+        if (!$this->isFilteringVoided($filters)) {
             $query->excludeVoided();
         }
 
         $this->applyFilters($query, $filters);
 
         return $query->paginate(15);
+    }
+
+    /**
+     * Apply role-based scope, voided exclusion, and filters to a query.
+     */
+    public function applyRoleAndFilters(Builder $query, User $user, array $filters = []): void
+    {
+        $this->applyRoleFilter($query, $user);
+
+        if (!$this->isFilteringVoided($filters)) {
+            $query->excludeVoided();
+        }
+
+        $this->applyFilters($query, $filters);
+    }
+
+    /**
+     * Check if the liquidation_status filter includes 'voided' (supports both string and array).
+     */
+    private function isFilteringVoided(array $filters): bool
+    {
+        $val = $filters['liquidation_status'] ?? [];
+        $arr = is_array($val) ? $val : [$val];
+        return in_array('voided', $arr);
     }
 
     /**
@@ -123,35 +145,35 @@ class LiquidationService
 
     /**
      * Apply search and filters.
+     * Filter values may be a single string or an array of strings (multi-select).
      */
     private function applyFilters(Builder $query, array $filters): void
     {
-        if (!empty($filters['program']) && $filters['program'] !== 'all') {
-            if ($filters['program'] === 'unifast') {
-                // UniFAST = top-level TES and TDP programs
-                $unifastIds = Program::whereNull('parent_id')
-                    ->whereIn(DB::raw('UPPER(code)'), ['TES', 'TDP'])
-                    ->pluck('id');
-                $query->whereIn('program_id', $unifastIds);
-            } elseif ($filters['program'] === 'stufaps') {
-                // STuFAPs = everything except top-level TES and TDP
-                $unifastIds = Program::whereNull('parent_id')
-                    ->whereIn(DB::raw('UPPER(code)'), ['TES', 'TDP'])
-                    ->pluck('id');
-                $query->whereNotIn('program_id', $unifastIds);
-            } else {
-                // Single program or parent group
-                $program = Program::find($filters['program']);
+        // Helper: normalize a filter value to a flat array, stripping 'all' and empties.
+        $toArray = function ($value): array {
+            if (empty($value)) return [];
+            $arr = is_array($value) ? $value : [$value];
+            return array_values(array_filter($arr, fn ($v) => $v !== '' && $v !== 'all'));
+        };
+
+        // Program filter — each selected value is a program UUID
+        $programs = $toArray($filters['program'] ?? null);
+        if (!empty($programs)) {
+            $programIds = collect();
+            foreach ($programs as $programId) {
+                $program = Program::find($programId);
                 if ($program && $program->parent_id === null) {
                     // Parent program: include itself + all children
                     $childIds = Program::where('parent_id', $program->id)->pluck('id');
-                    $query->whereIn('program_id', $childIds->push($program->id));
+                    $programIds = $programIds->merge($childIds)->push($program->id);
                 } else {
-                    $query->where('program_id', $filters['program']);
+                    $programIds->push($programId);
                 }
             }
+            $query->whereIn('program_id', $programIds->unique());
         }
 
+        // Search filter
         if (!empty($filters['search'])) {
             $search = $filters['search'];
             $query->where(function ($q) use ($search) {
@@ -162,43 +184,63 @@ class LiquidationService
             });
         }
 
-        // Filter by document status
-        if (!empty($filters['document_status']) && $filters['document_status'] !== 'all') {
-            $documentStatus = DocumentStatus::findByCode($filters['document_status']);
-            if ($documentStatus) {
-                $query->where('document_status_id', $documentStatus->id);
-            } elseif ($filters['document_status'] === 'NONE') {
-                // Also include null document_status_id for "No Submission"
-                $query->where(function ($q) {
+        // Document status filter
+        $docStatuses = $toArray($filters['document_status'] ?? null);
+        if (!empty($docStatuses)) {
+            $docStatusIds = [];
+            $includeNull = false;
+            foreach ($docStatuses as $code) {
+                if ($code === 'NONE') {
+                    $includeNull = true;
                     $noneStatus = DocumentStatus::findByCode(DocumentStatus::CODE_NONE);
-                    $q->whereNull('document_status_id');
-                    if ($noneStatus) {
-                        $q->orWhere('document_status_id', $noneStatus->id);
-                    }
-                });
+                    if ($noneStatus) $docStatusIds[] = $noneStatus->id;
+                } else {
+                    $status = DocumentStatus::findByCode($code);
+                    if ($status) $docStatusIds[] = $status->id;
+                }
+            }
+            $query->where(function ($q) use ($docStatusIds, $includeNull) {
+                if (!empty($docStatusIds)) {
+                    $q->whereIn('document_status_id', $docStatusIds);
+                }
+                if ($includeNull) {
+                    $q->orWhereNull('document_status_id');
+                }
+            });
+        }
+
+        // Liquidation status filter
+        $liqStatuses = $toArray($filters['liquidation_status'] ?? null);
+        if (!empty($liqStatuses)) {
+            $liqStatusIds = [];
+            foreach ($liqStatuses as $code) {
+                $status = LiquidationStatus::findByCode(strtoupper($code));
+                if ($status) $liqStatusIds[] = $status->id;
+            }
+            if (!empty($liqStatusIds)) {
+                $query->whereIn('liquidation_status_id', $liqStatusIds);
             }
         }
 
-        // Filter by liquidation status
-        if (!empty($filters['liquidation_status']) && $filters['liquidation_status'] !== 'all') {
-            $liquidationStatus = LiquidationStatus::findByCode(strtoupper($filters['liquidation_status']));
-            if ($liquidationStatus) {
-                $query->where('liquidation_status_id', $liquidationStatus->id);
-            }
+        // Academic year filter
+        $academicYears = $toArray($filters['academic_year'] ?? null);
+        if (!empty($academicYears)) {
+            $query->whereIn('academic_year_id', $academicYears);
         }
 
-        // Filter by academic year
-        if (!empty($filters['academic_year']) && $filters['academic_year'] !== 'all') {
-            $query->where('academic_year_id', $filters['academic_year']);
-        }
-
-        // Filter by RC note status
-        if (!empty($filters['rc_note_status']) && $filters['rc_note_status'] !== 'all') {
-            if ($filters['rc_note_status'] === 'none') {
-                $query->whereNull('rc_note_status_id');
-            } else {
-                $query->where('rc_note_status_id', $filters['rc_note_status']);
-            }
+        // RC note status filter
+        $rcNotes = $toArray($filters['rc_note_status'] ?? null);
+        if (!empty($rcNotes)) {
+            $includeNone = in_array('none', $rcNotes);
+            $statusIds = array_filter($rcNotes, fn ($v) => $v !== 'none');
+            $query->where(function ($q) use ($statusIds, $includeNone) {
+                if (!empty($statusIds)) {
+                    $q->whereIn('rc_note_status_id', $statusIds);
+                }
+                if ($includeNone) {
+                    $q->orWhereNull('rc_note_status_id');
+                }
+            });
         }
     }
 
@@ -620,7 +662,9 @@ class LiquidationService
             '1', '1st', '1st semester', 'first', 'first semester' => Semester::CODE_FIRST,
             '2', '2nd', '2nd semester', 'second', 'second semester' => Semester::CODE_SECOND,
             '3', 'summer', 'sum', 'summer semester' => Semester::CODE_SUMMER,
-            '1st and 2nd', '1st & 2nd', '1st and 2nd semester', '1st&2nd' => '1ST&2ND',
+            '1st and 2nd', '1st & 2nd', '1st and 2nd semester', '1st&2nd',
+            '1st & 2nd semester', '1st semester & 2nd semester',
+            '1st semester and 2nd semester' => '1ST&2ND',
             'tes3a', 'tes 3a' => 'TES3A',
             'tes3b', 'tes 3b' => 'TES3B',
             default => null,

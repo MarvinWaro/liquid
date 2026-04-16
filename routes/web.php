@@ -141,9 +141,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Liquidation Template Download
     Route::get('liquidation/template/download', [LiquidationController::class, 'downloadTemplate'])->name('liquidation.download-template');
 
+    // Print Report
+    Route::get('liquidation/print', [LiquidationController::class, 'printReport'])->name('liquidation.print-report');
+
     // RC Bulk Liquidation Routes
     Route::get('liquidation/rc-template/download', [LiquidationController::class, 'downloadRCTemplate'])->name('liquidation.download-rc-template');
     Route::post('liquidation/validate-import', [LiquidationController::class, 'validateImport'])->name('liquidation.validate-import');
+    Route::post('liquidation/validate-parsed-import', [LiquidationController::class, 'validateParsedImport'])->name('liquidation.validate-parsed-import');
     Route::get('liquidation/validate-progress', [LiquidationController::class, 'validateProgress'])->name('liquidation.validate-progress');
     Route::post('liquidation/bulk-import', [LiquidationController::class, 'bulkImportLiquidations'])->name('liquidation.bulk-import');
     Route::get('liquidation/import-progress', [LiquidationController::class, 'importProgress'])->name('liquidation.import-progress');

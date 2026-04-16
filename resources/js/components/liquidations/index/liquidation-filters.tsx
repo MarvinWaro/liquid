@@ -1,35 +1,26 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import {
-    Select,
-    SelectContent,
-    SelectGroup,
-    SelectItem,
-    SelectLabel,
-    SelectSeparator,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import { Search } from 'lucide-react';
+import { MultiSelectFilter, type FilterOption } from './multi-select-filter';
 import type { Program, AcademicYearOption, RcNoteStatusOption } from './types';
 
 interface LiquidationFiltersProps {
     searchQuery: string;
     onSearchChange: (value: string) => void;
     onSearchSubmit: (e: React.FormEvent) => void;
-    programFilter: string;
-    onProgramFilter: (value: string) => void;
+    programFilter: string[];
+    onProgramFilter: (value: string[]) => void;
     programs: Program[];
-    documentStatusFilter: string;
-    onDocumentStatusFilter: (value: string) => void;
-    liquidationStatusFilter: string;
-    onLiquidationStatusFilter: (value: string) => void;
-    academicYearFilter: string;
-    onAcademicYearFilter: (value: string) => void;
+    documentStatusFilter: string[];
+    onDocumentStatusFilter: (value: string[]) => void;
+    liquidationStatusFilter: string[];
+    onLiquidationStatusFilter: (value: string[]) => void;
+    academicYearFilter: string[];
+    onAcademicYearFilter: (value: string[]) => void;
     academicYears: AcademicYearOption[];
-    rcNoteStatusFilter: string;
-    onRcNoteStatusFilter: (value: string) => void;
+    rcNoteStatusFilter: string[];
+    onRcNoteStatusFilter: (value: string[]) => void;
     rcNoteStatuses: RcNoteStatusOption[];
 }
 
@@ -51,6 +42,15 @@ export const LiquidationFilters = React.memo(function LiquidationFilters({
     onRcNoteStatusFilter,
     rcNoteStatuses,
 }: LiquidationFiltersProps) {
+    const programOptions = useMemo(() => buildProgramOptions(programs), [programs]);
+    const academicYearOptions = useMemo(() =>
+        academicYears.map(ay => ({ value: ay.id, label: ay.name || ay.code })),
+    [academicYears]);
+    const rcNoteOptions = useMemo(() => [
+        { value: 'none', label: 'No RC Note' },
+        ...rcNoteStatuses.map(s => ({ value: s.id, label: s.name })),
+    ], [rcNoteStatuses]);
+
     return (
         <form onSubmit={onSearchSubmit} className="mb-4">
             <div className="flex gap-2 flex-wrap items-center">
@@ -64,11 +64,38 @@ export const LiquidationFilters = React.memo(function LiquidationFilters({
                         className="pl-8"
                     />
                 </div>
-                <ProgramFilterSelect value={programFilter} onChange={onProgramFilter} programs={programs} />
-                <AcademicYearSelect value={academicYearFilter} onChange={onAcademicYearFilter} academicYears={academicYears} />
-                <DocumentStatusSelect value={documentStatusFilter} onChange={onDocumentStatusFilter} />
-                <LiquidationStatusSelect value={liquidationStatusFilter} onChange={onLiquidationStatusFilter} />
-                <RcNoteStatusSelect value={rcNoteStatusFilter} onChange={onRcNoteStatusFilter} rcNoteStatuses={rcNoteStatuses} />
+                <MultiSelectFilter
+                    label="Program"
+                    options={programOptions}
+                    selected={programFilter}
+                    onChange={onProgramFilter}
+                />
+                <MultiSelectFilter
+                    label="Academic Year"
+                    options={academicYearOptions}
+                    selected={academicYearFilter}
+                    onChange={onAcademicYearFilter}
+                    width="w-[160px]"
+                />
+                <MultiSelectFilter
+                    label="Document Status"
+                    options={DOCUMENT_STATUS_OPTIONS}
+                    selected={documentStatusFilter}
+                    onChange={onDocumentStatusFilter}
+                />
+                <MultiSelectFilter
+                    label="Liquidation Status"
+                    options={LIQUIDATION_STATUS_OPTIONS}
+                    selected={liquidationStatusFilter}
+                    onChange={onLiquidationStatusFilter}
+                />
+                <MultiSelectFilter
+                    label="RC Note"
+                    options={rcNoteOptions}
+                    selected={rcNoteStatusFilter}
+                    onChange={onRcNoteStatusFilter}
+                    width="w-[170px]"
+                />
                 <Button type="submit" className="bg-foreground text-background hover:bg-foreground/90">Search</Button>
             </div>
             <div className="flex items-center gap-4 my-3 text-xs text-muted-foreground">
@@ -93,17 +120,24 @@ export const LiquidationFilters = React.memo(function LiquidationFilters({
     );
 });
 
-/* ── Program Filter ── */
+/* ── Static option lists ── */
 
-const ProgramFilterSelect = React.memo(function ProgramFilterSelect({
-    value,
-    onChange,
-    programs,
-}: {
-    value: string;
-    onChange: (v: string) => void;
-    programs: Program[];
-}) {
+const DOCUMENT_STATUS_OPTIONS: FilterOption[] = [
+    { value: 'NONE', label: 'No Submission', dot: 'bg-red-500 dark:bg-red-400' },
+    { value: 'PARTIAL', label: 'Partial Submission', dot: 'bg-amber-500 dark:bg-amber-400' },
+    { value: 'COMPLETE', label: 'Complete Submission', dot: 'bg-emerald-500' },
+];
+
+const LIQUIDATION_STATUS_OPTIONS: FilterOption[] = [
+    { value: 'unliquidated', label: 'Unliquidated', dot: 'bg-red-500 dark:bg-red-400' },
+    { value: 'partially_liquidated', label: 'Partially Liquidated', dot: 'bg-amber-500 dark:bg-amber-400' },
+    { value: 'fully_liquidated', label: 'Fully Liquidated', dot: 'bg-emerald-500' },
+    { value: 'voided', label: 'Voided', dot: 'bg-gray-400 dark:bg-gray-500' },
+];
+
+/* ── Program options builder ── */
+
+function buildProgramOptions(programs: Program[]): FilterOption[] {
     const unifastCodes = ['TES', 'TDP'];
     const unifastPrograms = programs.filter(p => !p.parent_id && unifastCodes.includes(p.code?.toUpperCase()));
     const stufapsParents = programs.filter(p => !p.parent_id && !unifastCodes.includes(p.code?.toUpperCase()));
@@ -115,178 +149,21 @@ const ProgramFilterSelect = React.memo(function ProgramFilterSelect({
         childrenByParent.set(p.parent_id!, list);
     });
 
-    return (
-        <Select value={value} onValueChange={onChange}>
-            <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Program" />
-            </SelectTrigger>
-            <SelectContent>
-                <SelectItem value="all">All Programs</SelectItem>
-                <SelectSeparator />
-                <SelectGroup>
-                    <SelectLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">UniFAST</SelectLabel>
-                    <SelectItem value="unifast">All UniFAST</SelectItem>
-                    {unifastPrograms.map(p => (
-                        <SelectItem key={p.id} value={p.id} className="pl-6">{p.code}</SelectItem>
-                    ))}
-                </SelectGroup>
-                <SelectSeparator />
-                <SelectGroup>
-                    <SelectLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">STuFAPs</SelectLabel>
-                    <SelectItem value="stufaps">All STuFAPs</SelectItem>
-                    {stufapsParents.map(parent => {
-                        const children = childrenByParent.get(parent.id) || [];
-                        if (children.length > 0) {
-                            return (
-                                <React.Fragment key={parent.id}>
-                                    <SelectItem value={parent.id} className="pl-6 font-medium">{parent.code}</SelectItem>
-                                    {children.map(child => (
-                                        <SelectItem key={child.id} value={child.id} className="pl-10 text-xs">{child.code}</SelectItem>
-                                    ))}
-                                </React.Fragment>
-                            );
-                        }
-                        return <SelectItem key={parent.id} value={parent.id} className="pl-6">{parent.code}</SelectItem>;
-                    })}
-                </SelectGroup>
-            </SelectContent>
-        </Select>
-    );
-});
+    const options: FilterOption[] = [];
 
-/* ── Academic Year Filter ── */
+    // UniFAST group
+    unifastPrograms.forEach(p => {
+        options.push({ value: p.id, label: p.code, group: 'UniFAST' });
+    });
 
-const AcademicYearSelect = React.memo(function AcademicYearSelect({
-    value,
-    onChange,
-    academicYears,
-}: {
-    value: string;
-    onChange: (v: string) => void;
-    academicYears: AcademicYearOption[];
-}) {
-    return (
-        <Select value={value} onValueChange={onChange}>
-            <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder="Academic Year" />
-            </SelectTrigger>
-            <SelectContent>
-                <SelectItem value="all">All Academic Years</SelectItem>
-                {academicYears.map(ay => (
-                    <SelectItem key={ay.id} value={ay.id}>{ay.name || ay.code}</SelectItem>
-                ))}
-            </SelectContent>
-        </Select>
-    );
-});
+    // STuFAPs group
+    stufapsParents.forEach(parent => {
+        const children = childrenByParent.get(parent.id) || [];
+        options.push({ value: parent.id, label: parent.code, group: 'STuFAPs' });
+        children.forEach(child => {
+            options.push({ value: child.id, label: child.code, group: 'STuFAPs', indent: true });
+        });
+    });
 
-/* ── Document Status Filter ── */
-
-const DocumentStatusSelect = React.memo(function DocumentStatusSelect({
-    value,
-    onChange,
-}: {
-    value: string;
-    onChange: (v: string) => void;
-}) {
-    return (
-        <Select value={value} onValueChange={onChange}>
-            <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Document Status" />
-            </SelectTrigger>
-            <SelectContent>
-                <SelectItem value="all">All Documents</SelectItem>
-                <SelectItem value="NONE">
-                    <span className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-red-500 dark:bg-red-400" />
-                        No Submission
-                    </span>
-                </SelectItem>
-                <SelectItem value="PARTIAL">
-                    <span className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-amber-500 dark:bg-amber-400" />
-                        Partial Submission
-                    </span>
-                </SelectItem>
-                <SelectItem value="COMPLETE">
-                    <span className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                        Complete Submission
-                    </span>
-                </SelectItem>
-            </SelectContent>
-        </Select>
-    );
-});
-
-/* ── Liquidation Status Filter ── */
-
-const LiquidationStatusSelect = React.memo(function LiquidationStatusSelect({
-    value,
-    onChange,
-}: {
-    value: string;
-    onChange: (v: string) => void;
-}) {
-    return (
-        <Select value={value} onValueChange={onChange}>
-            <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Liquidation Status" />
-            </SelectTrigger>
-            <SelectContent>
-                <SelectItem value="all">All Liquidation</SelectItem>
-                <SelectItem value="unliquidated">
-                    <span className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-red-500 dark:bg-red-400" />
-                        Unliquidated
-                    </span>
-                </SelectItem>
-                <SelectItem value="partially_liquidated">
-                    <span className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-amber-500 dark:bg-amber-400" />
-                        Partially Liquidated
-                    </span>
-                </SelectItem>
-                <SelectItem value="fully_liquidated">
-                    <span className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                        Fully Liquidated
-                    </span>
-                </SelectItem>
-                <SelectItem value="voided">
-                    <span className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500" />
-                        Voided
-                    </span>
-                </SelectItem>
-            </SelectContent>
-        </Select>
-    );
-});
-
-/* ── RC Note Status Filter ── */
-
-const RcNoteStatusSelect = React.memo(function RcNoteStatusSelect({
-    value,
-    onChange,
-    rcNoteStatuses,
-}: {
-    value: string;
-    onChange: (v: string) => void;
-    rcNoteStatuses: RcNoteStatusOption[];
-}) {
-    return (
-        <Select value={value} onValueChange={onChange}>
-            <SelectTrigger className="w-[170px]">
-                <SelectValue placeholder="RC Note" />
-            </SelectTrigger>
-            <SelectContent>
-                <SelectItem value="all">All RC Notes</SelectItem>
-                <SelectItem value="none">No RC Note</SelectItem>
-                {rcNoteStatuses.map(s => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                ))}
-            </SelectContent>
-        </Select>
-    );
-});
+    return options;
+}
