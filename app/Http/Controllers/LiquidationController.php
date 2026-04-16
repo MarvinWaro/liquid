@@ -757,11 +757,19 @@ class LiquidationController extends Controller
      * Rows are inserted in chunks of IMPORT_CHUNK_SIZE to keep transactions
      * small and resilient (a failure in one chunk does not roll back others).
      */
+    /**
+     * Import a chunk of validated rows from the cache.
+     *
+     * Designed for chunked importing — the frontend calls this multiple times:
+     * - First call: no batch_id → creates ImportBatch, returns batch_id.
+     * - Subsequent calls: pass batch_id → appends to existing batch.
+     * - Last call: pass is_last=true → logs activity & sends notification.
+     *
+     * Each request processes `offset` to `offset + limit` rows from the cache,
+     * returns in ~1-2 seconds, and gives the frontend real progress.
+     */
     public function bulkImportLiquidations(Request $request): JsonResponse
     {
-        // Bulk import can take several minutes for large files — lift PHP's default 30s limit
-        set_time_limit(300);
-
         $user = $request->user();
 
         if (!in_array($user->role?->name, ['Regional Coordinator', 'Admin', 'STUFAPS Focal']) && !$user->isSuperAdmin()) {
@@ -777,8 +785,8 @@ class LiquidationController extends Controller
         }
 
         $fileCache = Cache::store('file');
-        $cacheKey = "liquidation_import_{$token}";
-        $cached   = $fileCache->get($cacheKey);
+        $cacheKey  = "liquidation_import_{$token}";
+        $cached    = $fileCache->get($cacheKey);
 
         if (!$cached) {
             return response()->json([
@@ -791,113 +799,96 @@ class LiquidationController extends Controller
             abort(403, 'Import token does not belong to the current user.');
         }
 
-        $rows      = $cached['rows'];
-        $totalRows = count($rows);
-        $imported  = 0;
-        $errors    = [];
+        $allRows   = $cached['rows'];
+        $totalRows = count($allRows);
+        $offset    = (int) $request->input('offset', 0);
+        $limit     = (int) $request->input('limit', 200);
+        $isLast    = (bool) $request->input('is_last', false);
+        $batchId   = $request->input('batch_id');
 
-        // Create import batch record for traceability / undo
-        $batch = ImportBatch::create([
-            'user_id'        => $user->id,
-            'file_name'      => $cached['file_name'] ?? 'unknown.xlsx',
-            'total_rows'     => $totalRows,
-            'imported_count' => 0,
-            'status'         => 'active',
-        ]);
+        // Slice the chunk to import
+        $chunk = array_slice($allRows, $offset, $limit);
 
-        // Publish initial progress so the frontend can start polling immediately
-        $progressKey = "import_progress_{$token}";
-        $progressTtl = now()->addMinutes(15);
-        $fileCache->put($progressKey, [
-            'processed' => 0,
-            'total'     => $totalRows,
-            'imported'  => 0,
-            'errors'    => 0,
-            'done'      => false,
-        ], $progressTtl);
+        // Create or retrieve the import batch
+        if ($batchId) {
+            $batch = ImportBatch::find($batchId);
+            if (!$batch || $batch->user_id !== $user->id) {
+                abort(403, 'Invalid batch.');
+            }
+        } else {
+            $batch = ImportBatch::create([
+                'user_id'        => $user->id,
+                'file_name'      => $cached['file_name'] ?? 'unknown.xlsx',
+                'total_rows'     => $totalRows,
+                'imported_count' => 0,
+                'status'         => 'active',
+            ]);
+        }
 
-        $processed = 0;
+        $imported = 0;
+        $errors   = [];
 
-        // Process in chunks: smaller transactions = faster, more resilient
-        foreach (array_chunk($rows, self::IMPORT_CHUNK_SIZE) as $chunk) {
-            DB::transaction(function () use ($chunk, $user, $batch, &$imported, &$errors, &$processed, $progressKey, $progressTtl, $totalRows, $fileCache) {
-                foreach ($chunk as $rowData) {
-                    $processed++;
-                    try {
-                        $this->insertImportRow($rowData, $user, $batch->id);
-                        $imported++;
-                    } catch (\Illuminate\Database\QueryException $e) {
-                        $isDuplicate = ($e->errorInfo[1] ?? null) === 1062;
-                        $errors[] = [
-                            'row'      => $rowData['row_no'] ?? null,
-                            'seq'      => $rowData['seq'] ?? null,
-                            'program'  => $rowData['program_code'] ?? null,
-                            'uii'      => $rowData['uii'] ?? null,
-                            'hei_name' => $rowData['hei_name'] ?? '',
-                            'error'    => $isDuplicate
-                                ? 'Already exists — this record was likely imported in a previous batch.'
-                                : 'Database error — the record could not be saved.',
-                        ];
-                    } catch (\Exception $e) {
-                        $errors[] = [
-                            'row'      => $rowData['row_no'] ?? null,
-                            'seq'      => $rowData['seq'] ?? null,
-                            'program'  => $rowData['program_code'] ?? null,
-                            'uii'      => $rowData['uii'] ?? null,
-                            'hei_name' => $rowData['hei_name'] ?? '',
-                            'error'    => $e->getMessage(),
-                        ];
-                    }
-
-                    // Update progress every 25 rows so the frontend poll catches it
-                    if ($processed % 25 === 0) {
-                        $fileCache->put($progressKey, [
-                            'processed' => $processed,
-                            'total'     => $totalRows,
-                            'imported'  => $imported,
-                            'errors'    => count($errors),
-                            'done'      => false,
-                        ], $progressTtl);
-                    }
+        DB::transaction(function () use ($chunk, $user, $batch, &$imported, &$errors) {
+            foreach ($chunk as $rowData) {
+                try {
+                    $this->insertImportRow($rowData, $user, $batch->id);
+                    $imported++;
+                } catch (\Illuminate\Database\QueryException $e) {
+                    $isDuplicate = ($e->errorInfo[1] ?? null) === 1062;
+                    $errors[] = [
+                        'row'      => $rowData['row_no'] ?? null,
+                        'seq'      => $rowData['seq'] ?? null,
+                        'program'  => $rowData['program_code'] ?? null,
+                        'uii'      => $rowData['uii'] ?? null,
+                        'hei_name' => $rowData['hei_name'] ?? '',
+                        'error'    => $isDuplicate
+                            ? 'Already exists — this record was likely imported in a previous batch.'
+                            : 'Database error — the record could not be saved.',
+                    ];
+                } catch (\Exception $e) {
+                    $errors[] = [
+                        'row'      => $rowData['row_no'] ?? null,
+                        'seq'      => $rowData['seq'] ?? null,
+                        'program'  => $rowData['program_code'] ?? null,
+                        'uii'      => $rowData['uii'] ?? null,
+                        'hei_name' => $rowData['hei_name'] ?? '',
+                        'error'    => $e->getMessage(),
+                    ];
                 }
-            });
+            }
+        });
 
-            // Always persist after each completed chunk
-            $batch->update(['imported_count' => $imported]);
-            $fileCache->put($progressKey, [
-                'processed' => $processed,
-                'total'     => $totalRows,
-                'imported'  => $imported,
-                'errors'    => count($errors),
-                'done'      => false,
-            ], $progressTtl);
+        // Update batch count
+        $batch->increment('imported_count', $imported);
+
+        // On last chunk: clean up cache, log activity, send notification
+        if ($isLast) {
+            $fileCache->forget($cacheKey);
+
+            $totalImported = $batch->fresh()->imported_count;
+            if ($totalImported > 0) {
+                ActivityLog::log('bulk_imported', "Bulk imported {$totalImported} liquidation(s) (batch: {$batch->id})", null, 'Liquidation');
+
+                NotificationService::dispatch(
+                    'bulk_imported',
+                    "Bulk imported {$totalImported} liquidation record(s) from {$batch->file_name}",
+                    null,
+                    'Liquidation'
+                );
+            }
         }
 
-        // Mark done so frontend knows to stop polling
-        $fileCache->put($progressKey, [
-            'processed' => $totalRows,
-            'total'     => $totalRows,
-            'imported'  => $imported,
-            'errors'    => count($errors),
-            'done'      => true,
-        ], now()->addMinutes(5));
-
-        // One-time token — clear regardless of outcome
-        $fileCache->forget($cacheKey);
-
-        if ($imported > 0) {
-            ActivityLog::log('bulk_imported', "Bulk imported {$imported} liquidation(s) (batch: {$batch->id})", null, 'Liquidation');
-
-            // Single batch-level notification (not per-row) to avoid thousands of DB inserts
-            NotificationService::dispatch(
-                'bulk_imported',
-                "Bulk imported {$imported} liquidation record(s) from {$batch->file_name}",
-                null,
-                'Liquidation'
-            );
-        }
-
-        return $this->formatImportResponse($imported, $errors);
+        $errorCount = count($errors);
+        return response()->json([
+            'success'    => true,
+            'batch_id'   => $batch->id,
+            'imported'   => $imported,
+            'errors'     => $errors,
+            'total_rows' => $totalRows,
+            'message'    => $isLast
+                ? "Imported {$batch->fresh()->imported_count} liquidation(s)."
+                : null,
+        ]);
     }
 
     /**
@@ -1839,13 +1830,13 @@ class LiquidationController extends Controller
 
         $filters = $request->only(['search', 'program', 'document_status', 'liquidation_status', 'academic_year', 'rc_note_status']);
 
-        // Get all filtered records without pagination
+        // Get filtered records with a safety cap to prevent OOM on small instances
         $query = Liquidation::with(['hei', 'program', 'financial', 'semester', 'academicYear', 'documentStatus', 'liquidationStatus', 'rcNoteStatus', 'trackingEntries'])
             ->orderBy('control_no', 'asc');
 
         $this->liquidationService->applyRoleAndFilters($query, $user, $filters);
 
-        $liquidations = $query->get()->map(function ($liquidation, $index) {
+        $liquidations = $query->limit(5000)->get()->map(function ($liquidation, $index) {
             $financial = $liquidation->financial;
             $disbursements = (float) ($financial?->amount_received ?? 0);
             $liquidated = (float) ($financial?->amount_liquidated ?? 0);

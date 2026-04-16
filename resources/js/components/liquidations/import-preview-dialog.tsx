@@ -437,6 +437,8 @@ export function ImportPreviewDialog({
         fileInputRef.current?.click();
     };
 
+    const IMPORT_CHUNK_SIZE = 200;
+
     const handleImport = async () => {
         if (!importToken || summary.valid === 0) return;
 
@@ -445,47 +447,54 @@ export function ImportPreviewDialog({
         setStep('importing');
         setImportProgress({ processed: 0, total, imported: 0, errors: 0 });
 
-        // Client-side simulated progress — the server is synchronous so polling can't get
-        // through while the import request is running. Estimate ~80ms per row, cap at 93%
-        // so the bar never falsely reaches 100% before the server confirms completion.
-        const estimatedMs = Math.max(total * 80, 3000);
-        const tickMs = 200;
-        const maxPct = 93;
-        let simulatedProcessed = 0;
-
-        importTimerRef.current = setInterval(() => {
-            simulatedProcessed = Math.min(
-                simulatedProcessed + Math.round((total * tickMs) / estimatedMs),
-                Math.round(total * maxPct / 100),
-            );
-            setImportProgress(prev => prev ? { ...prev, processed: simulatedProcessed } : prev);
-        }, tickMs);
+        let batchId: string | null = null;
+        let totalImported = 0;
+        let allErrors: any[] = [];
+        let totalRows = total;
 
         try {
-            // Send the server-side token — no file re-upload needed
-            const response = await axios.post(route('liquidation.bulk-import'), {
-                import_token: token,
-            });
+            for (let offset = 0; offset < totalRows; offset += IMPORT_CHUNK_SIZE) {
+                const isLast = offset + IMPORT_CHUNK_SIZE >= totalRows;
 
-            stopPolling();
-            const imported = response.data.imported ?? 0;
-            const errors = response.data.errors ?? [];
+                const response = await axios.post(route('liquidation.bulk-import'), {
+                    import_token: token,
+                    batch_id: batchId,
+                    offset,
+                    limit: IMPORT_CHUNK_SIZE,
+                    is_last: isLast,
+                });
 
-            // Snap to 100% briefly so the user sees completion
-            setImportProgress({ processed: total, total, imported, errors: errors.length });
-            await new Promise(r => setTimeout(r, 400));
+                batchId = response.data.batch_id ?? batchId;
+                totalImported += response.data.imported ?? 0;
+                totalRows = response.data.total_rows ?? totalRows;
+                if (response.data.errors?.length) {
+                    allErrors.push(...response.data.errors);
+                }
 
-            if (imported > 0 && errors.length === 0) {
-                toast.success(response.data.message);
+                // Real progress — updates after each chunk returns
+                const processed = Math.min(offset + IMPORT_CHUNK_SIZE, totalRows);
+                setImportProgress({
+                    processed,
+                    total: totalRows,
+                    imported: totalImported,
+                    errors: allErrors.length,
+                });
             }
 
-            onImportComplete({ imported, errors });
+            // Brief 100% flash before closing
+            setImportProgress({ processed: totalRows, total: totalRows, imported: totalImported, errors: allErrors.length });
+            await new Promise(r => setTimeout(r, 400));
+
+            if (totalImported > 0 && allErrors.length === 0) {
+                toast.success(`Imported ${totalImported} liquidation(s).`);
+            }
+
+            onImportComplete({ imported: totalImported, errors: allErrors });
             handleClose();
         } catch (error: any) {
-            stopPolling();
             const errors = error.response?.data?.errors ?? [];
             const imported = error.response?.data?.imported ?? 0;
-            onImportComplete({ imported, errors });
+            onImportComplete({ imported: totalImported + imported, errors: [...allErrors, ...errors] });
             handleClose();
         }
     };
