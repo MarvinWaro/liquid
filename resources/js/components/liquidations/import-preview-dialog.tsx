@@ -38,7 +38,7 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import axios from 'axios';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 // --- Types ----------------------------------------------------------------
 
@@ -294,24 +294,33 @@ export function ImportPreviewDialog({
     };
 
     /**
-     * Parse an Excel file using SheetJS on the main thread.
-     * Column indices match the backend COL_* constants.
+     * Parse an Excel file using ExcelJS on the main thread.
+     * Column indices (1-based) match the backend COL_* constants + 1.
      *
      * Handles over-formatted sheets (e.g. styles applied to all 1M+ rows)
-     * by clamping the sheet range before conversion.
+     * via early termination after 50 consecutive non-data rows.
      */
     const parseExcel = async (file: File): Promise<any[]> => {
+        // ExcelJS columns are 1-based
         const COL = {
-            SEQ: 0, PROGRAM: 1, UII: 2, HEI_NAME: 3,
-            DATE_FUND_RELEASED: 4, DUE_DATE: 5, ACADEMIC_YEAR: 6,
-            SEMESTER: 7, BATCH_NO: 8, CONTROL_NO: 9,
-            GRANTEES: 10, DISBURSEMENTS: 11, AMOUNT_LIQUIDATED: 12,
-            DOC_STATUS: 13, RC_NOTES: 14,
+            SEQ: 1, PROGRAM: 2, UII: 3, HEI_NAME: 4,
+            DATE_FUND_RELEASED: 5, DUE_DATE: 6, ACADEMIC_YEAR: 7,
+            SEMESTER: 8, BATCH_NO: 9, CONTROL_NO: 10,
+            GRANTEES: 11, DISBURSEMENTS: 12, AMOUNT_LIQUIDATED: 13,
+            DOC_STATUS: 14, RC_NOTES: 15,
         };
 
-        const cellStr = (v: unknown): string => {
+        const cellStr = (v: ExcelJS.CellValue): string => {
             if (v == null) return '';
             if (v instanceof Date) return fmtDate(v);
+            // ExcelJS rich text: { richText: [{ text: '...' }, ...] }
+            if (typeof v === 'object' && 'richText' in (v as any)) {
+                return ((v as any).richText as { text: string }[]).map(r => r.text).join('').trim();
+            }
+            // ExcelJS formula result
+            if (typeof v === 'object' && 'result' in (v as any)) {
+                return cellStr((v as any).result);
+            }
             return String(v).trim();
         };
 
@@ -322,110 +331,75 @@ export function ImportPreviewDialog({
             return `${y}-${m}-${day}`;
         };
 
-        const formatDate = (v: unknown): string => {
-            if (v == null || String(v).trim() === '') return '';
+        const formatDate = (v: ExcelJS.CellValue): string => {
+            if (v == null) return '';
             if (v instanceof Date) return fmtDate(v);
-            if (typeof v === 'number') {
-                const parsed = XLSX.SSF.parse_date_code(v);
-                if (parsed) return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
-                return '';
-            }
-            return String(v).trim();
-        };
-
-        /**
-         * A row is a real data row when SEQ is numeric AND at least one
-         * essential column (Program or UII) has content. This prevents
-         * counting rows where only SEQ is auto-filled (some templates
-         * auto-number column A all the way to row 1,048,576).
-         */
-        const isDataRow = (row: unknown[]): boolean => {
-            const seq = cellStr(row[COL.SEQ]);
-            if (seq === '' || isNaN(Number(seq))) return false;
-            const program = cellStr(row[COL.PROGRAM]);
-            const uii = cellStr(row[COL.UII]);
-            return program !== '' || uii !== '';
-        };
-
-        /**
-         * Clamp the sheet's row range to the actual data boundary.
-         * Some Excel files have formatting or auto-fill formulas applied to
-         * all 1,048,576 rows, causing sheet_to_json to return 1M+ entries.
-         * We scan backwards from the sheet end to find the last row where
-         * column B (Program) or C (UII) has content, then cap the range.
-         */
-        const clampSheetRange = (sheet: XLSX.WorkSheet) => {
-            if (!sheet['!ref']) return;
-            const range = XLSX.utils.decode_range(sheet['!ref']);
-            if (range.e.r <= 10000) return;
-
-            let lastDataRow = 0;
-            for (let r = range.e.r; r >= range.s.r; r--) {
-                const cellB = sheet[XLSX.utils.encode_cell({ r, c: 1 })]; // Program
-                const cellC = sheet[XLSX.utils.encode_cell({ r, c: 2 })]; // UII
-                const hasB = cellB && cellB.v != null && String(cellB.v).trim() !== '';
-                const hasC = cellC && cellC.v != null && String(cellC.v).trim() !== '';
-                if (hasB || hasC) { lastDataRow = r; break; }
-            }
-            range.e.r = lastDataRow + 10;
-            sheet['!ref'] = XLSX.utils.encode_range(range);
+            const s = cellStr(v);
+            if (s === '') return '';
+            return s;
         };
 
         const buffer = await file.arrayBuffer();
-        const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.load(buffer);
 
-        // Clamp all sheets before conversion
-        for (const name of wb.SheetNames) {
-            clampSheetRange(wb.Sheets[name]);
-        }
+        // Find the first worksheet with data rows
+        let ws: ExcelJS.Worksheet | undefined;
+        wb.eachSheet((sheet) => {
+            if (ws) return;
+            sheet.eachRow((row) => {
+                if (ws) return;
+                const seq = cellStr(row.getCell(COL.SEQ).value);
+                const prog = cellStr(row.getCell(COL.PROGRAM).value);
+                const uii = cellStr(row.getCell(COL.UII).value);
+                if (seq !== '' && !isNaN(Number(seq)) && (prog !== '' || uii !== '')) {
+                    ws = sheet;
+                }
+            });
+        });
 
-        // Find the sheet with data rows (mirrors backend logic)
-        let data: unknown[][] = XLSX.utils.sheet_to_json(
-            wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' },
-        );
-
-        if (!data.some(isDataRow) && wb.SheetNames.length > 1) {
-            for (const name of wb.SheetNames) {
-                const candidate: unknown[][] = XLSX.utils.sheet_to_json(
-                    wb.Sheets[name], { header: 1, defval: '' },
-                );
-                if (candidate.some(isDataRow)) { data = candidate; break; }
-            }
+        if (!ws) {
+            setValidateProgress({ processed: 0, total: 0 });
+            return [];
         }
 
         // Collect data rows with early termination
         const rows: any[] = [];
         let emptyStreak = 0;
 
-        for (let i = 0; i < data.length; i++) {
-            const raw = data[i] as unknown[];
-            if (!isDataRow(raw)) {
+        ws.eachRow((row, rowNumber) => {
+            if (emptyStreak > 50) return;
+
+            const seq = cellStr(row.getCell(COL.SEQ).value);
+            const program = cellStr(row.getCell(COL.PROGRAM).value);
+            const uii = cellStr(row.getCell(COL.UII).value);
+
+            // A real data row has numeric SEQ + at least Program or UII
+            if (seq === '' || isNaN(Number(seq)) || (program === '' && uii === '')) {
                 if (rows.length > 0) emptyStreak++;
-                // Stop after 50 consecutive non-data rows past the last data row
-                if (emptyStreak > 50) break;
-                continue;
+                return;
             }
             emptyStreak = 0;
 
             rows.push({
-                row: i + 1,
-                seq:                cellStr(raw[COL.SEQ]),
-                program:            cellStr(raw[COL.PROGRAM]),
-                uii:                cellStr(raw[COL.UII]),
-                hei_name:           cellStr(raw[COL.HEI_NAME]),
-                academic_year:      cellStr(raw[COL.ACADEMIC_YEAR]),
-                semester:           cellStr(raw[COL.SEMESTER]),
-                batch_no:           cellStr(raw[COL.BATCH_NO]),
-                control_no:         cellStr(raw[COL.CONTROL_NO]),
-                grantees:           cellStr(raw[COL.GRANTEES]),
-                disbursements:      cellStr(raw[COL.DISBURSEMENTS]),
-                amount_liquidated:  cellStr(raw[COL.AMOUNT_LIQUIDATED]),
-                date_fund_released: formatDate(raw[COL.DATE_FUND_RELEASED]),
-                due_date:           formatDate(raw[COL.DUE_DATE]),
-                doc_status:         cellStr(raw[COL.DOC_STATUS]),
-                rc_notes:           cellStr(raw[COL.RC_NOTES]),
+                row: rowNumber,
+                seq,
+                program,
+                uii,
+                hei_name:           cellStr(row.getCell(COL.HEI_NAME).value),
+                academic_year:      cellStr(row.getCell(COL.ACADEMIC_YEAR).value),
+                semester:           cellStr(row.getCell(COL.SEMESTER).value),
+                batch_no:           cellStr(row.getCell(COL.BATCH_NO).value),
+                control_no:         cellStr(row.getCell(COL.CONTROL_NO).value),
+                grantees:           cellStr(row.getCell(COL.GRANTEES).value),
+                disbursements:      cellStr(row.getCell(COL.DISBURSEMENTS).value),
+                amount_liquidated:  cellStr(row.getCell(COL.AMOUNT_LIQUIDATED).value),
+                date_fund_released: formatDate(row.getCell(COL.DATE_FUND_RELEASED).value),
+                due_date:           formatDate(row.getCell(COL.DUE_DATE).value),
+                doc_status:         cellStr(row.getCell(COL.DOC_STATUS).value),
+                rc_notes:           cellStr(row.getCell(COL.RC_NOTES).value),
             });
-        }
+        });
 
         setValidateProgress({ processed: rows.length, total: rows.length });
         return rows;
