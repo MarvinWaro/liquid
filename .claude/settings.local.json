@@ -55,7 +55,9 @@
       "Bash(curl -o C:/php/extras/ssl/cacert.pem https://curl.se/ca/cacert-2025-02-25.pem)",
       "Bash(mysql -u root -e \"SHOW VARIABLES LIKE 'max_allowed_packet';\")",
       "Bash(grep -E \"\\\\.\\(tsx?|php\\)$\")",
-      "Bash(grep -r \"memory_limit\\\\|max_execution_time\\\\|upload_max\\\\|post_max\" /c/Users/MARVIN/projects/liquid/.env*)"
+      "Bash(grep -r \"memory_limit\\\\|max_execution_time\\\\|upload_max\\\\|post_max\" /c/Users/MARVIN/projects/liquid/.env*)",
+      "Bash(npm uninstall *)",
+      "Bash(npm audit *)"
     ]
   }
 }

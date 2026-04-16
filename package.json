@@ -66,6 +66,7 @@
         "cmdk": "^1.1.1",
         "concurrently": "^9.0.1",
         "date-fns": "^4.1.0",
+        "exceljs": "^4.4.0",
         "framer-motion": "^12.29.2",
         "geist": "^1.5.1",
         "globals": "^15.14.0",
@@ -87,7 +88,6 @@
         "typescript": "^5.7.2",
         "vaul": "^1.1.2",
         "vite": "^7.0.4",
-        "xlsx": "^0.18.5",
         "ziggy-js": "^2.6.0"
     },
     "optionalDependencies": {
