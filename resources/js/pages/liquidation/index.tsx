@@ -24,7 +24,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown, Percent } from 'lucide-react';
+import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown, Percent, Printer } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
 import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
@@ -60,11 +60,11 @@ interface Props {
     heis?: HEIOption[];
     filters: {
         search?: string;
-        program?: string;
-        document_status?: string;
-        liquidation_status?: string;
-        academic_year?: string;
-        rc_note_status?: string;
+        program?: string | string[];
+        document_status?: string | string[];
+        liquidation_status?: string | string[];
+        academic_year?: string | string[];
+        rc_note_status?: string | string[];
     };
     permissions: {
         review: boolean;
@@ -79,12 +79,15 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 export default function Index({ liquidations, tableSummary, programs, createPrograms, academicYears, rcNoteStatuses, heis, filters, permissions, userRole }: Props) {
+    const toArr = (v: string | string[] | undefined): string[] =>
+        !v ? [] : Array.isArray(v) ? v : v === 'all' ? [] : [v];
+
     const [searchQuery, setSearchQuery] = useState(filters.search || '');
-    const [programFilter, setProgramFilter] = useState(filters.program || '');
-    const [documentStatusFilter, setDocumentStatusFilter] = useState(filters.document_status || '');
-    const [liquidationStatusFilter, setLiquidationStatusFilter] = useState(filters.liquidation_status || '');
-    const [academicYearFilter, setAcademicYearFilter] = useState(filters.academic_year || '');
-    const [rcNoteStatusFilter, setRcNoteStatusFilter] = useState(filters.rc_note_status || '');
+    const [programFilter, setProgramFilter] = useState<string[]>(toArr(filters.program));
+    const [documentStatusFilter, setDocumentStatusFilter] = useState<string[]>(toArr(filters.document_status));
+    const [liquidationStatusFilter, setLiquidationStatusFilter] = useState<string[]>(toArr(filters.liquidation_status));
+    const [academicYearFilter, setAcademicYearFilter] = useState<string[]>(toArr(filters.academic_year));
+    const [rcNoteStatusFilter, setRcNoteStatusFilter] = useState<string[]>(toArr(filters.rc_note_status));
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isBulkEntryOpen, setIsBulkEntryOpen] = useState(false);
     const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
@@ -110,66 +113,77 @@ export default function Index({ liquidations, tableSummary, programs, createProg
     const isHEI = userRole === 'HEI';
     const canCreate = (permissions.create || isRC) && !isHEI;
 
-    const getFilterParams = (overrides: Record<string, string> = {}) => ({
-        search: searchQuery,
-        program: programFilter,
-        document_status: documentStatusFilter,
-        liquidation_status: liquidationStatusFilter,
-        academic_year: academicYearFilter,
-        rc_note_status: rcNoteStatusFilter,
-        ...overrides,
-    });
+    const getFilterParams = (overrides: Record<string, any> = {}) => {
+        const raw: Record<string, any> = {
+            search: searchQuery,
+            program: programFilter,
+            document_status: documentStatusFilter,
+            liquidation_status: liquidationStatusFilter,
+            academic_year: academicYearFilter,
+            rc_note_status: rcNoteStatusFilter,
+            ...overrides,
+        };
+        // Strip empty arrays / empty strings so they don't pollute the URL
+        const params: Record<string, any> = {};
+        for (const [k, v] of Object.entries(raw)) {
+            if (Array.isArray(v) ? v.length > 0 : v) params[k] = v;
+        }
+        return params;
+    };
 
-    const handleSearch = (e: React.FormEvent) => {
-        e.preventDefault();
-        router.get(route('liquidation.index'), getFilterParams(), {
+    const navigate = (overrides: Record<string, any> = {}) => {
+        router.get(route('liquidation.index'), getFilterParams(overrides), {
             preserveState: true,
             preserveScroll: true,
         });
     };
 
-    const handleProgramFilter = useCallback((value: string) => {
+    const handleSearch = (e: React.FormEvent) => {
+        e.preventDefault();
+        navigate();
+    };
+
+    const handleProgramFilter = useCallback((value: string[]) => {
         setProgramFilter(value);
-        router.get(route('liquidation.index'), getFilterParams({ program: value }), {
-            preserveState: true,
-            preserveScroll: true,
-        });
+        navigate({ program: value });
     }, [searchQuery, documentStatusFilter, liquidationStatusFilter, academicYearFilter, rcNoteStatusFilter]);
 
-    const handleDocumentStatusFilter = useCallback((value: string) => {
+    const handleDocumentStatusFilter = useCallback((value: string[]) => {
         setDocumentStatusFilter(value);
-        router.get(route('liquidation.index'), getFilterParams({ document_status: value }), {
-            preserveState: true,
-            preserveScroll: true,
-        });
+        navigate({ document_status: value });
     }, [searchQuery, programFilter, liquidationStatusFilter, academicYearFilter, rcNoteStatusFilter]);
 
-    const handleLiquidationStatusFilter = useCallback((value: string) => {
+    const handleLiquidationStatusFilter = useCallback((value: string[]) => {
         setLiquidationStatusFilter(value);
-        router.get(route('liquidation.index'), getFilterParams({ liquidation_status: value }), {
-            preserveState: true,
-            preserveScroll: true,
-        });
+        navigate({ liquidation_status: value });
     }, [searchQuery, programFilter, documentStatusFilter, academicYearFilter, rcNoteStatusFilter]);
 
-    const handleAcademicYearFilter = useCallback((value: string) => {
+    const handleAcademicYearFilter = useCallback((value: string[]) => {
         setAcademicYearFilter(value);
-        router.get(route('liquidation.index'), getFilterParams({ academic_year: value }), {
-            preserveState: true,
-            preserveScroll: true,
-        });
+        navigate({ academic_year: value });
     }, [searchQuery, programFilter, documentStatusFilter, liquidationStatusFilter, rcNoteStatusFilter]);
 
-    const handleRcNoteStatusFilter = useCallback((value: string) => {
+    const handleRcNoteStatusFilter = useCallback((value: string[]) => {
         setRcNoteStatusFilter(value);
-        router.get(route('liquidation.index'), getFilterParams({ rc_note_status: value }), {
-            preserveState: true,
-            preserveScroll: true,
-        });
+        navigate({ rc_note_status: value });
     }, [searchQuery, programFilter, documentStatusFilter, liquidationStatusFilter, academicYearFilter]);
 
     const handleDownloadTemplate = () => {
         window.location.href = route('liquidation.download-rc-template');
+    };
+
+    const handlePrintReport = () => {
+        const params = new URLSearchParams();
+        if (searchQuery) params.set('search', searchQuery);
+        programFilter.forEach(v => params.append('program[]', v));
+        documentStatusFilter.forEach(v => params.append('document_status[]', v));
+        liquidationStatusFilter.forEach(v => params.append('liquidation_status[]', v));
+        academicYearFilter.forEach(v => params.append('academic_year[]', v));
+        rcNoteStatusFilter.forEach(v => params.append('rc_note_status[]', v));
+
+        const queryString = params.toString();
+        const url = route('liquidation.print-report') + (queryString ? `?${queryString}` : '');
+        window.open(url, '_blank');
     };
 
     const handleImportComplete = (result: { imported: number; errors: any[] }) => {
@@ -302,8 +316,13 @@ export default function Index({ liquidations, tableSummary, programs, createProg
                                 {!['Regional Coordinator', 'Accountant'].includes(userRole) && 'Manage liquidation records and submissions'}
                             </p>
                         </div>
-                        {canCreate && (
-                            <div className="flex gap-2">
+                        <div className="flex gap-2">
+                            <Button variant="outline" onClick={handlePrintReport}>
+                                <Printer className="h-4 w-4 mr-2" />
+                                Print Report
+                            </Button>
+                            {canCreate && (
+                                <>
                                 <Button onClick={() => setIsCreateModalOpen(true)} className="bg-foreground text-background shadow-sm hover:bg-foreground/90">
                                     <Plus className="h-4 w-4 mr-2" />
                                     Create Liquidation
@@ -335,8 +354,9 @@ export default function Index({ liquidations, tableSummary, programs, createProg
                                         </DropdownMenuItem>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
-                            </div>
-                        )}
+                                </>
+                            )}
+                        </div>
                     </div>
 
                         {/* Upload popover — positioned relative to Bulk Actions button */}
