@@ -586,7 +586,6 @@ export function BulkEntryModal({
             if (!row.program_id) errors[i] = 'Program is required.';
             else if (!row.uii.trim()) errors[i] = 'UII is required.';
             else if (!row.hei_name) errors[i] = `UII "${row.uii}" not found in system.`;
-            else if (!row.date_fund_released) errors[i] = 'Date of Fund Released is required.';
             else if (!row.academic_year_id) errors[i] = 'Academic Year is required.';
             else if (!row.total_disbursements) errors[i] = 'Total Disbursements is required.';
             else if (row.dv_control_no.trim()) {
@@ -716,7 +715,7 @@ export function BulkEntryModal({
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">UII *</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">HEI Name</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Acad. Year *</th>
-                                <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Fund Released *</th>
+                                <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Fund Released</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Due Date</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Semester</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Batch</th>

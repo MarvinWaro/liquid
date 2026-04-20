@@ -437,7 +437,7 @@ export function CreateLiquidationModal({
 
                         {/* Date of Fund Released */}
                         <div className="space-y-2">
-                            <Label>Date of Fund Released *</Label>
+                            <Label>Date of Fund Released</Label>
                             <Popover open={fundReleasedCalOpen} onOpenChange={setFundReleasedCalOpen}>
                                 <PopoverTrigger asChild>
                                     <Button

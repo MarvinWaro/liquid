@@ -34,6 +34,12 @@ import { toast } from '@/lib/toast';
 import { type BreadcrumbItem } from '@/types';
 
 import type { Liquidation, Program, HEIOption, AcademicYearOption, RcNoteStatusOption } from '@/components/liquidations/index/types';
+
+interface RegionOption {
+    id: string;
+    code: string;
+    name: string;
+}
 import { LiquidationFilters } from '@/components/liquidations/index/liquidation-filters';
 import { LiquidationTableRow } from '@/components/liquidations/index/liquidation-table-row';
 import { LiquidationTableSkeleton } from '@/components/liquidations/index/liquidation-table-skeleton';
@@ -58,6 +64,7 @@ interface Props {
     academicYears?: AcademicYearOption[];
     rcNoteStatuses?: RcNoteStatusOption[];
     heis?: HEIOption[];
+    regions?: RegionOption[];
     filters: {
         search?: string;
         program?: string | string[];
@@ -65,6 +72,7 @@ interface Props {
         liquidation_status?: string | string[];
         academic_year?: string | string[];
         rc_note_status?: string | string[];
+        region?: string | string[];
     };
     permissions: {
         review: boolean;
@@ -78,7 +86,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Liquidation Management', href: route('liquidation.index') },
 ];
 
-export default function Index({ liquidations, tableSummary, programs, createPrograms, academicYears, rcNoteStatuses, heis, filters, permissions, userRole }: Props) {
+export default function Index({ liquidations, tableSummary, programs, createPrograms, academicYears, rcNoteStatuses, heis, regions, filters, permissions, userRole }: Props) {
     const toArr = (v: string | string[] | undefined): string[] =>
         !v ? [] : Array.isArray(v) ? v : v === 'all' ? [] : [v];
 
@@ -88,6 +96,7 @@ export default function Index({ liquidations, tableSummary, programs, createProg
     const [liquidationStatusFilter, setLiquidationStatusFilter] = useState<string[]>(toArr(filters.liquidation_status));
     const [academicYearFilter, setAcademicYearFilter] = useState<string[]>(toArr(filters.academic_year));
     const [rcNoteStatusFilter, setRcNoteStatusFilter] = useState<string[]>(toArr(filters.rc_note_status));
+    const [regionFilter, setRegionFilter] = useState<string[]>(toArr(filters.region));
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isBulkEntryOpen, setIsBulkEntryOpen] = useState(false);
     const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
@@ -112,6 +121,7 @@ export default function Index({ liquidations, tableSummary, programs, createProg
     const isRC = userRole === 'Regional Coordinator';
     const isHEI = userRole === 'HEI';
     const canCreate = (permissions.create || isRC) && !isHEI;
+    const canFilterByRegion = userRole === 'Super Admin' || userRole === 'Admin';
 
     const getFilterParams = (overrides: Record<string, any> = {}) => {
         const raw: Record<string, any> = {
@@ -121,6 +131,7 @@ export default function Index({ liquidations, tableSummary, programs, createProg
             liquidation_status: liquidationStatusFilter,
             academic_year: academicYearFilter,
             rc_note_status: rcNoteStatusFilter,
+            ...(canFilterByRegion ? { region: regionFilter } : {}),
             ...overrides,
         };
         // Strip empty arrays / empty strings so they don't pollute the URL
@@ -168,6 +179,11 @@ export default function Index({ liquidations, tableSummary, programs, createProg
         navigate({ rc_note_status: value });
     }, [searchQuery, programFilter, documentStatusFilter, liquidationStatusFilter, academicYearFilter]);
 
+    const handleRegionFilter = useCallback((value: string[]) => {
+        setRegionFilter(value);
+        navigate({ region: value });
+    }, [searchQuery, programFilter, documentStatusFilter, liquidationStatusFilter, academicYearFilter, rcNoteStatusFilter]);
+
     const handleDownloadTemplate = () => {
         window.location.href = route('liquidation.download-rc-template');
     };
@@ -180,6 +196,9 @@ export default function Index({ liquidations, tableSummary, programs, createProg
         liquidationStatusFilter.forEach(v => params.append('liquidation_status[]', v));
         academicYearFilter.forEach(v => params.append('academic_year[]', v));
         rcNoteStatusFilter.forEach(v => params.append('rc_note_status[]', v));
+        if (canFilterByRegion) {
+            regionFilter.forEach(v => params.append('region[]', v));
+        }
         return params.toString();
     };
 
@@ -574,6 +593,9 @@ export default function Index({ liquidations, tableSummary, programs, createProg
                                 rcNoteStatusFilter={rcNoteStatusFilter}
                                 onRcNoteStatusFilter={handleRcNoteStatusFilter}
                                 rcNoteStatuses={rcNoteStatuses ?? []}
+                                regions={canFilterByRegion ? regions : undefined}
+                                regionFilter={regionFilter}
+                                onRegionFilter={canFilterByRegion ? handleRegionFilter : undefined}
                             />
 
                             {/* Summary stats bar */}
