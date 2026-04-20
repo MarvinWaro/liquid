@@ -36,6 +36,7 @@ import {
     ChevronDown,
     FileText,
     LayoutGrid,
+    LifeBuoy,
     Megaphone,
     Menu,
     Monitor,
@@ -80,6 +81,11 @@ const allNavItems: (NavItem & { ability?: keyof NavigationAbilities; children?: 
                 ability: 'canViewSummaryHEI',
             },
         ],
+    },
+    {
+        title: 'Contact & Support',
+        href: '/contact-support',
+        icon: LifeBuoy,
     },
 ];
 
