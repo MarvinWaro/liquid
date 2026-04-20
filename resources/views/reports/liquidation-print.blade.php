@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Liquidation Monitoring Sheet</title>
+    <link rel="icon" href="/assets/img/unifast.png" type="image/png">
     <style>
         @page {
             size: legal landscape;
@@ -68,7 +69,7 @@
 
         .report-title {
             text-align: center;
-            margin: 6px 0 3px;
+            margin: 10px 0 6px;
         }
 
         .report-title h2 {
@@ -88,8 +89,44 @@
             font-size: 7.5pt;
             color: #555;
             text-align: center;
-            margin-bottom: 5px;
+            margin-bottom: 10px;
             font-style: italic;
+        }
+
+        /* ── Program Summary ────────────────────── */
+        .program-summary {
+            width: auto;
+            border-collapse: collapse;
+            font-size: 7pt;
+            margin: 0 auto 12px;
+        }
+
+        .program-summary th {
+            background-color: #dbeafe;
+            font-size: 6.5pt;
+            font-weight: bold;
+            text-align: center;
+            text-transform: uppercase;
+            padding: 3px 8px;
+            border: 1px solid #555;
+            white-space: nowrap;
+        }
+
+        .program-summary td {
+            padding: 2px 8px;
+            border: 1px solid #555;
+            font-size: 7pt;
+        }
+
+        .program-summary .summary-program {
+            font-weight: bold;
+            text-align: left;
+        }
+
+        .program-summary .summary-total td {
+            font-weight: bold;
+            background-color: #eff6ff;
+            border-top: 2px solid #333;
         }
 
         /* ── Table ──────────────────────────────── */
@@ -252,7 +289,6 @@
             &mdash; {{ $liquidations->count() }} record(s)
         </div>
 
-        {{-- Shared colgroup widths (used by both data table and totals table) --}}
         @php
             $cols = [1.5, 3, 10, 6.5, 4, 2.5, 2, 5, 5, 3, 8.5, 8.5, 8.5, 6, 6, 6.5, 4, 3.5];
             // Smart currency format: drop .00 but keep real cents (e.g. 756,490.50)
@@ -262,6 +298,41 @@
                     : number_format($val, 2);
             }
         @endphp
+
+        {{-- Program Summary (consolidated per-program totals) --}}
+        @if($programSummary->isNotEmpty())
+        <table class="program-summary">
+            <thead>
+                <tr>
+                    <th>Program</th>
+                    <th>Records</th>
+                    <th>Total Disbursements</th>
+                    <th>Amount Liquidated</th>
+                    <th>Unliquidated</th>
+                    <th>% Age of Liquidation</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($programSummary as $ps)
+                <tr>
+                    <td class="summary-program">{{ $ps['program_code'] }}</td>
+                    <td class="text-center">{{ $ps['count'] }}</td>
+                    <td class="text-right font-mono nowrap">{{ printMoney($ps['disbursements']) }}</td>
+                    <td class="text-right font-mono nowrap">{{ printMoney($ps['liquidated']) }}</td>
+                    <td class="text-right font-mono nowrap">{{ printMoney($ps['unliquidated']) }}</td>
+                    <td class="text-center font-mono">{{ $ps['percentage'] }}%</td>
+                </tr>
+                @endforeach
+                <tr class="summary-total">
+                    <td class="text-right" colspan="2">TOTAL</td>
+                    <td class="text-right font-mono nowrap">{{ printMoney($totals['disbursements']) }}</td>
+                    <td class="text-right font-mono nowrap">{{ printMoney($totals['liquidated']) }}</td>
+                    <td class="text-right font-mono nowrap">{{ printMoney($totals['unliquidated']) }}</td>
+                    <td class="text-center font-mono">{{ $totals['disbursements'] > 0 ? round((($totals['liquidated'] + $totals['for_endorsement']) / $totals['disbursements']) * 100, 2) : 0 }}%</td>
+                </tr>
+            </tbody>
+        </table>
+        @endif
 
         {{-- Data Table --}}
         <table>

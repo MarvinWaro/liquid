@@ -46,6 +46,7 @@ import { type SharedData } from '@/types';
 import {
     SEMESTERS,
     DOCUMENT_STATUSES,
+    getDueDateDays,
     type Program,
     type HEIOption,
     type AcademicYearOption,
@@ -462,15 +463,9 @@ export function BulkEntryModal({
         }
     }, [isOpen, heiMap, userId]);
 
-    // Get due date days based on program: STUFAPS sub-programs = 30 days, others = 90 days
     const getProgramPrefix = (programId: string): string => {
         const program = programs.find(p => p.id === programId);
         return program ? `${program.code}-` : '';
-    };
-
-    const getDueDateDays = (programId: string): number => {
-        const program = programs.find(p => p.id === programId);
-        return program?.parent_id ? 30 : 90;
     };
 
     const updateRow = (index: number, field: keyof BulkEntryRow, value: string) => {
@@ -485,13 +480,13 @@ export function BulkEntryModal({
             if (field === 'program_id') {
                 updated[index].dv_control_no = '';
             }
-            // Auto-compute due date based on program type
-            const shouldRecomputeDueDate = field === 'date_fund_released' || field === 'program_id';
+            // Auto-compute due date based on program + academic year rules
+            const shouldRecomputeDueDate = field === 'date_fund_released' || field === 'program_id' || field === 'academic_year_id';
             const releaseDate = field === 'date_fund_released' ? value : updated[index].date_fund_released;
             if (shouldRecomputeDueDate && releaseDate) {
                 const released = parse(releaseDate, 'yyyy-MM-dd', new Date());
                 if (isValid(released)) {
-                    const days = getDueDateDays(updated[index].program_id);
+                    const days = getDueDateDays(programs, updated[index].program_id, updated[index].academic_year_id);
                     updated[index].due_date = format(addDays(released, days), 'yyyy-MM-dd');
                 }
             }
@@ -713,16 +708,16 @@ export function BulkEntryModal({
                 {/* Table — scrollable both directions */}
                 <div className="flex-1 overflow-auto border rounded-md min-h-0">
                     <table className="text-sm border-collapse min-w-[1500px] w-full">
-                        <colgroup><col style={{ width: 36 }} /><col style={{ width: 80 }} /><col style={{ width: 140 }} /><col style={{ width: 200 }} /><col style={{ width: 140 }} /><col style={{ width: 140 }} /><col style={{ width: 110 }} /><col style={{ width: 120 }} /><col style={{ width: 60 }} /><col style={{ width: 150 }} /><col style={{ width: 80 }} /><col style={{ width: 120 }} /><col style={{ width: 120 }} /><col style={{ width: 130 }} /><col style={{ width: 130 }} /><col style={{ width: 56 }} /></colgroup>
+                        <colgroup><col style={{ width: 36 }} /><col style={{ width: 80 }} /><col style={{ width: 140 }} /><col style={{ width: 200 }} /><col style={{ width: 110 }} /><col style={{ width: 140 }} /><col style={{ width: 140 }} /><col style={{ width: 120 }} /><col style={{ width: 60 }} /><col style={{ width: 150 }} /><col style={{ width: 80 }} /><col style={{ width: 120 }} /><col style={{ width: 120 }} /><col style={{ width: 130 }} /><col style={{ width: 130 }} /><col style={{ width: 56 }} /></colgroup>
                         <thead className="bg-muted/50 sticky top-0 z-10">
                             <tr>
                                 <th className="px-1 py-1.5 text-center text-[11px] font-medium text-muted-foreground">#</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Program *</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">UII *</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">HEI Name</th>
+                                <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Acad. Year *</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Fund Released *</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Due Date</th>
-                                <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Acad. Year *</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Semester</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Batch</th>
                                 <th className="px-0.5 py-1.5 text-left text-[11px] font-medium">Control / Ledger No. *</th>
@@ -778,6 +773,14 @@ export function BulkEntryModal({
                                             </CellTooltip>
                                         </td>
                                         <td className="px-0.5 py-0.5">
+                                            <CellTooltip content={ayLabel}>
+                                                <Select value={row.academic_year_id} onValueChange={v => updateRow(index, 'academic_year_id', v)}>
+                                                    <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="--">{ayLabel.replace(/^Academic Year\s*/i, '')}</SelectValue></SelectTrigger>
+                                                    <SelectContent>{academicYears.map(ay => <SelectItem key={ay.id} value={ay.id}>{ay.name}</SelectItem>)}</SelectContent>
+                                                </Select>
+                                            </CellTooltip>
+                                        </td>
+                                        <td className="px-0.5 py-0.5">
                                             <CellTooltip content={fundDateLabel}>
                                                 <div>
                                                     <DatePickerCell value={row.date_fund_released} onChange={v => updateRow(index, 'date_fund_released', v)} placeholder="Fund released" />
@@ -789,14 +792,6 @@ export function BulkEntryModal({
                                                 <div>
                                                     <DatePickerCell value={row.due_date} onChange={v => updateRow(index, 'due_date', v)} placeholder="Due date" />
                                                 </div>
-                                            </CellTooltip>
-                                        </td>
-                                        <td className="px-0.5 py-0.5">
-                                            <CellTooltip content={ayLabel}>
-                                                <Select value={row.academic_year_id} onValueChange={v => updateRow(index, 'academic_year_id', v)}>
-                                                    <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="--">{ayLabel.replace(/^Academic Year\s*/i, '')}</SelectValue></SelectTrigger>
-                                                    <SelectContent>{academicYears.map(ay => <SelectItem key={ay.id} value={ay.id}>{ay.name}</SelectItem>)}</SelectContent>
-                                                </Select>
                                             </CellTooltip>
                                         </td>
                                         <td className="px-0.5 py-0.5">

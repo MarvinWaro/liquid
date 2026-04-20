@@ -69,6 +69,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('programs/{program}', [ProgramController::class, 'update'])->name('programs.update');
     Route::delete('programs/{program}', [ProgramController::class, 'destroy'])->name('programs.destroy');
 
+    // Program Due Date Rules
+    Route::post('programs/{program}/due-date-rules', [ProgramController::class, 'storeDueDateRule'])->name('programs.due-date-rules.store');
+    Route::put('programs/{program}/due-date-rules/{rule}', [ProgramController::class, 'updateDueDateRule'])->name('programs.due-date-rules.update');
+    Route::delete('programs/{program}/due-date-rules/{rule}', [ProgramController::class, 'destroyDueDateRule'])->name('programs.due-date-rules.destroy');
+
     // Semester Management Routes
     Route::get('semesters', [SemesterController::class, 'index'])->name('semesters.index');
     Route::post('semesters', [SemesterController::class, 'store'])->name('semesters.store');

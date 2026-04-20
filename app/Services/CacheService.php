@@ -73,7 +73,7 @@ class CacheService
     {
         return Cache::remember('lookup:programs', self::TTL_MEDIUM, function () {
             return Program::where('status', 'active')
-                ->with('parent:id,code,name')
+                ->with(['parent:id,code,name', 'dueDateRules:id,program_id,academic_year_id,due_date_days'])
                 ->withCount('children')
                 ->orderByRaw('COALESCE(parent_id, id), parent_id IS NOT NULL, name')
                 ->get(['id', 'parent_id', 'name', 'code']);

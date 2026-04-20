@@ -1,3 +1,10 @@
+export interface DueDateRule {
+    id: string;
+    program_id: string;
+    academic_year_id: string | null;
+    due_date_days: number;
+}
+
 export interface Program {
     id: string;
     name: string;
@@ -6,6 +13,34 @@ export interface Program {
     parent?: { id: string; code: string; name: string } | null;
     children_count?: number;
     is_selectable?: boolean;
+    due_date_rules?: DueDateRule[];
+}
+
+/**
+ * Look up due date days for a program + optional academic year.
+ * Priority: program+AY specific → program default (null AY) → fallback (30/90).
+ */
+export function getDueDateDays(programs: Program[], programId: string, academicYearId?: string | null): number {
+    const program = programs.find((p) => p.id === programId);
+    if (!program) return 90;
+
+    const rules = program.due_date_rules || [];
+    const fallback = program.parent_id ? 30 : 90;
+
+    if (rules.length === 0) return fallback;
+
+    // 1. Try program + specific AY
+    if (academicYearId) {
+        const ayRule = rules.find((r) => r.academic_year_id === academicYearId);
+        if (ayRule) return ayRule.due_date_days;
+    }
+
+    // 2. Try program default (null AY)
+    const defaultRule = rules.find((r) => !r.academic_year_id);
+    if (defaultRule) return defaultRule.due_date_days;
+
+    // 3. Fallback
+    return fallback;
 }
 
 export interface HEIOption {
