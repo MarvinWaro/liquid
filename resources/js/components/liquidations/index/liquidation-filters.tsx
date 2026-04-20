@@ -5,6 +5,12 @@ import { Search } from 'lucide-react';
 import { MultiSelectFilter, type FilterOption } from './multi-select-filter';
 import type { Program, AcademicYearOption, RcNoteStatusOption } from './types';
 
+interface RegionOption {
+    id: string;
+    code: string;
+    name: string;
+}
+
 interface LiquidationFiltersProps {
     searchQuery: string;
     onSearchChange: (value: string) => void;
@@ -22,6 +28,9 @@ interface LiquidationFiltersProps {
     rcNoteStatusFilter: string[];
     onRcNoteStatusFilter: (value: string[]) => void;
     rcNoteStatuses: RcNoteStatusOption[];
+    regions?: RegionOption[];
+    regionFilter?: string[];
+    onRegionFilter?: (value: string[]) => void;
 }
 
 export const LiquidationFilters = React.memo(function LiquidationFilters({
@@ -41,6 +50,9 @@ export const LiquidationFilters = React.memo(function LiquidationFilters({
     rcNoteStatusFilter,
     onRcNoteStatusFilter,
     rcNoteStatuses,
+    regions,
+    regionFilter,
+    onRegionFilter,
 }: LiquidationFiltersProps) {
     const programOptions = useMemo(() => buildProgramOptions(programs), [programs]);
     const academicYearOptions = useMemo(() =>
@@ -50,6 +62,10 @@ export const LiquidationFilters = React.memo(function LiquidationFilters({
         { value: 'none', label: 'No RC Note' },
         ...rcNoteStatuses.map(s => ({ value: s.id, label: s.name })),
     ], [rcNoteStatuses]);
+    const regionOptions = useMemo(() =>
+        (regions ?? []).map(r => ({ value: r.id, label: r.code })),
+    [regions]);
+    const showRegionFilter = !!regions && regions.length > 0 && !!onRegionFilter;
 
     return (
         <form onSubmit={onSearchSubmit} className="mb-4">
@@ -64,6 +80,15 @@ export const LiquidationFilters = React.memo(function LiquidationFilters({
                         className="pl-8"
                     />
                 </div>
+                {showRegionFilter && (
+                    <MultiSelectFilter
+                        label="Region"
+                        options={regionOptions}
+                        selected={regionFilter ?? []}
+                        onChange={onRegionFilter!}
+                        width="w-[140px]"
+                    />
+                )}
                 <MultiSelectFilter
                     label="Program"
                     options={programOptions}

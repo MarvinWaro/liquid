@@ -228,6 +228,14 @@ class LiquidationService
             $query->whereIn('academic_year_id', $academicYears);
         }
 
+        // Region filter — filters by HEI's region (Admin/Super Admin only; controller strips for others)
+        $regions = $toArray($filters['region'] ?? null);
+        if (!empty($regions)) {
+            $query->whereHas('hei', function (Builder $q) use ($regions) {
+                $q->whereIn('region_id', $regions);
+            });
+        }
+
         // RC note status filter
         $rcNotes = $toArray($filters['rc_note_status'] ?? null);
         if (!empty($rcNotes)) {

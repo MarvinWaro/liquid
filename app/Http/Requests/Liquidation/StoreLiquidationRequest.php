@@ -44,7 +44,7 @@ class StoreLiquidationRequest extends FormRequest
         return [
             'program_id' => 'required|exists:programs,id',
             'uii' => 'required|string',
-            'date_fund_released' => 'required|date',
+            'date_fund_released' => 'nullable|date',
             'due_date' => 'nullable|date',
             'academic_year_id' => 'required|exists:academic_years,id',
             'semester' => 'nullable|string|max:50',

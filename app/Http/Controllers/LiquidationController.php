@@ -76,7 +76,11 @@ class LiquidationController extends Controller
         'liquidation_status',
         'academic_year',
         'rc_note_status',
+        'region',
     ];
+
+    /** Roles allowed to filter by region (others are implicitly scoped). */
+    private const REGION_FILTER_ROLES = ['Super Admin', 'Admin'];
 
     /** Max rows rendered in the printed report to prevent OOM. */
     private const PRINT_REPORT_ROW_CAP = 5000;
@@ -97,6 +101,11 @@ class LiquidationController extends Controller
 
         $user = $request->user();
         $filters = $request->only(self::LISTING_FILTER_KEYS);
+
+        // Only Admin/Super Admin can filter by region; strip for other roles to prevent privilege escalation.
+        if (!in_array($user->role->name, self::REGION_FILTER_ROLES)) {
+            unset($filters['region']);
+        }
 
         // All programs for the filter dropdown (lightweight, cached)
         $allPrograms = $this->cacheService->getSelectablePrograms();
@@ -143,6 +152,9 @@ class LiquidationController extends Controller
             }),
             'academicYears' => \App\Models\AcademicYear::getDropdownOptions(),
             'rcNoteStatuses' => RcNoteStatus::getDropdownOptions(),
+            'regions' => in_array($user->role->name, self::REGION_FILTER_ROLES)
+                ? \App\Models\Region::where('status', 'active')->orderBy('code')->get(['id', 'code', 'name'])
+                : [],
             'heis' => Inertia::defer(fn () =>
                 \App\Models\HEI::where('status', 'active')
                     ->when(
@@ -397,7 +409,7 @@ class LiquidationController extends Controller
             'entries.*.program_id'             => 'required|exists:programs,id',
             'entries.*.uii'                    => 'required|string',
             'entries.*.dv_control_no'          => 'nullable|string|max:100|distinct|unique:liquidations,control_no',
-            'entries.*.date_fund_released'     => 'required|date',
+            'entries.*.date_fund_released'     => 'nullable|date',
             'entries.*.due_date'               => 'nullable|date',
             'entries.*.academic_year_id'       => 'required|exists:academic_years,id',
             'entries.*.semester'               => 'nullable|string|max:50',
@@ -1864,9 +1876,16 @@ class LiquidationController extends Controller
             'academic_year.*' => ['string', 'max:64'],
             'rc_note_status' => ['nullable', 'array'],
             'rc_note_status.*' => ['string', 'max:64'],
+            'region' => ['nullable', 'array'],
+            'region.*' => ['string', 'max:64'],
         ]);
 
         $filters = $request->only(self::LISTING_FILTER_KEYS);
+
+        // Only Admin/Super Admin can filter by region; strip for other roles.
+        if (!in_array($user->role->name, self::REGION_FILTER_ROLES)) {
+            unset($filters['region']);
+        }
 
         // Get filtered records with a safety cap to prevent OOM on small instances
         $query = Liquidation::with(['hei', 'program', 'financial', 'semester', 'academicYear', 'documentStatus', 'liquidationStatus', 'rcNoteStatus', 'trackingEntries'])
@@ -2473,6 +2492,7 @@ class LiquidationController extends Controller
         $grantees         = $this->parseInteger($row[self::COL_GRANTEES] ?? null);
         $totalDisbursements = $this->parseAmount($row[self::COL_DISBURSEMENTS] ?? null);
         $totalLiquidated  = $this->parseAmount($row[self::COL_AMOUNT_LIQUIDATED] ?? 0);
+        $dateFundReleasedRaw = trim((string) ($row[self::COL_DATE_FUND_RELEASED] ?? ''));
         $dateFundReleased = $this->parseExcelDate($row[self::COL_DATE_FUND_RELEASED] ?? null);
         $dueDateRaw       = trim((string) ($row[self::COL_DUE_DATE] ?? ''));
         $dueDate          = $this->parseExcelDate($row[self::COL_DUE_DATE] ?? null);
@@ -2483,8 +2503,9 @@ class LiquidationController extends Controller
         if (empty($academicYearCode)) $errors[] = 'Academic Year (col G) is required.';
         // Semester is optional — some rows may leave it blank
 
-        if (!$dateFundReleased) {
-            $errors[] = 'Date of Fund Released (col E) is required and must be a valid date with a 4-digit year.';
+        // Date of Fund Released is now optional, but if provided must be valid
+        if (!empty($dateFundReleasedRaw) && !$dateFundReleased) {
+            $errors[] = 'Date of Fund Released (col E) has an invalid date or year. Please use a valid date with a 4-digit year, or leave it blank.';
         }
 
         $disbursementsRaw = trim((string) ($row[self::COL_DISBURSEMENTS] ?? ''));
@@ -2629,7 +2650,9 @@ class LiquidationController extends Controller
                 'rc_note_status_id'     => $rcNoteStatusId,
                 'liquidation_status_id' => $liquidationStatus?->id ?? LiquidationStatus::unliquidated()?->id,
                 'explicit_control_no'   => !empty($dvControlNo) ? $dvControlNo : null,
-                'date_fund_released'    => \Carbon\Carbon::instance($dateFundReleased)->format('Y-m-d'),
+                'date_fund_released'    => $dateFundReleased
+                    ? \Carbon\Carbon::instance($dateFundReleased)->format('Y-m-d')
+                    : null,
                 'due_date'              => $dueDate ? \Carbon\Carbon::instance($dueDate)->format('Y-m-d') : null,
                 'number_of_grantees'    => $grantees,
                 'amount_received'       => $totalDisbursements,
@@ -2702,7 +2725,9 @@ class LiquidationController extends Controller
         $controlNo = $data['explicit_control_no'];
 
         if (!$controlNo) {
-            $fundYear  = (int) substr($data['date_fund_released'], 0, 4);
+            $fundYear  = !empty($data['date_fund_released'])
+                ? (int) substr($data['date_fund_released'], 0, 4)
+                : null;
             $controlNo = $this->liquidationService->generateControlNo($data['program_id'], $fundYear);
         } else {
             // Re-check: another import may have taken this number since validate step
