@@ -205,7 +205,44 @@ export default function Index({ liquidations, tableSummary, programs, createProg
     const handlePrintReport = () => {
         const qs = buildReportQueryString();
         const url = route('liquidation.print-report') + (qs ? `?${qs}` : '');
-        window.open(url, '_blank');
+        const newTab = window.open('', '_blank');
+        if (!newTab) {
+            window.open(url, '_blank');
+            return;
+        }
+        newTab.document.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Generating Liquidation Report…</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: #f8fafc; color: #0f172a;
+  }
+  .loader { text-align: center; max-width: 420px; padding: 32px; }
+  .spinner {
+    width: 56px; height: 56px; margin: 0 auto 20px;
+    border: 5px solid #e2e8f0; border-top-color: #2563eb; border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  h2 { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
+  p  { font-size: 13px; margin: 0; color: #475569; line-height: 1.5; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div class="loader">
+    <div class="spinner"></div>
+    <h2>Generating Liquidation Report</h2>
+    <p>Preparing the printable monitoring sheet. This may take a few seconds for large datasets — please don't close this tab.</p>
+  </div>
+</body>
+</html>`);
+        newTab.document.close();
+        newTab.location.href = url;
     };
 
     const handleExportExcel = () => {

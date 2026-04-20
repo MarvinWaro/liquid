@@ -125,12 +125,20 @@ export default function Announcement() {
 
                     {/* Empty state */}
                     {posts.length === 0 && (
-                        <div className="rounded-xl border bg-card p-16 text-center">
-                            <Megaphone className="mx-auto h-12 w-12 text-muted-foreground/40" />
-                            <h3 className="mt-4 text-base font-semibold">No announcements yet</h3>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                                {can.create ? 'Click "Post Announcement" to publish the first one.' : 'Check back later for updates.'}
-                            </p>
+                        <div className="flex flex-col items-center justify-center gap-6 px-6 py-12 text-center">
+                            <img
+                                src="/assets/img/alerts/announcements.png"
+                                alt="No announcements"
+                                className="w-full max-w-md"
+                            />
+                            <div className="space-y-2">
+                                <h3 className="text-2xl font-bold tracking-tight text-foreground">
+                                    No announcements yet
+                                </h3>
+                                <p className="max-w-xl text-sm text-muted-foreground">
+                                    {can.create ? 'Click "Post Announcement" to publish the first one.' : 'Check back later for updates.'}
+                                </p>
+                            </div>
                         </div>
                     )}
 
