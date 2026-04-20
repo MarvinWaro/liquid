@@ -1836,6 +1836,16 @@ class LiquidationController extends Controller
      */
     public function printReport(Request $request)
     {
+        $data = $this->buildReportData($request);
+
+        return view('reports.liquidation-print', $data);
+    }
+
+    /**
+     * Build the full report dataset used by print, Excel and CSV exports.
+     */
+    private function buildReportData(Request $request): array
+    {
         $user = $request->user();
 
         if (!$user->hasPermission('view_liquidation')) {
@@ -1946,7 +1956,7 @@ class LiquidationController extends Controller
         // Region name for header
         $regionName = $user->region?->name ?? 'Central Office';
 
-        return view('reports.liquidation-print', [
+        return [
             'liquidations' => $liquidations,
             'totals' => $totals,
             'programSummary' => $programSummary,
@@ -1956,7 +1966,29 @@ class LiquidationController extends Controller
             'truncated' => $truncated,
             'totalMatching' => $totalMatching,
             'rowCap' => self::PRINT_REPORT_ROW_CAP,
-        ]);
+        ];
+    }
+
+    /**
+     * Export the filtered liquidation report as an XLSX file.
+     */
+    public function exportExcel(Request $request): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $data = $this->buildReportData($request);
+        $filename = 'liquidation-report-' . now()->format('Ymd-His') . '.xlsx';
+
+        return (new \App\Exports\LiquidationReportExporter())->stream($data, 'xlsx', $filename);
+    }
+
+    /**
+     * Export the filtered liquidation report as a CSV file.
+     */
+    public function exportCsv(Request $request): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $data = $this->buildReportData($request);
+        $filename = 'liquidation-report-' . now()->format('Ymd-His') . '.csv';
+
+        return (new \App\Exports\LiquidationReportExporter())->stream($data, 'csv', $filename);
     }
 
     /**
