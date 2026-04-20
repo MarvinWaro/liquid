@@ -35,6 +35,7 @@ class DatabaseSeeder extends Seeder
             SemesterSeeder::class,              // 1ST, 2ND, SUM semesters (no deps)
             AcademicYearSeeder::class,          // 2020-2021 through 2026-2027 (no deps)
             ProgramSeeder::class,               // TES, TDP, STUFAPS + children (no deps)
+            ProgramDueDateRuleSeeder::class,    // Due date rules — depends on ProgramSeeder, AcademicYearSeeder
             RegionSeeder::class,                // R12, BARMM regions (no deps)
             HEISeeder::class,                   // HEIs — depends on RegionSeeder
             DocumentLocationSeeder::class,      // shelf locations (no deps)

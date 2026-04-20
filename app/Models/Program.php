@@ -84,6 +84,14 @@ class Program extends Model
     }
 
     /**
+     * Get due date rules for this program.
+     */
+    public function dueDateRules(): HasMany
+    {
+        return $this->hasMany(ProgramDueDateRule::class);
+    }
+
+    /**
      * Get document requirements for this program.
      */
     public function documentRequirements(): HasMany

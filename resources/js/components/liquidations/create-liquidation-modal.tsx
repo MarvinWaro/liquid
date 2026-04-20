@@ -40,6 +40,7 @@ import axios from 'axios';
 import {
     SEMESTERS,
     DOCUMENT_STATUSES,
+    getDueDateDays,
     type Program,
     type HEIOption,
     type AcademicYearOption,
@@ -185,11 +186,7 @@ export function CreateLiquidationModal({
         }
     };
 
-    // Get due date days based on program: STUFAPS sub-programs = 30 days, others = 90 days
-    const getDueDateDays = (programId: string): number => {
-        const program = programs.find(p => p.id === programId);
-        return program?.parent_id ? 30 : 90;
-    };
+    // Due date days lookup removed — using shared getDueDateDays() from liquidation-constants
 
     // Program code prefix for control number
     const controlNoPrefix = useMemo(() => {
@@ -239,13 +236,13 @@ export function CreateLiquidationModal({
             if (field === 'date_fund_released') {
                 setControlNoManuallyEdited(false);
             }
-            // Auto-compute due date based on program type
-            const shouldRecomputeDueDate = field === 'date_fund_released' || field === 'program_id';
+            // Auto-compute due date based on program + academic year rules
+            const shouldRecomputeDueDate = field === 'date_fund_released' || field === 'program_id' || field === 'academic_year_id';
             const releaseDate = field === 'date_fund_released' ? value : updated.date_fund_released;
             if (shouldRecomputeDueDate && releaseDate) {
                 const released = parse(releaseDate, 'yyyy-MM-dd', new Date());
                 if (isValid(released)) {
-                    const days = getDueDateDays(updated.program_id);
+                    const days = getDueDateDays(programs, updated.program_id, updated.academic_year_id);
                     const due = addDays(released, days);
                     updated.due_date = format(due, 'yyyy-MM-dd');
                 }
@@ -306,7 +303,7 @@ export function CreateLiquidationModal({
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>Create Liquidation Report</DialogTitle>
                 </DialogHeader>
@@ -415,6 +412,29 @@ export function CreateLiquidationModal({
                             />
                         </div>
 
+                        {/* Academic Year */}
+                        <div className="space-y-2">
+                            <Label htmlFor="academic_year_id">Academic Year *</Label>
+                            <Select
+                                value={formData.academic_year_id}
+                                onValueChange={(value) => handleInputChange('academic_year_id', value)}
+                            >
+                                <SelectTrigger className={fieldErrors.academic_year_id ? 'border-red-500' : ''}>
+                                    <SelectValue placeholder="Select academic year" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {academicYears.map((ay) => (
+                                        <SelectItem key={ay.id} value={ay.id}>
+                                            {ay.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {fieldErrors.academic_year_id && (
+                                <p className="text-sm text-red-500">{fieldErrors.academic_year_id}</p>
+                            )}
+                        </div>
+
                         {/* Date of Fund Released */}
                         <div className="space-y-2">
                             <Label>Date of Fund Released *</Label>
@@ -484,29 +504,6 @@ export function CreateLiquidationModal({
                             </Popover>
                             {fieldErrors.due_date && (
                                 <p className="text-sm text-red-500">{fieldErrors.due_date}</p>
-                            )}
-                        </div>
-
-                        {/* Academic Year */}
-                        <div className="space-y-2">
-                            <Label htmlFor="academic_year_id">Academic Year *</Label>
-                            <Select
-                                value={formData.academic_year_id}
-                                onValueChange={(value) => handleInputChange('academic_year_id', value)}
-                            >
-                                <SelectTrigger className={fieldErrors.academic_year_id ? 'border-red-500' : ''}>
-                                    <SelectValue placeholder="Select academic year" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {academicYears.map((ay) => (
-                                        <SelectItem key={ay.id} value={ay.id}>
-                                            {ay.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            {fieldErrors.academic_year_id && (
-                                <p className="text-sm text-red-500">{fieldErrors.academic_year_id}</p>
                             )}
                         </div>
 

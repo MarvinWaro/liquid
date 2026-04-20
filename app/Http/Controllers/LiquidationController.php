@@ -26,6 +26,7 @@ use App\Models\LiquidationRunningData;
 use App\Models\LiquidationStatus;
 use App\Models\RcNoteStatus;
 use App\Models\LiquidationTrackingEntry;
+use App\Models\ProgramDueDateRule;
 use App\Models\User;
 use App\Services\CacheService;
 use App\Services\LiquidationService;
@@ -1890,6 +1891,26 @@ class LiquidationController extends Controller
             'for_endorsement' => $liquidations->sum('_raw_for_endorsement'),
         ];
 
+        // Per-program summary (dynamic — only programs present in the data)
+        $programSummary = $liquidations->groupBy('program_code')->map(function ($group, $code) {
+            $disbursements = $group->sum('_raw_disbursements');
+            $liquidated    = $group->sum('_raw_liquidated');
+            $unliquidated  = $disbursements - $liquidated;
+            $forEndorsement = $group->sum('_raw_for_endorsement');
+            $percentage    = $disbursements > 0
+                ? round((($liquidated + $forEndorsement) / $disbursements) * 100, 2)
+                : 0;
+
+            return [
+                'program_code'  => $code,
+                'count'         => $group->count(),
+                'disbursements' => $disbursements,
+                'liquidated'    => $liquidated,
+                'unliquidated'  => $unliquidated,
+                'percentage'    => $percentage,
+            ];
+        })->sortKeys()->values();
+
         // Build active filter description
         $activeFilters = $this->buildFilterDescription($filters);
 
@@ -1899,6 +1920,7 @@ class LiquidationController extends Controller
         return view('reports.liquidation-print', [
             'liquidations' => $liquidations,
             'totals' => $totals,
+            'programSummary' => $programSummary,
             'activeFilters' => $activeFilters,
             'regionName' => $regionName,
             'printedBy' => $user->name,
@@ -2525,7 +2547,12 @@ class LiquidationController extends Controller
 
         // ── Auto-calculate due date when omitted ──────────────────────────────
         if (!$dueDate && $dateFundReleased && $program) {
-            $days    = $program->parent_id ? 30 : 90;
+            $fallback = $program->parent_id ? 30 : 90;
+            $days     = ProgramDueDateRule::getDueDateDays(
+                $program->id,
+                $academicYear?->id,
+                $fallback,
+            );
             $dueDate = \Carbon\Carbon::instance($dateFundReleased)->copy()->addDays($days);
         }
 

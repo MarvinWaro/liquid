@@ -1,3 +1,4 @@
+import { DueDateRulesDialog } from '@/components/programs/due-date-rules-dialog';
 import { ProgramModal } from '@/components/programs/program-modal';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,13 +16,27 @@ import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
-import { CornerDownRight, FolderOpen, Pencil, Plus, Search } from 'lucide-react';
+import { CalendarClock, CornerDownRight, FolderOpen, Pencil, Plus, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 interface ParentOption {
     id: string;
     code: string;
     name: string;
+}
+
+interface AcademicYear {
+    id: string;
+    code: string;
+    name: string;
+}
+
+interface DueDateRule {
+    id: string;
+    program_id: string;
+    academic_year_id: string | null;
+    due_date_days: number;
+    academic_year?: AcademicYear | null;
 }
 
 interface Program {
@@ -32,6 +47,7 @@ interface Program {
     status: string;
     parent_id: string | null;
     parent?: ParentOption | null;
+    due_date_rules: DueDateRule[];
     document_requirements_count: number;
     children_count: number;
     liquidations_count: number;
@@ -40,6 +56,7 @@ interface Program {
 interface Props {
     programs: Program[];
     parentOptions: ParentOption[];
+    academicYears: AcademicYear[];
     canCreate: boolean;
     canEdit: boolean;
     canDelete: boolean;
@@ -53,6 +70,7 @@ const breadcrumbs: BreadcrumbItem[] = [
 export default function Index({
     programs,
     parentOptions,
+    academicYears,
     canCreate,
     canEdit,
     canDelete,
@@ -60,6 +78,12 @@ export default function Index({
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [dueDateProgramId, setDueDateProgramId] = useState<string | null>(null);
+
+    // Derive from fresh props so rules update after CRUD operations
+    const dueDateProgram = dueDateProgramId
+        ? programs.find((p) => p.id === dueDateProgramId) || null
+        : null;
 
     // Build hierarchical display: parents first, then their children indented
     const displayPrograms = useMemo(() => {
@@ -128,6 +152,19 @@ export default function Index({
                     parentOptions={parentOptions}
                 />
 
+                {dueDateProgram && (
+                    <DueDateRulesDialog
+                        isOpen={!!dueDateProgram}
+                        onClose={() => setDueDateProgramId(null)}
+                        programId={dueDateProgram.id}
+                        programCode={dueDateProgram.code}
+                        programName={dueDateProgram.name}
+                        rules={dueDateProgram.due_date_rules || []}
+                        academicYears={academicYears}
+                        canEdit={canEdit}
+                    />
+                )}
+
                 <div className="w-full py-8">
                     <div className="mx-auto w-full max-w-[95%]">
                         {/* Header */}
@@ -176,6 +213,9 @@ export default function Index({
                                         <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                             Description
                                         </TableHead>
+                                        <TableHead className="h-9 w-28 text-center text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                                            Due Days
+                                        </TableHead>
                                         <TableHead className="h-9 w-32 text-center text-xs font-medium tracking-wider text-muted-foreground uppercase">
                                             Requirements
                                         </TableHead>
@@ -191,7 +231,7 @@ export default function Index({
                                     {displayPrograms.length === 0 ? (
                                         <TableRow>
                                             <TableCell
-                                                colSpan={6}
+                                                colSpan={7}
                                                 className="py-12 text-center text-muted-foreground"
                                             >
                                                 <div className="flex flex-col items-center gap-2">
@@ -241,6 +281,35 @@ export default function Index({
                                                         </span>
                                                     </TableCell>
                                                     <TableCell className="py-2 text-center">
+                                                        {(() => {
+                                                            const defaultRule = program.due_date_rules?.find(
+                                                                (r) => !r.academic_year_id,
+                                                            );
+                                                            const ruleCount = program.due_date_rules?.length || 0;
+                                                            if (ruleCount === 0) {
+                                                                return (
+                                                                    <span className="text-xs text-muted-foreground">
+                                                                        —
+                                                                    </span>
+                                                                );
+                                                            }
+                                                            return (
+                                                                <div className="flex flex-col items-center gap-0.5">
+                                                                    <span className="text-sm font-medium">
+                                                                        {defaultRule
+                                                                            ? `${defaultRule.due_date_days}d`
+                                                                            : '—'}
+                                                                    </span>
+                                                                    {ruleCount > 1 && (
+                                                                        <span className="text-[10px] text-muted-foreground">
+                                                                            +{ruleCount - 1} AY override{ruleCount - 1 > 1 ? 's' : ''}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()}
+                                                    </TableCell>
+                                                    <TableCell className="py-2 text-center">
                                                         <Badge
                                                             variant="outline"
                                                             className="border-border bg-muted text-foreground"
@@ -268,6 +337,17 @@ export default function Index({
                                                     </TableCell>
                                                     <TableCell className="py-2 pr-6 text-right">
                                                         <div className="flex items-center justify-end gap-1">
+                                                            {canEdit && (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                                                    onClick={() => setDueDateProgramId(program.id)}
+                                                                    title="Due date rules"
+                                                                >
+                                                                    <CalendarClock className="h-4 w-4" />
+                                                                </Button>
+                                                            )}
                                                             {canEdit && (
                                                                 <Button
                                                                     variant="ghost"
