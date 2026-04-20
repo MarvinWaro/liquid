@@ -19,6 +19,11 @@ const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 
 createInertiaApp({
     title: (title) => (title ? `${title} - ${appName}` : appName),
+    defaults: {
+        visitOptions: () => {
+            return { viewTransition: true };
+        },
+    },
     resolve: (name) =>
         resolvePageComponent(
             `./pages/${name}.tsx`,

@@ -37,6 +37,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('announcement/{announcement:slug}/comments/{comment}/react', [\App\Http\Controllers\AnnouncementCommentController::class, 'toggleReaction'])->name('announcement-comments.react');
     Route::get('announcement/{announcement:slug}/mentionable-users', [\App\Http\Controllers\AnnouncementCommentController::class, 'mentionableUsers'])->name('announcement-comments.mentionable-users');
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('contact-support', fn () => Inertia::render('contact-support'))->name('contact-support');
     Route::get('summary/academic-year', [DashboardController::class, 'summaryPerAY'])->name('summary.academic-year');
     Route::get('summary/hei', [DashboardController::class, 'summaryPerHEI'])->name('summary.hei');
 

@@ -274,7 +274,7 @@
                 <p class="ched">Commission on Higher Education</p>
                 <p class="office">{{ $regionName }}</p>
             </div>
-            <img src="{{ asset('assets/img/unifast.png') }}" alt="UniFAST" class="logo-right">
+            <img src="{{ asset('assets/img/bagong-pilipinas.png') }}" alt="Bagong Pilipinas" class="logo-right">
         </div>
 
         <div class="report-title">
