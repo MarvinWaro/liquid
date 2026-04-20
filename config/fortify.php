@@ -144,7 +144,8 @@ return [
     */
 
     'features' => [
-        Features::registration(),
+        // Registration is disabled — only administrators provision accounts.
+        // Fortify will not register the /register routes, so the URL returns 404.
         Features::resetPasswords(),
         Features::emailVerification(),
         Features::twoFactorAuthentication([
