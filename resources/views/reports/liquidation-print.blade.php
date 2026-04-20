@@ -287,6 +287,11 @@
         <div class="filter-info">
             Generated on {{ now()->format('F d, Y h:i A') }}
             &mdash; {{ $liquidations->count() }} record(s)
+            @if(!empty($truncated) && $truncated)
+                <strong>
+                    &mdash; showing first {{ number_format($rowCap) }} of {{ number_format($totalMatching) }}. Narrow filters to see the rest.
+                </strong>
+            @endif
         </div>
 
         @php

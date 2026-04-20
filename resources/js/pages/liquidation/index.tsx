@@ -172,7 +172,7 @@ export default function Index({ liquidations, tableSummary, programs, createProg
         window.location.href = route('liquidation.download-rc-template');
     };
 
-    const handlePrintReport = () => {
+    const buildReportQueryString = () => {
         const params = new URLSearchParams();
         if (searchQuery) params.set('search', searchQuery);
         programFilter.forEach(v => params.append('program[]', v));
@@ -180,10 +180,25 @@ export default function Index({ liquidations, tableSummary, programs, createProg
         liquidationStatusFilter.forEach(v => params.append('liquidation_status[]', v));
         academicYearFilter.forEach(v => params.append('academic_year[]', v));
         rcNoteStatusFilter.forEach(v => params.append('rc_note_status[]', v));
+        return params.toString();
+    };
 
-        const queryString = params.toString();
-        const url = route('liquidation.print-report') + (queryString ? `?${queryString}` : '');
+    const handlePrintReport = () => {
+        const qs = buildReportQueryString();
+        const url = route('liquidation.print-report') + (qs ? `?${qs}` : '');
         window.open(url, '_blank');
+    };
+
+    const handleExportExcel = () => {
+        const qs = buildReportQueryString();
+        const url = route('liquidation.export-excel') + (qs ? `?${qs}` : '');
+        window.location.href = url;
+    };
+
+    const handleExportCsv = () => {
+        const qs = buildReportQueryString();
+        const url = route('liquidation.export-csv') + (qs ? `?${qs}` : '');
+        window.location.href = url;
     };
 
     const handleImportComplete = (result: { imported: number; errors: any[] }) => {
@@ -317,10 +332,29 @@ export default function Index({ liquidations, tableSummary, programs, createProg
                             </p>
                         </div>
                         <div className="flex gap-2">
-                            <Button variant="outline" onClick={handlePrintReport}>
-                                <Printer className="h-4 w-4 mr-2" />
-                                Print Report
-                            </Button>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="outline">
+                                        <Printer className="h-4 w-4 mr-2" />
+                                        Print Report
+                                        <ChevronDown className="h-3.5 w-3.5 ml-1.5 opacity-60" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-48">
+                                    <DropdownMenuItem onClick={handlePrintReport}>
+                                        <Printer className="h-4 w-4 mr-2" />
+                                        Print
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={handleExportExcel}>
+                                        <FileSpreadsheet className="h-4 w-4 mr-2" />
+                                        Export to Excel
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={handleExportCsv}>
+                                        <FileText className="h-4 w-4 mr-2" />
+                                        Export to CSV
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
                             {canCreate && (
                                 <>
                                 <Button onClick={() => setIsCreateModalOpen(true)} className="bg-foreground text-background shadow-sm hover:bg-foreground/90">

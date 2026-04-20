@@ -57,7 +57,8 @@
       "Bash(grep -E \"\\\\.\\(tsx?|php\\)$\")",
       "Bash(grep -r \"memory_limit\\\\|max_execution_time\\\\|upload_max\\\\|post_max\" /c/Users/MARVIN/projects/liquid/.env*)",
       "Bash(npm uninstall *)",
-      "Bash(npm audit *)"
+      "Bash(npm audit *)",
+      "Bash(grep -E \"public function|public .*\\\\\\\\\\\\$\" vendor/openspout/openspout/src/Writer/Common/AbstractOptions.php)"
     ]
   }
 }

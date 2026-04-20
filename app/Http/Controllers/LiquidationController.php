@@ -68,6 +68,19 @@ class LiquidationController extends Controller
     /** Import token TTL in minutes. */
     private const IMPORT_TOKEN_TTL = 30;
 
+    /** Filter keys accepted on the liquidation listing and print report. */
+    private const LISTING_FILTER_KEYS = [
+        'search',
+        'program',
+        'document_status',
+        'liquidation_status',
+        'academic_year',
+        'rc_note_status',
+    ];
+
+    /** Max rows rendered in the printed report to prevent OOM. */
+    private const PRINT_REPORT_ROW_CAP = 5000;
+
     public function __construct(
         private readonly LiquidationService $liquidationService,
         private readonly CacheService $cacheService
@@ -83,7 +96,7 @@ class LiquidationController extends Controller
         }
 
         $user = $request->user();
-        $filters = $request->only(['search', 'program', 'document_status', 'liquidation_status', 'academic_year', 'rc_note_status']);
+        $filters = $request->only(self::LISTING_FILTER_KEYS);
 
         // All programs for the filter dropdown (lightweight, cached)
         $allPrograms = $this->cacheService->getSelectablePrograms();
@@ -1823,13 +1836,37 @@ class LiquidationController extends Controller
      */
     public function printReport(Request $request)
     {
+        $data = $this->buildReportData($request);
+
+        return view('reports.liquidation-print', $data);
+    }
+
+    /**
+     * Build the full report dataset used by print, Excel and CSV exports.
+     */
+    private function buildReportData(Request $request): array
+    {
         $user = $request->user();
 
         if (!$user->hasPermission('view_liquidation')) {
             abort(403, 'Unauthorized action.');
         }
 
-        $filters = $request->only(['search', 'program', 'document_status', 'liquidation_status', 'academic_year', 'rc_note_status']);
+        $request->validate([
+            'search' => ['nullable', 'string', 'max:255'],
+            'program' => ['nullable', 'array'],
+            'program.*' => ['string', 'max:64'],
+            'document_status' => ['nullable', 'array'],
+            'document_status.*' => ['string', 'max:64'],
+            'liquidation_status' => ['nullable', 'array'],
+            'liquidation_status.*' => ['string', 'max:64'],
+            'academic_year' => ['nullable', 'array'],
+            'academic_year.*' => ['string', 'max:64'],
+            'rc_note_status' => ['nullable', 'array'],
+            'rc_note_status.*' => ['string', 'max:64'],
+        ]);
+
+        $filters = $request->only(self::LISTING_FILTER_KEYS);
 
         // Get filtered records with a safety cap to prevent OOM on small instances
         $query = Liquidation::with(['hei', 'program', 'financial', 'semester', 'academicYear', 'documentStatus', 'liquidationStatus', 'rcNoteStatus', 'trackingEntries'])
@@ -1837,14 +1874,16 @@ class LiquidationController extends Controller
 
         $this->liquidationService->applyRoleAndFilters($query, $user, $filters);
 
-        $liquidations = $query->limit(5000)->get()->map(function ($liquidation, $index) {
+        $totalMatching = (clone $query)->count();
+        $truncated = $totalMatching > self::PRINT_REPORT_ROW_CAP;
+
+        $liquidations = $query->limit(self::PRINT_REPORT_ROW_CAP)->get()->map(function ($liquidation, $index) {
             $financial = $liquidation->financial;
             $disbursements = (float) ($financial?->amount_received ?? 0);
             $liquidated = (float) ($financial?->amount_liquidated ?? 0);
             $unliquidated = $disbursements - $liquidated;
 
-            $isStufaps = $liquidation->program?->parent_id !== null;
-            $forEndorsement = (!$isStufaps && $liquidation->rcNoteStatus?->code === 'FOR_ENDORSEMENT')
+            $forEndorsement = $liquidation->rcNoteStatus?->code === 'FOR_ENDORSEMENT'
                 ? $disbursements - $liquidated
                 : 0;
             $percentage = $disbursements > 0
@@ -1917,14 +1956,39 @@ class LiquidationController extends Controller
         // Region name for header
         $regionName = $user->region?->name ?? 'Central Office';
 
-        return view('reports.liquidation-print', [
+        return [
             'liquidations' => $liquidations,
             'totals' => $totals,
             'programSummary' => $programSummary,
             'activeFilters' => $activeFilters,
             'regionName' => $regionName,
             'printedBy' => $user->name,
-        ]);
+            'truncated' => $truncated,
+            'totalMatching' => $totalMatching,
+            'rowCap' => self::PRINT_REPORT_ROW_CAP,
+        ];
+    }
+
+    /**
+     * Export the filtered liquidation report as an XLSX file.
+     */
+    public function exportExcel(Request $request): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $data = $this->buildReportData($request);
+        $filename = 'liquidation-report-' . now()->format('Ymd-His') . '.xlsx';
+
+        return (new \App\Exports\LiquidationReportExporter())->stream($data, 'xlsx', $filename);
+    }
+
+    /**
+     * Export the filtered liquidation report as a CSV file.
+     */
+    public function exportCsv(Request $request): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $data = $this->buildReportData($request);
+        $filename = 'liquidation-report-' . now()->format('Ymd-His') . '.csv';
+
+        return (new \App\Exports\LiquidationReportExporter())->stream($data, 'csv', $filename);
     }
 
     /**
@@ -1943,21 +2007,15 @@ class LiquidationController extends Controller
 
         $programs = $toArray($filters['program'] ?? null);
         if (!empty($programs)) {
-            $names = [];
-            foreach ($programs as $id) {
-                $p = \App\Models\Program::find($id);
-                $names[] = $p?->code ?? $id;
-            }
+            $codes = \App\Models\Program::whereIn('id', $programs)->pluck('code', 'id');
+            $names = array_map(fn ($id) => $codes[$id] ?? $id, $programs);
             $parts[] = 'Program: ' . implode(', ', $names);
         }
 
         $academicYears = $toArray($filters['academic_year'] ?? null);
         if (!empty($academicYears)) {
-            $names = [];
-            foreach ($academicYears as $id) {
-                $ay = \App\Models\AcademicYear::find($id);
-                $names[] = $ay?->name ?? $id;
-            }
+            $labels = \App\Models\AcademicYear::whereIn('id', $academicYears)->pluck('name', 'id');
+            $names = array_map(fn ($id) => $labels[$id] ?? $id, $academicYears);
             $parts[] = 'AY: ' . implode(', ', $names);
         }
 
@@ -1975,15 +2033,12 @@ class LiquidationController extends Controller
 
         $rcNotes = $toArray($filters['rc_note_status'] ?? null);
         if (!empty($rcNotes)) {
-            $labels = [];
-            foreach ($rcNotes as $val) {
-                if ($val === 'none') {
-                    $labels[] = 'None';
-                } else {
-                    $rcNote = RcNoteStatus::find($val);
-                    $labels[] = $rcNote?->name ?? $val;
-                }
-            }
+            $ids = array_filter($rcNotes, fn ($v) => $v !== 'none');
+            $names = RcNoteStatus::whereIn('id', $ids)->pluck('name', 'id');
+            $labels = array_map(
+                fn ($v) => $v === 'none' ? 'None' : ($names[$v] ?? $v),
+                $rcNotes
+            );
             $parts[] = 'RC Notes: ' . implode(', ', $labels);
         }
 
@@ -2118,10 +2173,8 @@ class LiquidationController extends Controller
         $totalDisbursements = (float) ($financial?->amount_received ?? 0);
         $totalLiquidated = (float) ($financial?->amount_liquidated ?? 0);
         $totalUnliquidated = $totalDisbursements - $totalLiquidated;
-        // TES: (Liquidated + For Endorsement) / Disbursed
-        // STuFAPs (sub-programs): Liquidated / Disbursed
-        $isStufaps = $liquidation->program?->parent_id !== null;
-        $forEndorsement = (!$isStufaps && $liquidation->rcNoteStatus?->code === 'FOR_ENDORSEMENT')
+        // All programs: (Liquidated + For Endorsement) / Disbursed
+        $forEndorsement = $liquidation->rcNoteStatus?->code === 'FOR_ENDORSEMENT'
             ? $totalDisbursements - $totalLiquidated
             : 0;
         $percentageLiquidation = $totalDisbursements > 0

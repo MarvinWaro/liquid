@@ -148,6 +148,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Print Report
     Route::get('liquidation/print', [LiquidationController::class, 'printReport'])->name('liquidation.print-report');
+    Route::get('liquidation/export/excel', [LiquidationController::class, 'exportExcel'])->name('liquidation.export-excel');
+    Route::get('liquidation/export/csv', [LiquidationController::class, 'exportCsv'])->name('liquidation.export-csv');
 
     // RC Bulk Liquidation Routes
     Route::get('liquidation/rc-template/download', [LiquidationController::class, 'downloadRCTemplate'])->name('liquidation.download-rc-template');
