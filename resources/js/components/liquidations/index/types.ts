@@ -29,6 +29,7 @@ export interface Liquidation {
     lapsing_period: number;
     is_voided: boolean;
     is_endorsed: boolean;
+    is_pinned: boolean;
 }
 
 export interface HEIOption {

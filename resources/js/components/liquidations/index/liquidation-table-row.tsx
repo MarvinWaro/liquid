@@ -12,7 +12,7 @@ import {
     PopoverTrigger,
 } from '@/components/ui/popover';
 import { Label } from '@/components/ui/label';
-import { Eye, Ban, RotateCcw, Send } from 'lucide-react';
+import { Eye, Ban, RotateCcw, Send, Pin } from 'lucide-react';
 import type { Liquidation } from './types';
 import { getDocumentStatusColor, getLiquidationStatusColor } from './types';
 
@@ -27,6 +27,8 @@ interface LiquidationTableRowProps {
     onVoid: (liquidation: Liquidation) => void;
     onRestore: (liquidation: Liquidation) => void;
     onEndorse: (liquidation: Liquidation) => void;
+    onTogglePin?: (liquidation: Liquidation) => void;
+    pinDisabled?: boolean;
 }
 
 export const LiquidationTableRow = React.memo(function LiquidationTableRow({
@@ -39,6 +41,8 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
     onVoid,
     onRestore,
     onEndorse,
+    onTogglePin,
+    pinDisabled = false,
 }: LiquidationTableRowProps) {
     const [voidConfirmInput, setVoidConfirmInput] = useState('');
     const [voidPopoverOpen, setVoidPopoverOpen] = useState(false);
@@ -46,8 +50,33 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
     const [restorePopoverOpen, setRestorePopoverOpen] = useState(false);
 
     return (
-        <TableRow className={`transition-colors hover:bg-muted/50 ${liquidation.is_voided ? 'opacity-50' : ''} ${isSelected ? 'bg-muted/30' : ''}`}>
-            <TableCell className="pl-4 py-3 w-[40px]">
+        <TableRow className={`transition-colors hover:bg-muted/50 ${liquidation.is_voided ? 'opacity-50' : ''} ${isSelected ? 'bg-muted/30' : ''} ${liquidation.is_pinned ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''}`}>
+            <TableCell className="pl-4 py-3 w-[36px]">
+                {onTogglePin && (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className={`h-7 w-7 ${liquidation.is_pinned ? 'text-amber-500 hover:text-amber-600' : 'text-muted-foreground hover:text-foreground'}`}
+                                onClick={() => onTogglePin(liquidation)}
+                                disabled={!liquidation.is_pinned && pinDisabled}
+                                aria-label={liquidation.is_pinned ? 'Unpin row' : 'Pin row'}
+                            >
+                                <Pin className={`h-4 w-4 ${liquidation.is_pinned ? 'fill-current' : ''}`} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                            {liquidation.is_pinned
+                                ? 'Unpin row'
+                                : pinDisabled
+                                    ? 'Pin limit reached'
+                                    : 'Pin row'}
+                        </TooltipContent>
+                    </Tooltip>
+                )}
+            </TableCell>
+            <TableCell className="py-3 w-[40px]">
                 {!liquidation.is_voided && !liquidation.is_endorsed && canReview && (
                     <Checkbox
                         checked={isSelected}
