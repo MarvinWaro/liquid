@@ -51,7 +51,7 @@ class ActivityLogController extends Controller
             'module' => $log->module,
             'old_values' => $log->old_values,
             'new_values' => $log->new_values,
-            'created_at' => $log->created_at->format('M d, Y H:i:s'),
+            'created_at' => $log->created_at->timezone('Asia/Manila')->format('M d, Y H:i:s'),
         ]);
 
         // Get filter options from existing data
