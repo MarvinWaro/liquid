@@ -58,7 +58,7 @@ export const StatusDistributionChart = memo(function StatusDistributionChart({ d
     if (chartData.length === 0) return null;
 
     return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3" style={{ contain: 'layout paint' }}>
             <div className="px-1">
                 <Select
                     value={chartData[activePieIndex]?.status || ''}
@@ -82,7 +82,7 @@ export const StatusDistributionChart = memo(function StatusDistributionChart({ d
                     </SelectContent>
                 </Select>
             </div>
-            <ResponsiveContainer width="100%" height={260}>
+            <ResponsiveContainer width="100%" height={260} debounce={200}>
                 <PieChart>
                     <Pie
                         data={chartData}

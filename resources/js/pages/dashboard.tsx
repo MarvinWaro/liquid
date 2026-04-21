@@ -2,7 +2,7 @@ import AppLayout from '@/layouts/app-layout';
 import { dashboard } from '@/routes';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
     Card,
@@ -277,6 +277,12 @@ export default function Dashboard({
         return calendarDueDates.filter(d => d.fund_source === 'unifast');
     }, [fundSourceFilter, calendarDueDates]);
 
+    // Defer expensive chart/calendar data so sidebar toggles and fund-source
+    // changes stay responsive; heavy recharts/calendar re-renders run at low priority.
+    const deferredSummaryPerAY = useDeferredValue(activeSummaryPerAY);
+    const deferredStatusDistribution = useDeferredValue(activeStatusDistribution);
+    const deferredCalendarDueDates = useDeferredValue(activeCalendarDueDates);
+
     // ---------- Stat card definitions per role ----------
 
     const statCardDefs = useMemo(() => {
@@ -429,9 +435,9 @@ export default function Dashboard({
 
         switch (id) {
             case 'status-distribution':
-                return <StatusDistributionChart data={chartsLoading ? undefined : activeStatusDistribution} />;
+                return <StatusDistributionChart data={chartsLoading ? undefined : deferredStatusDistribution} />;
             case 'liquidation-progress':
-                return <LiquidationProgressChart data={chartsLoading ? undefined : activeSummaryPerAY} showFilter={showFilter} />;
+                return <LiquidationProgressChart data={chartsLoading ? undefined : deferredSummaryPerAY} showFilter={showFilter} />;
             case 'recent-liquidations':
                 return <RecentLiquidationsTable data={chartsLoading ? undefined : recentLiquidations} />;
             case 'overview-stats':
@@ -439,7 +445,7 @@ export default function Dashboard({
             default:
                 return null;
         }
-    }, [statCardDefs, chartsLoading, activeStatusDistribution, activeSummaryPerAY, recentLiquidations, overviewStats, activeTotalStats.total_liquidations, showFilter]);
+    }, [statCardDefs, chartsLoading, deferredStatusDistribution, deferredSummaryPerAY, recentLiquidations, overviewStats, activeTotalStats.total_liquidations, showFilter]);
 
     // ---------- Render ----------
 
@@ -590,7 +596,7 @@ export default function Dashboard({
                                             </div>
                                         </div>
                                     ) : (
-                                        <DashboardCalendar dueDates={activeCalendarDueDates} />
+                                        <DashboardCalendar dueDates={deferredCalendarDueDates} />
                                     )}
                                 </CardContent>
                             </Card>

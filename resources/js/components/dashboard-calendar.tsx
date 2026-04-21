@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -32,7 +32,7 @@ const todayString = () => {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 };
 
-export function DashboardCalendar({ dueDates }: Props) {
+export const DashboardCalendar = memo(function DashboardCalendar({ dueDates }: Props) {
     const todayStr = useMemo(todayString, []);
 
     const [calendarDate, setCalendarDate] = useState(() => {
@@ -40,6 +40,15 @@ export function DashboardCalendar({ dueDates }: Props) {
         return { year: now.getFullYear(), month: now.getMonth() };
     });
     const [dueListSearch, setDueListSearch] = useState('');
+    // Defer the search value so typing stays instant; filter/render runs at low priority.
+    const deferredDueListSearch = useDeferredValue(dueListSearch);
+
+    const DUE_LIST_PAGE_SIZE = 20;
+    const [visibleCount, setVisibleCount] = useState(DUE_LIST_PAGE_SIZE);
+    // Reset page whenever the effective (deferred) search changes.
+    useEffect(() => {
+        setVisibleCount(DUE_LIST_PAGE_SIZE);
+    }, [deferredDueListSearch]);
 
     const navigateMonth = useCallback((dir: -1 | 1) => {
         setCalendarDate(prev => {
@@ -83,19 +92,26 @@ export function DashboardCalendar({ dueDates }: Props) {
     }, [dueDates, todayStr]);
 
     const filteredDueDates = useMemo(() => {
-        const q = dueListSearch.trim().toLowerCase();
+        const q = deferredDueListSearch.trim().toLowerCase();
         if (!q) return sortedDueDates;
         return sortedDueDates.filter(item =>
             item.control_no.toLowerCase().includes(q) ||
             (item.hei_name ?? '').toLowerCase().includes(q) ||
             (item.program_code ?? '').toLowerCase().includes(q)
         );
-    }, [sortedDueDates, dueListSearch]);
+    }, [sortedDueDates, deferredDueListSearch]);
+
+    const visibleDueDates = useMemo(
+        () => filteredDueDates.slice(0, visibleCount),
+        [filteredDueDates, visibleCount],
+    );
+    const hasMore = filteredDueDates.length > visibleCount;
 
     const { year, month } = calendarDate;
     const monthName = new Date(year, month).toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
     return (
+        <TooltipProvider delayDuration={200}>
         <div className="flex flex-col h-full">
             {/* Month navigation */}
             <div className="flex items-center justify-between mb-4">
@@ -127,33 +143,31 @@ export function DashboardCalendar({ dueDates }: Props) {
                     const isOverdue = hasDue && dateStr <= todayStr && dues!.some(d => !COMPLETED_STATUSES.includes(d.status.toLowerCase()));
 
                     return (
-                        <TooltipProvider key={dateStr} delayDuration={200}>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div className={`h-10 w-full flex items-center justify-center rounded-lg text-sm font-medium transition-all cursor-default
-                                        ${isToday && !hasDue ? 'ring-2 ring-primary font-bold' : ''}
-                                        ${hasDue
-                                            ? isOverdue
-                                                ? 'bg-red-500 text-white font-bold shadow-sm'
-                                                : 'bg-red-100 text-red-700 font-bold dark:bg-red-900/50 dark:text-red-300'
-                                            : 'text-foreground hover:bg-muted/50'
-                                        }
-                                        ${isToday && hasDue ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : ''}
-                                    `}>
-                                        {day}
-                                    </div>
-                                </TooltipTrigger>
-                                {count > 0 && (
-                                    <TooltipContent side="bottom" className="text-xs max-w-[200px]">
-                                        <p className="font-semibold">{count} due date{count > 1 ? 's' : ''}</p>
-                                        {dues!.slice(0, 3).map(d => (
-                                            <p key={d.id} className="text-muted-foreground">{d.program_code} — {d.control_no}</p>
-                                        ))}
-                                        {count > 3 && <p className="text-muted-foreground">+{count - 3} more</p>}
-                                    </TooltipContent>
-                                )}
-                            </Tooltip>
-                        </TooltipProvider>
+                        <Tooltip key={dateStr}>
+                            <TooltipTrigger asChild>
+                                <div className={`h-10 w-full flex items-center justify-center rounded-lg text-sm font-medium transition-all cursor-default
+                                    ${isToday && !hasDue ? 'ring-2 ring-primary font-bold' : ''}
+                                    ${hasDue
+                                        ? isOverdue
+                                            ? 'bg-red-500 text-white font-bold shadow-sm'
+                                            : 'bg-red-100 text-red-700 font-bold dark:bg-red-900/50 dark:text-red-300'
+                                        : 'text-foreground hover:bg-muted/50'
+                                    }
+                                    ${isToday && hasDue ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : ''}
+                                `}>
+                                    {day}
+                                </div>
+                            </TooltipTrigger>
+                            {count > 0 && (
+                                <TooltipContent side="bottom" className="text-xs max-w-[200px]">
+                                    <p className="font-semibold">{count} due date{count > 1 ? 's' : ''}</p>
+                                    {dues!.slice(0, 3).map(d => (
+                                        <p key={d.id} className="text-muted-foreground">{d.program_code} — {d.control_no}</p>
+                                    ))}
+                                    {count > 3 && <p className="text-muted-foreground">+{count - 3} more</p>}
+                                </TooltipContent>
+                            )}
+                        </Tooltip>
                     );
                 })}
             </div>
@@ -201,35 +215,48 @@ export function DashboardCalendar({ dueDates }: Props) {
                         {filteredDueDates.length === 0 ? (
                             <p className="text-xs text-muted-foreground text-center py-4">No matching due dates.</p>
                         ) : (
-                            filteredDueDates.map(item => {
-                                const isOverdue = item.due_date <= todayStr;
-                                const dueDate = new Date(item.due_date + 'T00:00:00');
-                                const diffDays = Math.ceil((dueDate.getTime() - new Date(todayStr + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24));
-                                const urgencyLabel = isOverdue
-                                    ? `${Math.abs(diffDays)} day${Math.abs(diffDays) !== 1 ? 's' : ''} overdue`
-                                    : diffDays === 0 ? 'Due today'
-                                    : `${diffDays} day${diffDays !== 1 ? 's' : ''} left`;
+                            <>
+                                {visibleDueDates.map(item => {
+                                    const isOverdue = item.due_date <= todayStr;
+                                    const dueDate = new Date(item.due_date + 'T00:00:00');
+                                    const diffDays = Math.ceil((dueDate.getTime() - new Date(todayStr + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24));
+                                    const urgencyLabel = isOverdue
+                                        ? `${Math.abs(diffDays)} day${Math.abs(diffDays) !== 1 ? 's' : ''} overdue`
+                                        : diffDays === 0 ? 'Due today'
+                                        : `${diffDays} day${diffDays !== 1 ? 's' : ''} left`;
 
-                                return (
-                                    <div key={item.id} className={`rounded-lg border p-2.5 text-xs transition-colors ${isOverdue ? 'border-red-200 bg-red-50/50 dark:border-red-800/40 dark:bg-red-950/20' : ''}`}>
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="font-mono font-bold text-foreground">{item.control_no}</span>
-                                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${isOverdue ? 'bg-red-500 text-white' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'}`}>
-                                                {urgencyLabel}
-                                            </span>
+                                    return (
+                                        <div key={item.id} className={`rounded-lg border p-2.5 text-xs transition-colors ${isOverdue ? 'border-red-200 bg-red-50/50 dark:border-red-800/40 dark:bg-red-950/20' : ''}`}>
+                                            <div className="flex items-center justify-between mb-1">
+                                                <span className="font-mono font-bold text-foreground">{item.control_no}</span>
+                                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${isOverdue ? 'bg-red-500 text-white' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'}`}>
+                                                    {urgencyLabel}
+                                                </span>
+                                            </div>
+                                            <p className="text-muted-foreground truncate">{item.program_code} — {item.hei_name || 'N/A'}</p>
+                                            <p className="text-muted-foreground/70 text-[10px]">
+                                                Due: {dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                {item.academic_year && ` • ${item.academic_year}`}
+                                            </p>
                                         </div>
-                                        <p className="text-muted-foreground truncate">{item.program_code} — {item.hei_name || 'N/A'}</p>
-                                        <p className="text-muted-foreground/70 text-[10px]">
-                                            Due: {dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                            {item.academic_year && ` • ${item.academic_year}`}
-                                        </p>
-                                    </div>
-                                );
-                            })
+                                    );
+                                })}
+                                {hasMore && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full h-8 text-xs"
+                                        onClick={() => setVisibleCount(c => c + DUE_LIST_PAGE_SIZE)}
+                                    >
+                                        Show more ({filteredDueDates.length - visibleCount} remaining)
+                                    </Button>
+                                )}
+                            </>
                         )}
                     </div>
                 </div>
             )}
         </div>
+        </TooltipProvider>
     );
-}
+});
