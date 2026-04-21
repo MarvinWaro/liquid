@@ -8,7 +8,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent } from "@/components/ui/card";
 import { HEISelector } from '@/components/ui/hei-selector';
 import { login } from '@/routes';
-import { store } from '@/routes/register';
+// import { store } from '@/routes/register';
 import { Form, Head } from '@inertiajs/react';
 
 interface Region {
@@ -70,7 +70,7 @@ export default function Register({ heis, regions }: Props) {
                                 </p>
                             </div>
 
-                            <Form
+                            {/* <Form
                                 {...store.form()}
                                 resetOnSuccess={['password', 'password_confirmation']}
                                 className="flex flex-col gap-3"
@@ -157,7 +157,7 @@ export default function Register({ heis, regions }: Props) {
                                         </div>
                                     </>
                                 )}
-                            </Form>
+                            </Form> */}
                         </div>
 
                         {/* RIGHT SIDE: BRAND IMAGE (Swapped order) */}
