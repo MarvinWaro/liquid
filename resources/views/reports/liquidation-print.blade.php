@@ -167,7 +167,7 @@
         .col-seq { width: 1.5%; }
         .col-program { width: 3%; }
         .col-hei { width: 10%; }
-        .col-control { width: 6.5%; }
+        .col-control { width: 6.5%; overflow-wrap: anywhere; }
         .col-ay { width: 4%; }
         .col-sem { width: 2.5%; }
         .col-batch { width: 2%; }
@@ -372,7 +372,7 @@
                         <td class="text-center">{{ $index + 1 }}</td>
                         <td class="text-center" style="font-weight: 600;">{{ $row['program_code'] }}</td>
                         <td class="text-left">{{ $row['hei_name'] }}</td>
-                        <td class="font-mono text-center">{{ $row['control_no'] }}</td>
+                        <td class="col-control font-mono text-center">{{ $row['control_no'] }}</td>
                         <td class="text-center nowrap">{{ $row['academic_year'] }}</td>
                         <td class="text-center">{{ $row['semester'] }}</td>
                         <td class="text-center">{{ $row['batch_no'] }}</td>

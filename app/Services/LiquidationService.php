@@ -76,7 +76,7 @@ class LiquidationService
 
         $this->applyFilters($query, $filters);
 
-        return $query->paginate(15);
+        return $query->paginate(15)->withQueryString();
     }
 
     /**

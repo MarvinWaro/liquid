@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import AppLayout from '@/layouts/app-layout';
 import { Deferred, Head, router } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
@@ -151,6 +151,24 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
         });
     };
 
+    // Debounce multi-select filter changes so rapid checkbox toggles
+    // collapse into a single request (350ms after the last change).
+    const isInitialFilterMount = useRef(true);
+    useEffect(() => {
+        if (isInitialFilterMount.current) {
+            isInitialFilterMount.current = false;
+            return;
+        }
+        const timeout = setTimeout(() => {
+            router.get(route('liquidation.index'), getFilterParams(), {
+                preserveState: true,
+                preserveScroll: true,
+            });
+        }, 350);
+        return () => clearTimeout(timeout);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [programFilter, documentStatusFilter, liquidationStatusFilter, academicYearFilter, rcNoteStatusFilter, regionFilter]);
+
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
         navigate();
@@ -158,33 +176,27 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
 
     const handleProgramFilter = useCallback((value: string[]) => {
         setProgramFilter(value);
-        navigate({ program: value });
-    }, [searchQuery, documentStatusFilter, liquidationStatusFilter, academicYearFilter, rcNoteStatusFilter]);
+    }, []);
 
     const handleDocumentStatusFilter = useCallback((value: string[]) => {
         setDocumentStatusFilter(value);
-        navigate({ document_status: value });
-    }, [searchQuery, programFilter, liquidationStatusFilter, academicYearFilter, rcNoteStatusFilter]);
+    }, []);
 
     const handleLiquidationStatusFilter = useCallback((value: string[]) => {
         setLiquidationStatusFilter(value);
-        navigate({ liquidation_status: value });
-    }, [searchQuery, programFilter, documentStatusFilter, academicYearFilter, rcNoteStatusFilter]);
+    }, []);
 
     const handleAcademicYearFilter = useCallback((value: string[]) => {
         setAcademicYearFilter(value);
-        navigate({ academic_year: value });
-    }, [searchQuery, programFilter, documentStatusFilter, liquidationStatusFilter, rcNoteStatusFilter]);
+    }, []);
 
     const handleRcNoteStatusFilter = useCallback((value: string[]) => {
         setRcNoteStatusFilter(value);
-        navigate({ rc_note_status: value });
-    }, [searchQuery, programFilter, documentStatusFilter, liquidationStatusFilter, academicYearFilter]);
+    }, []);
 
     const handleRegionFilter = useCallback((value: string[]) => {
         setRegionFilter(value);
-        navigate({ region: value });
-    }, [searchQuery, programFilter, documentStatusFilter, liquidationStatusFilter, academicYearFilter, rcNoteStatusFilter]);
+    }, []);
 
     const handleDownloadTemplate = () => {
         window.location.href = route('liquidation.download-rc-template');
