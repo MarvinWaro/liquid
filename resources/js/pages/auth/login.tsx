@@ -4,9 +4,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { useAppearance } from '@/hooks/use-appearance';
+import { home } from '@/routes';
 import { store } from '@/routes/login';
-import { Form, Head } from '@inertiajs/react';
-import { Check, Monitor, Moon, Sun } from 'lucide-react';
+import { Form, Head, Link } from '@inertiajs/react';
+import { ArrowLeft, Check, Monitor, Moon, Sun } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import Particles, { initParticlesEngine } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
@@ -122,6 +123,19 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                 />
             )}
 
+            {/* Back to landing — top left (mirrors theme toggle on the right) */}
+            <div className="absolute top-6 left-6 z-50">
+                <Link
+                    href={home()}
+                    aria-label="Back to landing page"
+                    title="Back to landing page"
+                    className="group inline-flex items-center gap-2 h-9 px-3 rounded-full border border-border bg-background/80 backdrop-blur-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-all"
+                >
+                    <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+                    <span className="text-xs font-medium tracking-wide hidden sm:inline">Back</span>
+                </Link>
+            </div>
+
             {/* Theme toggle — top right */}
             <div className="absolute top-6 right-6 z-50">
                 <div className="relative">
@@ -180,13 +194,18 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                         {/* RIGHT SIDE: Login form */}
                         <div className="flex flex-col justify-center p-8 md:p-12">
 
-                            {/* Logos */}
-                            <div className="anim-logos flex justify-center items-center gap-3 mb-8">
+                            {/* Logos — also act as a home link */}
+                            <Link
+                                href={home()}
+                                aria-label="Back to landing page"
+                                title="Back to landing page"
+                                className="anim-logos flex justify-center items-center gap-3 mb-8 rounded-md transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            >
                                 <img src="/assets/img/ched-logo.png" alt="CHED" className="h-10 w-auto" />
                                 <img src="/assets/img/unifast.png" alt="UniFAST" className="h-9 w-auto" />
                                 <img src="/assets/img/bagong-pilipinas.png" alt="Bagong Pilipinas" className="h-10 w-auto" />
                                 <img src="/assets/img/achieve.png" alt="ACHIEVE" className="h-12 w-auto" />
-                            </div>
+                            </Link>
 
                             {/* Header text */}
                             <div className="anim-header flex flex-col items-center gap-1 text-center mb-6">

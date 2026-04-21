@@ -85,6 +85,9 @@ class LiquidationController extends Controller
     /** Max rows rendered in the printed report to prevent OOM. */
     private const PRINT_REPORT_ROW_CAP = 5000;
 
+    /** Max liquidations a single user can pin at once. */
+    private const PIN_LIMIT = 10;
+
     public function __construct(
         private readonly LiquidationService $liquidationService,
         private readonly CacheService $cacheService
@@ -110,6 +113,9 @@ class LiquidationController extends Controller
         // All programs for the filter dropdown (lightweight, cached)
         $allPrograms = $this->cacheService->getSelectablePrograms();
 
+        // IDs the current user has pinned — used to flag rows and render the pinned section.
+        $pinnedIds = $user->pinnedLiquidations()->pluck('liquidations.id');
+
         return Inertia::render('liquidation/index', [
             // Essential — needed for initial page paint (filters, header, permissions)
             'programs' => $allPrograms,
@@ -120,12 +126,22 @@ class LiquidationController extends Controller
                 'void' => $user->hasPermission('delete_liquidation'),
             ],
             'userRole' => $user->role->name,
+            'pinLimit' => self::PIN_LIMIT,
 
             // Deferred — table data loads after initial paint
             'liquidations' => Inertia::defer(fn () =>
                 $this->liquidationService
                     ->getPaginatedLiquidations($user, $filters)
-                    ->through(fn ($liquidation) => $this->formatLiquidationForList($liquidation))
+                    ->through(fn ($liquidation) => $this->formatLiquidationForList($liquidation, $pinnedIds))
+            ),
+
+            // Deferred — pinned rows shown above the main table (page 1 only in the UI).
+            // Always computed so the client can decide; cap enforced at mutation time.
+            'pinnedLiquidations' => Inertia::defer(fn () =>
+                $this->liquidationService
+                    ->getPinnedLiquidationsForUser($user, self::PIN_LIMIT)
+                    ->map(fn ($liquidation) => $this->formatLiquidationForList($liquidation, $pinnedIds))
+                    ->values()
             ),
 
             // Summary stats for the table header
@@ -1400,6 +1416,42 @@ class LiquidationController extends Controller
     }
 
     /**
+     * Toggle a personal pin on a liquidation for the current user.
+     * Pins are per-user and have a hard cap to keep the pinned section focused.
+     */
+    public function togglePin(Request $request, Liquidation $liquidation): RedirectResponse
+    {
+        $user = $request->user();
+
+        if (!$user->hasPermission('view_liquidation')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $this->authorizeView($user, $liquidation);
+
+        $alreadyPinned = $user->pinnedLiquidations()
+            ->where('liquidations.id', $liquidation->id)
+            ->exists();
+
+        if ($alreadyPinned) {
+            $user->pinnedLiquidations()->detach($liquidation->id);
+
+            return redirect()->back()->with('success', 'Liquidation unpinned.');
+        }
+
+        if ($user->pinnedLiquidations()->count() >= self::PIN_LIMIT) {
+            return redirect()->back()->with(
+                'error',
+                'You can pin up to ' . self::PIN_LIMIT . ' liquidations. Unpin one before adding another.',
+            );
+        }
+
+        $user->pinnedLiquidations()->attach($liquidation->id, ['pinned_at' => now()]);
+
+        return redirect()->back()->with('success', 'Liquidation pinned.');
+    }
+
+    /**
      * Import beneficiaries from Excel file.
      */
     /**
@@ -2184,7 +2236,7 @@ class LiquidationController extends Controller
         }
     }
 
-    private function formatLiquidationForList(Liquidation $liquidation): array
+    private function formatLiquidationForList(Liquidation $liquidation, ?\Illuminate\Support\Collection $pinnedIds = null): array
     {
         $financial = $liquidation->financial;
 
@@ -2237,6 +2289,7 @@ class LiquidationController extends Controller
             'liquidation_status_code' => $liquidation->liquidationStatus?->code ?? 'UNLIQUIDATED',
             'is_voided' => $liquidation->isVoided(),
             'is_endorsed' => $liquidation->reviewed_at !== null,
+            'is_pinned' => $pinnedIds?->contains($liquidation->id) ?? false,
             'percentage_liquidation' => $percentageLiquidation,
             'lapsing_period' => $financial?->lapsing_period ?? 0,
         ];

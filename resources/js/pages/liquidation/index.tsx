@@ -24,7 +24,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown, Percent, Printer } from 'lucide-react';
+import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown, Percent, Printer, Pin } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
 import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
@@ -58,6 +58,8 @@ interface Props {
         links: any[];
         meta: any;
     };
+    pinnedLiquidations?: Liquidation[];
+    pinLimit?: number;
     tableSummary?: TableSummary;
     programs: Program[];
     createPrograms?: Program[];
@@ -86,7 +88,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Liquidation Management', href: route('liquidation.index') },
 ];
 
-export default function Index({ liquidations, tableSummary, programs, createPrograms, academicYears, rcNoteStatuses, heis, regions, filters, permissions, userRole }: Props) {
+export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10, tableSummary, programs, createPrograms, academicYears, rcNoteStatuses, heis, regions, filters, permissions, userRole }: Props) {
     const toArr = (v: string | string[] | undefined): string[] =>
         !v ? [] : Array.isArray(v) ? v : v === 'all' ? [] : [v];
 
@@ -279,6 +281,18 @@ export default function Index({ liquidations, tableSummary, programs, createProg
         router.post(route('liquidation.restore', liquidation.id), {}, {
             preserveScroll: true,
             onError: () => toast.error('Failed to restore liquidation.'),
+        });
+    }, []);
+
+    const handleTogglePin = useCallback((liquidation: Liquidation) => {
+        router.post(route('liquidation.toggle-pin', liquidation.id), {}, {
+            preserveScroll: true,
+            preserveState: true,
+            only: ['liquidations', 'pinnedLiquidations'],
+            onError: (errors) => {
+                const msg = (errors as any)?.pin || 'Failed to update pin.';
+                toast.error(msg);
+            },
         });
     }, []);
 
@@ -701,6 +715,8 @@ export default function Index({ liquidations, tableSummary, programs, createProg
                             <Deferred data="liquidations" fallback={<LiquidationTableSkeleton />}>
                                 <LiquidationTable
                                     liquidations={liquidations!}
+                                    pinnedLiquidations={pinnedLiquidations}
+                                    pinLimit={pinLimit}
                                     permissions={permissions}
                                     selectedIds={selectedIds}
                                     onSelect={handleSelect}
@@ -708,6 +724,7 @@ export default function Index({ liquidations, tableSummary, programs, createProg
                                     onVoid={handleVoid}
                                     onRestore={handleRestore}
                                     onEndorse={handleEndorseSingle}
+                                    onTogglePin={handleTogglePin}
                                     lastImportCount={lastImportCount}
                                     onDismissImport={() => setLastImportCount(null)}
                                 />
@@ -725,6 +742,8 @@ export default function Index({ liquidations, tableSummary, programs, createProg
 
 const LiquidationTable = React.memo(function LiquidationTable({
     liquidations,
+    pinnedLiquidations,
+    pinLimit,
     permissions,
     selectedIds,
     onSelect,
@@ -732,10 +751,13 @@ const LiquidationTable = React.memo(function LiquidationTable({
     onVoid,
     onRestore,
     onEndorse,
+    onTogglePin,
     lastImportCount,
     onDismissImport,
 }: {
     liquidations: NonNullable<Props['liquidations']>;
+    pinnedLiquidations?: Liquidation[];
+    pinLimit: number;
     permissions: Props['permissions'];
     selectedIds: Set<number | string>;
     onSelect: (id: number, checked: boolean) => void;
@@ -743,6 +765,7 @@ const LiquidationTable = React.memo(function LiquidationTable({
     onVoid: (l: Liquidation) => void;
     onRestore: (l: Liquidation) => void;
     onEndorse: (l: Liquidation) => void;
+    onTogglePin: (l: Liquidation) => void;
     lastImportCount: number | null;
     onDismissImport: () => void;
 }) {
@@ -752,13 +775,62 @@ const LiquidationTable = React.memo(function LiquidationTable({
     const allSelected = selectableCount > 0 && selectedIds.size >= selectableCount;
     const someSelected = selectedIds.size > 0 && !allSelected;
 
+    const isFirstPage = (liquidations.meta?.current_page ?? 1) === 1;
+    const pinnedCount = pinnedLiquidations?.length ?? 0;
+    const pinDisabled = pinnedCount >= pinLimit;
+    const pinnedIdSet = new Set(pinnedLiquidations?.map(p => p.id) ?? []);
+    // On page 1 the pinned rows already render above; suppress duplicates in main list.
+    const mainRows = isFirstPage
+        ? liquidations.data.filter(l => !pinnedIdSet.has(l.id))
+        : liquidations.data;
+
     return (
         <>
+            {isFirstPage && pinnedCount > 0 && (
+                <div className="mb-3 overflow-hidden rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/10">
+                    <div className="flex items-center justify-between gap-2 px-4 py-2 border-b border-amber-200/70 dark:border-amber-900/40 bg-amber-100/40 dark:bg-amber-900/10">
+                        <div className="flex items-center gap-2">
+                            <Pin className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 fill-current" />
+                            <span className="text-xs font-medium uppercase tracking-wider text-amber-800 dark:text-amber-300">
+                                Pinned ({pinnedCount}/{pinLimit})
+                            </span>
+                        </div>
+                        <span className="text-[11px] text-amber-700/80 dark:text-amber-400/80">
+                            Visible only on page 1 • Personal to you
+                        </span>
+                    </div>
+                    <div className="overflow-x-auto [&_td]:border-r [&_td]:border-border/40 [&_th]:border-r [&_th]:border-border/40 [&_td:last-child]:border-r-0 [&_th:last-child]:border-r-0">
+                        <Table>
+                            <TableBody>
+                                {pinnedLiquidations!.map((liquidation, index) => (
+                                    <LiquidationTableRow
+                                        key={`pinned-${liquidation.id}`}
+                                        liquidation={liquidation}
+                                        index={index}
+                                        canVoid={permissions.void}
+                                        canReview={permissions.review}
+                                        isSelected={selectedIds.has(liquidation.id)}
+                                        onSelect={onSelect}
+                                        onVoid={onVoid}
+                                        onRestore={onRestore}
+                                        onEndorse={onEndorse}
+                                        onTogglePin={onTogglePin}
+                                        pinDisabled={false}
+                                    />
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </div>
+            )}
             <div className="overflow-hidden rounded-t-lg border border-b-0 overflow-x-auto [&_td]:border-r [&_td]:border-border/40 [&_th]:border-r [&_th]:border-border/40 [&_td:last-child]:border-r-0 [&_th:last-child]:border-r-0">
                 <Table>
                     <TableHeader>
                         <TableRow className="border-b hover:bg-transparent">
-                            <TableHead className="h-9 w-[40px] pl-4">
+                            <TableHead className="h-9 w-[36px] pl-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                                <span className="sr-only">Pin</span>
+                            </TableHead>
+                            <TableHead className="h-9 w-[40px]">
                                 {permissions.review && (
                                     <Checkbox
                                         checked={allSelected ? true : someSelected ? 'indeterminate' : false}
@@ -786,15 +858,15 @@ const LiquidationTable = React.memo(function LiquidationTable({
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {liquidations.data.length === 0 ? (
+                        {mainRows.length === 0 ? (
                             <TableRow className="hover:bg-transparent">
-                                <TableCell colSpan={17} className="text-center py-8 text-muted-foreground">
+                                <TableCell colSpan={18} className="text-center py-8 text-muted-foreground">
                                     <FileText className="mx-auto h-12 w-12 mb-2 opacity-50" />
-                                    <p>No liquidation records found</p>
+                                    <p>{liquidations.data.length === 0 ? 'No liquidation records found' : 'All records on this page are pinned above'}</p>
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            liquidations.data.map((liquidation, index) => (
+                            mainRows.map((liquidation, index) => (
                                 <LiquidationTableRow
                                     key={liquidation.id}
                                     liquidation={liquidation}
@@ -806,6 +878,8 @@ const LiquidationTable = React.memo(function LiquidationTable({
                                     onVoid={onVoid}
                                     onRestore={onRestore}
                                     onEndorse={onEndorse}
+                                    onTogglePin={onTogglePin}
+                                    pinDisabled={pinDisabled}
                                 />
                             ))
                         )}

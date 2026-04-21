@@ -12,6 +12,7 @@ use App\Models\ReviewType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -365,6 +366,15 @@ class Liquidation extends Model
     public function runningData(): HasMany
     {
         return $this->hasMany(LiquidationRunningData::class)->orderBy('sort_order');
+    }
+
+    /**
+     * Users who have pinned this liquidation to their personal table view.
+     */
+    public function pinnedByUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'user_liquidation_pins')
+            ->withPivot('pinned_at');
     }
 
     // ========================================

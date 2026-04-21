@@ -128,6 +128,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('liquidation/{liquidation}', [LiquidationController::class, 'destroy'])->name('liquidation.destroy');
     Route::post('liquidation/{liquidation}/void', [LiquidationController::class, 'void'])->name('liquidation.void');
     Route::post('liquidation/{liquidation}/restore', [LiquidationController::class, 'restore'])->name('liquidation.restore');
+    Route::post('liquidation/{liquidation}/toggle-pin', [LiquidationController::class, 'togglePin'])->name('liquidation.toggle-pin');
 
     // Liquidation Workflow Routes
     Route::post('liquidation/bulk-endorse-to-accounting', [LiquidationController::class, 'bulkEndorseToAccounting'])->name('liquidation.bulk-endorse-to-accounting');

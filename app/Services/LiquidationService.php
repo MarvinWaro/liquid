@@ -80,6 +80,26 @@ class LiquidationService
     }
 
     /**
+     * Get the current user's pinned liquidations, ordered most-recently pinned first.
+     * Respects the same role scope as the main table (no privilege escalation via pins).
+     */
+    public function getPinnedLiquidationsForUser(User $user, int $limit): \Illuminate\Support\Collection
+    {
+        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus', 'trackingEntries'])
+            ->whereHas('pinnedByUsers', fn (Builder $q) => $q->where('users.id', $user->id))
+            ->leftJoin('user_liquidation_pins', function ($join) use ($user) {
+                $join->on('user_liquidation_pins.liquidation_id', '=', 'liquidations.id')
+                    ->where('user_liquidation_pins.user_id', '=', $user->id);
+            })
+            ->select('liquidations.*')
+            ->orderByDesc('user_liquidation_pins.pinned_at');
+
+        $this->applyRoleFilter($query, $user);
+
+        return $query->limit($limit)->get();
+    }
+
+    /**
      * Apply role-based scope, voided exclusion, and filters to a query.
      */
     public function applyRoleAndFilters(Builder $query, User $user, array $filters = []): void

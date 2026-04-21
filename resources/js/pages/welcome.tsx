@@ -172,7 +172,7 @@ function BoardPanel({
     const EmptyIcon = isHonor ? Trophy : AlertTriangle;
 
     return (
-        <div className={`flex-1 flex flex-col rounded-xl border overflow-hidden backdrop-blur-sm min-h-0 min-w-0 ${panelCls}`}>
+        <div className={`board-panel flex-1 flex flex-col rounded-xl border overflow-hidden backdrop-blur-sm min-h-0 min-w-0 ${panelCls}`}>
             {/* Header */}
             <div className={`px-3 py-2 border-b shrink-0 space-y-1.5 ${headerBorderCls}`}>
                 <div className="flex items-center gap-2">
@@ -375,11 +375,21 @@ export default function Welcome({
                 .anim-desc     { animation: fadeSlideUp    1.1s cubic-bezier(.25,.46,.45,.94) 0.7s  both; }
                 .anim-cta      { animation: fadeSlideUp    1.1s cubic-bezier(.25,.46,.45,.94) 0.9s  both; }
                 .anim-nav      { animation: fadeIn         0.8s cubic-bezier(.25,.46,.45,.94) 0.3s  both; }
-                .anim-boards   { animation: fadeSlideRight 1.2s cubic-bezier(.25,.46,.45,.94) 0.6s  both; }
+                .anim-boards   { animation: fadeSlideUp    1.2s cubic-bezier(.25,.46,.45,.94) 0.6s  both; }
                 .shimmer-line {
                     background: linear-gradient(90deg, transparent 0%, currentColor 50%, transparent 100%);
                     background-size: 200% 100%;
                     animation: shimmer 3s ease-in-out infinite 2s;
+                }
+                /* Side-by-side hover expand: hovered panel grows, sibling shrinks naturally.
+                   Scoped to screens where panels sit in a row (sm and up). */
+                @media (min-width: 640px) {
+                    .board-panel {
+                        transition: flex-grow 500ms cubic-bezier(.25,.46,.45,.94);
+                    }
+                    .board-panels-row .board-panel:hover {
+                        flex-grow: 2;
+                    }
                 }
             `}</style>
 
@@ -414,11 +424,11 @@ export default function Welcome({
                     </div>
                 </div>
 
-                {/* ── Main: compact hero left + boards right ── */}
-                <main className="relative z-10 flex flex-1 flex-col justify-center xl:flex-row xl:items-center w-full px-8 sm:px-12 md:px-16 xl:px-16 2xl:px-24 py-12 xl:py-16 xl:gap-10 2xl:gap-14">
+                {/* ── Main: hero on top, boards below (shadcn-style stacked layout) ── */}
+                <main className="relative z-10 flex flex-1 flex-col items-center w-full max-w-7xl mx-auto px-6 sm:px-10 md:px-14 pt-24 sm:pt-24 md:pt-24 xl:pt-16 pb-12 sm:pb-14 gap-10 sm:gap-12">
 
-                    {/* Left: compact hero — centered */}
-                    <div className="xl:w-[320px] 2xl:w-[360px] xl:shrink-0 flex flex-col items-center text-center space-y-5 sm:space-y-6">
+                    {/* Hero — centered above the boards */}
+                    <div className="w-full max-w-2xl flex flex-col items-center text-center space-y-5 sm:space-y-6">
 
                         <div className="anim-logos flex items-center justify-center gap-2.5 sm:gap-3">
                             <img src="/assets/img/ched-logo.png"        alt="CHED"            className="h-9 sm:h-11 xl:h-12 w-auto drop-shadow-sm" />
@@ -464,13 +474,13 @@ export default function Welcome({
                         </div>
                     </div>
 
-                    {/* Right: board section */}
+                    {/* Boards — below hero, full width with max cap for ultra-wide screens */}
                     <div
-                        className="anim-boards hidden xl:flex flex-col gap-2 flex-1 min-w-0"
-                        style={{ height: 'min(480px, calc(100vh - 12rem))' }}
+                        className="anim-boards flex flex-col gap-2 w-full min-w-0"
+                        style={{ height: 'min(480px, calc(100vh - 20rem))' }}
                     >
                         {/* Filters */}
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
                             <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                             <Select
                                 value={filters.region ?? ALL}
@@ -531,8 +541,8 @@ export default function Welcome({
                             )}
                         </div>
 
-                        {/* Panels */}
-                        <div className="flex gap-3 flex-1 min-h-0">
+                        {/* Panels — stack on mobile, side-by-side with hover-expand on sm+ */}
+                        <div className="board-panels-row flex flex-col sm:flex-row gap-3 flex-1 min-h-0">
                             <BoardPanel
                                 title="Honor Roll — Fully Liquidated"
                                 items={honorBoard}

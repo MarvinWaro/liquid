@@ -145,6 +145,17 @@ class User extends Authenticatable
     }
 
     /**
+     * Liquidations this user has pinned to the top of their own table view.
+     * Per-user bookmark — does not affect other users or reports.
+     */
+    public function pinnedLiquidations(): BelongsToMany
+    {
+        return $this->belongsToMany(Liquidation::class, 'user_liquidation_pins')
+            ->withPivot('pinned_at')
+            ->orderByPivot('pinned_at', 'desc');
+    }
+
+    /**
      * Check if user is a STUFAPS Focal.
      */
     public function isSTUFAPSFocal(): bool

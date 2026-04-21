@@ -18,7 +18,8 @@ export function LiquidationTableSkeleton() {
                 <Table>
                     <TableHeader>
                         <TableRow className="border-b hover:bg-transparent">
-                            <TableHead className="h-9 w-[50px] pl-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">SEQ</TableHead>
+                            <TableHead className="h-9 w-[36px] pl-4 text-xs font-medium tracking-wider text-muted-foreground uppercase" />
+                            <TableHead className="h-9 w-[50px] text-xs font-medium tracking-wider text-muted-foreground uppercase">SEQ</TableHead>
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Program</TableHead>
                             <TableHead className="h-9 max-w-[300px] text-xs font-medium tracking-wider text-muted-foreground uppercase">HEI</TableHead>
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Period</TableHead>
@@ -40,7 +41,8 @@ export function LiquidationTableSkeleton() {
                     <TableBody>
                         {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
                             <TableRow key={i} className="hover:bg-transparent">
-                                <TableCell className="pl-4 py-3"><Skeleton className="h-4 w-6 mx-auto" /></TableCell>
+                                <TableCell className="pl-4 py-3"><Skeleton className="h-4 w-4 mx-auto rounded-sm" /></TableCell>
+                                <TableCell className="py-3"><Skeleton className="h-4 w-6 mx-auto" /></TableCell>
                                 <TableCell className="py-3"><Skeleton className="h-5 w-12 rounded-full" /></TableCell>
                                 <TableCell className="py-3">
                                     <Skeleton className="h-4 w-36 mb-1" />
