@@ -37,6 +37,29 @@ interface Props {
 export const LiquidationProgressChart = memo(function LiquidationProgressChart({ data, showFilter = false }: Props) {
     const [chartAYFilter, setChartAYFilter] = useState<string>('all');
 
+    const academicYears = useMemo(
+        () => data ? ['all', ...Array.from(new Set(data.map(item => item.academic_year)))] : ['all'],
+        [data],
+    );
+
+    const barChartData = useMemo(() => {
+        if (!data) return [];
+        const filtered = chartAYFilter === 'all'
+            ? data
+            : data.filter(item => item.academic_year === chartAYFilter);
+
+        return filtered
+            .slice()
+            .sort((a, b) => a.academic_year.localeCompare(b.academic_year))
+            .map(item => ({
+                name: item.academic_year,
+                'Total Disbursements': item.total_disbursements,
+                'Amount Liquidated': item.liquidated_amount,
+                'Unliquidated Amount': item.total_disbursements - item.liquidated_amount,
+                'For Compliance': item.for_compliance,
+            }));
+    }, [data, chartAYFilter]);
+
     if (!data) {
         return (
             <div className="space-y-4">
@@ -63,32 +86,10 @@ export const LiquidationProgressChart = memo(function LiquidationProgressChart({
         );
     }
 
-    const academicYears = useMemo(
-        () => ['all', ...Array.from(new Set(data.map(item => item.academic_year)))],
-        [data],
-    );
-
-    const barChartData = useMemo(() => {
-        const filtered = chartAYFilter === 'all'
-            ? data
-            : data.filter(item => item.academic_year === chartAYFilter);
-
-        return filtered
-            .slice()
-            .sort((a, b) => a.academic_year.localeCompare(b.academic_year))
-            .map(item => ({
-                name: item.academic_year,
-                'Total Disbursements': item.total_disbursements,
-                'Amount Liquidated': item.liquidated_amount,
-                'Unliquidated Amount': item.total_disbursements - item.liquidated_amount,
-                'For Compliance': item.for_compliance,
-            }));
-    }, [data, chartAYFilter]);
-
     if (barChartData.length === 0) return null;
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-3" style={{ contain: 'layout paint' }}>
             {showFilter && (
                 <div className="flex items-center gap-2">
                     <Filter className="h-4 w-4 text-muted-foreground" />
@@ -106,7 +107,7 @@ export const LiquidationProgressChart = memo(function LiquidationProgressChart({
                     </Select>
                 </div>
             )}
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={300} debounce={200}>
                 <BarChart
                     data={barChartData}
                     margin={{ top: 10, right: 20, left: 10, bottom: 5 }}
