@@ -36,7 +36,6 @@ import {
     ChevronDown,
     FileText,
     LayoutGrid,
-    LifeBuoy,
     Megaphone,
     Menu,
     Monitor,
@@ -44,6 +43,7 @@ import {
     PanelLeft,
     Sun,
 } from 'lucide-react';
+import { HatGlasses } from '@/components/icons/hat-glasses';
 import { useMemo } from 'react';
 
 // Define all navigation items with their required ability key
@@ -85,7 +85,7 @@ const allNavItems: (NavItem & { ability?: keyof NavigationAbilities; children?: 
     {
         title: 'Contact & Support',
         href: '/contact-support',
-        icon: LifeBuoy,
+        icon: HatGlasses,
     },
 ];
 
