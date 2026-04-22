@@ -176,6 +176,22 @@
     }
 }
 
+/* User-selectable table density (set by use-density-preference). Targets
+   shadcn table cells/heads via their data-slot attributes so we don't have
+   to touch the Table component or every row. Kept OUTSIDE @layer so these
+   rules win against Tailwind utilities like `py-3` that are applied directly
+   on TableCell elements. */
+html.density-compact [data-slot="table-cell"] {
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+}
+
+html.density-compact [data-slot="table-head"] {
+    height: 2rem !important;
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+}
+
 /* SortableJS drag-and-drop styles */
 .sortable-ghost {
     opacity: 0.35;
