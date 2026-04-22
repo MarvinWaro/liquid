@@ -188,7 +188,7 @@ function BoardPanel({
                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
                     <input
                         type="text"
-                        placeholder="Search HEI name or UII..."
+                        placeholder="SEARCH HEI name or UII..."
                         value={search}
                         onChange={e => setSearch(e.target.value)}
                         className={`w-full pl-7 pr-2 py-1 text-[11px] rounded-md border bg-white/60 dark:bg-black/20 placeholder:text-muted-foreground/60 focus:outline-none focus:ring-0 transition-colors ${searchBorderCls}`}
