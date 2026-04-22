@@ -2,13 +2,14 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useInitials } from '@/hooks/use-initials';
 import { cn } from '@/lib/utils';
 import type { LiquidationComment, LiquidationCommentUser, CommentAttachment } from '@/types/liquidation';
 import { getAvatarColor } from '@/types/liquidation';
 import axios from 'axios';
 import { toast } from '@/lib/toast';
-import { Send, Reply, AtSign, X, MessageSquare, Paperclip, FileText, Download, Image as ImageIcon } from 'lucide-react';
+import { Send, Reply, AtSign, X, MessageSquare, Paperclip, FileText, Download, Image as ImageIcon, Loader2, AlertCircle } from 'lucide-react';
 
 const MAX_DEPTH = 2;
 const MENTION_REGEX = /@\[(.+?)\]\(([a-f0-9-]+)\)/g;
@@ -107,13 +108,103 @@ const DEPTH_INDENT = ['', 'ml-6', 'ml-5'];
 
 function CommentAttachment({ url, name, size }: { url: string; name: string; size: number }) {
     const isImage = isImageFile(name);
+    const [previewOpen, setPreviewOpen] = useState(false);
+    const [blobUrl, setBlobUrl] = useState<string | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!isImage || !previewOpen) return;
+
+        const controller = new AbortController();
+        setLoading(true);
+        setError(null);
+
+        fetch(url, { credentials: 'same-origin', signal: controller.signal })
+            .then(async (res) => {
+                if (!res.ok) {
+                    if (res.status === 401 || res.status === 419) throw new Error('Your session has expired. Please refresh the page.');
+                    if (res.status === 403) throw new Error('You are not authorized to view this image.');
+                    throw new Error('Unable to load image.');
+                }
+                const blob = await res.blob();
+                setBlobUrl(URL.createObjectURL(blob));
+            })
+            .catch((err) => {
+                if (err.name === 'AbortError') return;
+                setError(err.message ?? 'Failed to load image.');
+            })
+            .finally(() => setLoading(false));
+
+        return () => controller.abort();
+    }, [isImage, previewOpen, url]);
+
+    useEffect(() => {
+        if (!previewOpen && blobUrl) {
+            URL.revokeObjectURL(blobUrl);
+            setBlobUrl(null);
+            setError(null);
+        }
+    }, [previewOpen, blobUrl]);
+
+    useEffect(() => {
+        return () => {
+            if (blobUrl) URL.revokeObjectURL(blobUrl);
+        };
+    }, [blobUrl]);
 
     return (
         <div className="mt-1.5 rounded border bg-background/50 overflow-hidden">
             {isImage ? (
-                <a href={url} target="_blank" rel="noopener noreferrer" className="block">
-                    <img src={url} alt={name} className="max-h-40 max-w-full object-contain" />
-                </a>
+                <>
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setPreviewOpen(true);
+                        }}
+                        className="block w-full text-left cursor-zoom-in"
+                    >
+                        <img src={url} alt={name} className="max-h-40 max-w-full object-contain" />
+                    </button>
+
+                    <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+                        <DialogContent
+                            className="!max-w-none w-[95vw] h-[95vh] sm:!max-w-[95vw] p-0 flex flex-col gap-0 overflow-hidden"
+                            onOpenAutoFocus={(e) => e.preventDefault()}
+                        >
+                            <DialogHeader className="px-4 py-3 border-b flex-row items-center justify-between space-y-0">
+                                <div className="min-w-0 flex-1 pr-4">
+                                    <DialogTitle className="text-sm font-semibold truncate">{name}</DialogTitle>
+                                    <DialogDescription className="text-xs">
+                                        {formatFileSize(size)}
+                                    </DialogDescription>
+                                </div>
+                            </DialogHeader>
+
+                            <div className="flex-1 bg-muted/30 relative overflow-auto flex items-center justify-center">
+                                {loading && (
+                                    <div className="flex flex-col items-center gap-2">
+                                        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                                        <p className="text-sm text-muted-foreground">Loading image…</p>
+                                    </div>
+                                )}
+
+                                {error && !loading && (
+                                    <div className="flex flex-col items-center gap-2 px-6 text-center">
+                                        <AlertCircle className="w-8 h-8 text-red-500" />
+                                        <p className="text-sm font-medium">Unable to preview</p>
+                                        <p className="text-xs text-muted-foreground max-w-sm">{error}</p>
+                                    </div>
+                                )}
+
+                                {blobUrl && !loading && !error && (
+                                    <img src={blobUrl} alt={name} className="max-w-full max-h-full object-contain" />
+                                )}
+                            </div>
+                        </DialogContent>
+                    </Dialog>
+                </>
             ) : (
                 <a
                     href={url}

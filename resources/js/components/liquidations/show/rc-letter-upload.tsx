@@ -7,10 +7,11 @@ import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/compone
 import { Upload, FileText, Download, Trash2, Eye, Loader2, Mail } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import type { LiquidationDocument } from '@/types/liquidation';
+import PdfPreviewDialog from './pdf-preview-dialog';
 
 const RC_LETTER_TYPE = 'RC Letter';
 const MAX_LETTERS = 3;
-const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
+const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 
 interface RcLetterUploadProps {
     liquidationId: number;
@@ -36,6 +37,8 @@ export default function RcLetterUpload({ liquidationId, documents, userRole, isS
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
+    const [previewDocId, setPreviewDocId] = useState<number | null>(null);
+    const [previewFileName, setPreviewFileName] = useState<string>('');
 
     const rcLetters = documents.filter(d => d.document_type === RC_LETTER_TYPE && !d.is_gdrive);
     const canUploadMore = rcLetters.length < MAX_LETTERS;
@@ -48,7 +51,7 @@ export default function RcLetterUpload({ liquidationId, documents, userRole, isS
             return;
         }
         if (file.size > MAX_SIZE_BYTES) {
-            toast.error('File size must not exceed 20MB.');
+            toast.error('File size must not exceed 10MB.');
             return;
         }
         if (!canUploadMore) {
@@ -171,14 +174,16 @@ export default function RcLetterUpload({ liquidationId, documents, userRole, isS
                                 </div>
 
                                 <div className="flex items-center gap-1 flex-shrink-0">
-                                    <Button variant="ghost" size="icon" title="View in browser" asChild>
-                                        <a
-                                            href={route('liquidation.view-document', doc.id)}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                        >
-                                            <Eye className="w-4 h-4" />
-                                        </a>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        title="View in browser"
+                                        onClick={() => {
+                                            setPreviewDocId(doc.id);
+                                            setPreviewFileName(doc.file_name);
+                                        }}
+                                    >
+                                        <Eye className="w-4 h-4" />
                                     </Button>
                                     <Button variant="ghost" size="icon" title="Download" asChild>
                                         <a href={route('liquidation.download-document', doc.id)}>
@@ -236,7 +241,7 @@ export default function RcLetterUpload({ liquidationId, documents, userRole, isS
                             <span className="text-blue-600 dark:text-blue-400 underline">browse</span>
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
-                            PDF only &middot; Max 20 MB &middot; {MAX_LETTERS - rcLetters.length} upload{MAX_LETTERS - rcLetters.length !== 1 ? 's' : ''} remaining
+                            PDF only &middot; Max 10 MB &middot; {MAX_LETTERS - rcLetters.length} upload{MAX_LETTERS - rcLetters.length !== 1 ? 's' : ''} remaining
                         </p>
                     </div>
                 )}
@@ -255,6 +260,18 @@ export default function RcLetterUpload({ liquidationId, documents, userRole, isS
                     </p>
                 )}
             </CardContent>
+
+            {previewDocId !== null && (
+                <PdfPreviewDialog
+                    open={previewDocId !== null}
+                    onOpenChange={(open) => {
+                        if (!open) setPreviewDocId(null);
+                    }}
+                    documentId={previewDocId}
+                    fileName={previewFileName}
+                    downloadUrl={route('liquidation.download-document', previewDocId)}
+                />
+            )}
         </Card>
     );
 }
