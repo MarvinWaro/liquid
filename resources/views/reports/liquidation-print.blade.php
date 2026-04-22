@@ -311,6 +311,7 @@
                 <tr>
                     <th>Program</th>
                     <th>Records</th>
+                    <th>Grantees</th>
                     <th>Total Disbursements</th>
                     <th>Amount Liquidated</th>
                     <th>Unliquidated</th>
@@ -322,6 +323,7 @@
                 <tr>
                     <td class="summary-program">{{ $ps['program_code'] }}</td>
                     <td class="text-center">{{ $ps['count'] }}</td>
+                    <td class="text-center">{{ number_format($ps['grantees']) }}</td>
                     <td class="text-right font-mono nowrap">{{ printMoney($ps['disbursements']) }}</td>
                     <td class="text-right font-mono nowrap">{{ printMoney($ps['liquidated']) }}</td>
                     <td class="text-right font-mono nowrap">{{ printMoney($ps['unliquidated']) }}</td>
@@ -330,6 +332,7 @@
                 @endforeach
                 <tr class="summary-total">
                     <td class="text-right" colspan="2">TOTAL</td>
+                    <td class="text-center">{{ number_format($totals['grantees']) }}</td>
                     <td class="text-right font-mono nowrap">{{ printMoney($totals['disbursements']) }}</td>
                     <td class="text-right font-mono nowrap">{{ printMoney($totals['liquidated']) }}</td>
                     <td class="text-right font-mono nowrap">{{ printMoney($totals['unliquidated']) }}</td>
