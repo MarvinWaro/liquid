@@ -75,8 +75,9 @@ class PermissionSeeder extends Seeder
             'Reports' => [
                 ['name' => 'view_reports', 'description' => 'View reports'],
                 ['name' => 'export_reports', 'description' => 'Export reports to Excel'],
-                ['name' => 'view_dashboard', 'description' => 'View dashboard statistics'],
                 ['name' => 'view_fund_source_filter', 'description' => 'View fund source filter (UniFAST/STuFAPs) on dashboard'],
+            ],
+            'Core Operation Summary' => [
                 ['name' => 'view_summary_ay', 'description' => 'View summary per academic year'],
                 ['name' => 'view_summary_hei', 'description' => 'View summary per HEI'],
             ],
@@ -104,6 +105,10 @@ class PermissionSeeder extends Seeder
             }
         }
 
+        // Retire obsolete permissions (removed from the schema above).
+        // Every user can see the dashboard by default, so view_dashboard is no longer gated.
+        Permission::whereIn('name', ['view_dashboard'])->delete();
+
         // Create or update Super Admin role with ALL permissions
         $superAdminRole = Role::updateOrCreate(
             ['name' => 'Super Admin'],
@@ -122,7 +127,7 @@ class PermissionSeeder extends Seeder
             'view_semesters', 'create_semesters', 'edit_semesters', 'delete_semesters',
             'view_academic_years', 'create_academic_years', 'edit_academic_years', 'delete_academic_years',
             'view_document_requirements', 'create_document_requirements', 'edit_document_requirements', 'delete_document_requirements',
-            'view_reports', 'export_reports', 'view_dashboard', 'view_fund_source_filter',
+            'view_reports', 'export_reports', 'view_fund_source_filter',
             'view_summary_ay', 'view_summary_hei',
             'view_activity_logs',
             'view_announcements', 'create_announcements', 'edit_announcements', 'delete_announcements',
@@ -132,21 +137,21 @@ class PermissionSeeder extends Seeder
             'view_hei',
             'view_liquidation', 'create_liquidation', 'edit_liquidation', 'review_liquidation', 'endorse_liquidation',
             'view_document_requirements', 'create_document_requirements', 'edit_document_requirements', 'delete_document_requirements',
-            'view_reports', 'view_dashboard',
+            'view_reports',
             'view_summary_ay', 'view_summary_hei',
         ]);
 
         $this->createExampleRole('Accountant', 'Reviews and endorses to COA', [
             'view_hei',
             'view_liquidation', 'review_liquidation', 'endorse_liquidation',
-            'view_reports', 'view_dashboard', 'view_fund_source_filter',
+            'view_reports', 'view_fund_source_filter',
             'view_summary_ay', 'view_summary_hei',
         ]);
 
         $this->createExampleRole('COA', 'Commission on Audit — view-only access to endorsed liquidations', [
             'view_hei',
             'view_liquidation', 'review_liquidation',
-            'view_reports', 'view_dashboard', 'view_fund_source_filter',
+            'view_reports', 'view_fund_source_filter',
             'view_summary_ay', 'view_summary_hei',
         ]);
 
@@ -158,7 +163,7 @@ class PermissionSeeder extends Seeder
         $this->createExampleRole('STUFAPS Focal', 'Program-scoped focal for STUFAPS sub-programs', [
             'view_liquidation', 'create_liquidation', 'edit_liquidation', 'review_liquidation', 'endorse_liquidation',
             'view_hei',
-            'view_reports', 'view_dashboard',
+            'view_reports',
             'view_summary_ay', 'view_summary_hei',
         ]);
 
@@ -168,7 +173,7 @@ class PermissionSeeder extends Seeder
         ]);
 
         $this->createExampleRole('Viewer', 'Read-only access', [
-            'view_hei', 'view_liquidation', 'view_reports', 'view_dashboard',
+            'view_hei', 'view_liquidation', 'view_reports',
             'view_summary_ay', 'view_summary_hei',
         ]);
     }

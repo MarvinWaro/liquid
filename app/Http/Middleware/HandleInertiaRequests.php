@@ -53,6 +53,7 @@ class HandleInertiaRequests extends Middleware
             'can' => $user ? $user->getNavigationAbilities() : [
                 'canViewDashboard' => false,
                 'canViewLiquidation' => false,
+                'canViewReports' => false,
                 'canViewRoles' => false,
                 'canViewUsers' => false,
                 'canViewHEI' => false,
