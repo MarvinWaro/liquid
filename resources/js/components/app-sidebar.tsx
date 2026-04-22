@@ -55,6 +55,7 @@ const allNavItems: (NavItem & { ability?: keyof NavigationAbilities; children?: 
         title: 'Report',
         href: '/report',
         icon: FileBarChart,
+        ability: 'canViewReports',
     },
     {
         title: 'Fiscal Year',

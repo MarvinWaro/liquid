@@ -255,6 +255,7 @@ class User extends Authenticatable
         return [
             'canViewDashboard' => true, // Everyone can see dashboard
             'canViewLiquidation' => $this->hasPermission('view_liquidation'),
+            'canViewReports' => $this->hasPermission('view_reports'),
             'canViewRoles' => $this->hasPermission('view_roles'),
             'canViewUsers' => $this->hasPermission('view_users'),
             'canViewHEI' => $this->hasPermission('view_hei'),
