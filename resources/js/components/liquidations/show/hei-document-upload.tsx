@@ -14,8 +14,9 @@ import {
 import { toast } from '@/lib/toast';
 import type { LiquidationDocument, DocumentRequirement, DocumentCompleteness } from '@/types/liquidation';
 import RequirementCommentThread from './requirement-comment-thread';
+import PdfPreviewDialog from './pdf-preview-dialog';
 
-const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
+const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 
 interface HeiDocumentUploadProps {
     liquidationId: number;
@@ -108,7 +109,7 @@ export default function HeiDocumentUpload({
             return;
         }
         if (file.size > MAX_SIZE_BYTES) {
-            toast.error('File size must not exceed 20MB.');
+            toast.error('File size must not exceed 10MB.');
             return;
         }
 
@@ -513,6 +514,8 @@ function DocumentRow({ doc, canDelete, onDelete }: {
     canDelete: boolean;
     onDelete: (id: number) => void;
 }) {
+    const [previewOpen, setPreviewOpen] = useState(false);
+
     return (
         <div className="flex items-center gap-2 mt-2">
             {doc.is_gdrive ? (
@@ -547,10 +550,14 @@ function DocumentRow({ doc, canDelete, onDelete }: {
                         </p>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" title="View" asChild>
-                            <a href={route('liquidation.view-document', doc.id)} target="_blank" rel="noreferrer">
-                                <Eye className="w-3.5 h-3.5" />
-                            </a>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="View"
+                            onClick={() => setPreviewOpen(true)}
+                        >
+                            <Eye className="w-3.5 h-3.5" />
                         </Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7" title="Download" asChild>
                             <a href={route('liquidation.download-document', doc.id)}>
@@ -559,6 +566,13 @@ function DocumentRow({ doc, canDelete, onDelete }: {
                         </Button>
                         {canDelete && <DeletePopover onDelete={() => onDelete(doc.id)} />}
                     </div>
+                    <PdfPreviewDialog
+                        open={previewOpen}
+                        onOpenChange={setPreviewOpen}
+                        documentId={doc.id}
+                        fileName={doc.file_name}
+                        downloadUrl={route('liquidation.download-document', doc.id)}
+                    />
                 </>
             )}
         </div>

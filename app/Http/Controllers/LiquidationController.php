@@ -191,27 +191,6 @@ class LiquidationController extends Controller
     }
 
     /**
-     * Show the form for editing a liquidation.
-     */
-    public function edit(Request $request, Liquidation $liquidation): InertiaResponse
-    {
-        $user = $request->user();
-
-        $this->authorizeView($user, $liquidation);
-
-        $liquidation->load(['hei', 'documents.uploader', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'academicYear', 'reviews']);
-
-        return Inertia::render('liquidation/edit', [
-            'liquidation' => $this->formatLiquidationForEdit($liquidation),
-            'heis' => $this->cacheService->getHEIs(),
-            'permissions' => [
-                'edit' => $user->hasPermission('edit_liquidation'),
-                'delete' => $user->hasPermission('delete_liquidation'),
-            ],
-        ]);
-    }
-
-    /**
      * Update the specified liquidation.
      */
     public function update(UpdateLiquidationRequest $request, Liquidation $liquidation): RedirectResponse
@@ -1207,10 +1186,10 @@ class LiquidationController extends Controller
         }
 
         $request->validate([
-            'file' => 'required|file|mimes:pdf|max:20480',
+            'file' => 'required|file|mimes:pdf|max:10240',
         ], [
             'file.mimes' => 'Only PDF files are allowed.',
-            'file.max' => 'The file size must not exceed 20MB.',
+            'file.max' => 'The file size must not exceed 10MB.',
         ]);
 
         $file = $request->file('file');
@@ -1291,7 +1270,7 @@ class LiquidationController extends Controller
     /**
      * Download document.
      */
-    public function downloadDocument(Request $request, LiquidationDocument $document): BinaryFileResponse
+    public function downloadDocument(Request $request, LiquidationDocument $document): \Symfony\Component\HttpFoundation\StreamedResponse
     {
         $liquidation = $document->liquidation;
         $user = $request->user();
@@ -2308,42 +2287,6 @@ class LiquidationController extends Controller
         $cleaned = trim($cleaned, " \t\n\r\0\x0B|");
 
         return $cleaned ?: null;
-    }
-
-    private function formatLiquidationForEdit(Liquidation $liquidation): array
-    {
-        $financial = $liquidation->financial;
-
-        return [
-            'id' => $liquidation->id,
-            'reference_number' => $liquidation->control_no,
-            'hei_id' => $liquidation->hei_id,
-            'hei' => [
-                'id' => $liquidation->hei->id,
-                'name' => $liquidation->hei->name,
-                'code' => $liquidation->hei->code,
-            ],
-            'disbursed_amount' => $financial?->amount_disbursed,
-            'disbursement_date' => $financial?->disbursement_date?->format('Y-m-d'),
-            'fund_source' => $financial?->fund_source,
-            'liquidated_amount' => $financial?->amount_liquidated,
-            'purpose' => $financial?->purpose,
-            'rc_notes' => $liquidation->rcNoteStatus?->code,
-            'remarks' => $liquidation->remarks,
-            'review_remarks' => $liquidation->getLatestReviewRemarks(),
-            'accountant_remarks' => $liquidation->getLatestAccountantRemarks(),
-            'documents' => $liquidation->documents->map(fn ($doc) => [
-                'id' => $doc->id,
-                'document_type' => $doc->document_type,
-                'file_name' => $doc->file_name,
-                'file_size' => $doc->getFormattedFileSize(),
-                'description' => $doc->description,
-                'uploaded_by' => $doc->uploader->name,
-                'uploaded_at' => $doc->created_at->format('M d, Y H:i'),
-            ]),
-            'can_edit' => true,
-            'can_submit' => true,
-        ];
     }
 
     private function getStufapsFocalsForProgram(string $programId): Collection
