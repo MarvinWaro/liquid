@@ -1,6 +1,8 @@
 import { Head } from '@inertiajs/react';
 
 import AppearanceTabs from '@/components/appearance-tabs';
+import DensityTabs from '@/components/density-tabs';
+import FontTabs from '@/components/font-tabs';
 import HeadingSmall from '@/components/heading-small';
 import LayoutTabs from '@/components/layout-tabs';
 import { type BreadcrumbItem } from '@/types';
@@ -38,6 +40,22 @@ export default function Appearance() {
                         description="Choose how you want to navigate through the platform"
                     />
                     <LayoutTabs />
+                </div>
+
+                <div className="mt-8 space-y-6 border-t pt-6">
+                    <HeadingSmall
+                        title="Font"
+                        description="Pick a typeface for the app. All options use tabular numerals so figures stay aligned in tables and reports."
+                    />
+                    <FontTabs />
+                </div>
+
+                <div className="mt-8 space-y-6 border-t pt-6">
+                    <HeadingSmall
+                        title="Table density"
+                        description="Adjust row spacing in tables. Compact fits more records on screen at once."
+                    />
+                    <DensityTabs />
                 </div>
             </SettingsLayout>
         </AppLayout>

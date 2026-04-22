@@ -158,6 +158,38 @@
     *, input, textarea, select, button {
         font-feature-settings: "zero" 1;
     }
+
+    /* User-selectable fonts (set by use-font-preference). The class on <html>
+       overrides the Tailwind --font-sans token so anything using `font-sans`
+       picks up the preference automatically. */
+    html.font-pref-plex {
+        --font-sans:
+            'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system,
+            BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+            sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+    }
+
+    html.font-pref-jetbrains {
+        --font-sans:
+            'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Source Code Pro',
+            Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+    }
+}
+
+/* User-selectable table density (set by use-density-preference). Targets
+   shadcn table cells/heads via their data-slot attributes so we don't have
+   to touch the Table component or every row. Kept OUTSIDE @layer so these
+   rules win against Tailwind utilities like `py-3` that are applied directly
+   on TableCell elements. */
+html.density-compact [data-slot="table-cell"] {
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+}
+
+html.density-compact [data-slot="table-head"] {
+    height: 2rem !important;
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
 }
 
 /* SortableJS drag-and-drop styles */
