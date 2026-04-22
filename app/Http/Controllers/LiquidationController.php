@@ -128,14 +128,16 @@ class LiquidationController extends Controller
             'userRole' => $user->role->name,
             'pinLimit' => self::PIN_LIMIT,
 
-            // Deferred — table data loads after initial paint
+            // Deferred — table data loads after initial paint.
+            // All deferreds below share Inertia's default group, so one XHR
+            // delivers them together (stats + rows fill in at the same time).
             'liquidations' => Inertia::defer(fn () =>
                 $this->liquidationService
                     ->getPaginatedLiquidations($user, $filters)
                     ->through(fn ($liquidation) => $this->formatLiquidationForList($liquidation, $pinnedIds))
             ),
 
-            // Deferred — pinned rows shown above the main table (page 1 only in the UI).
+            // Pinned rows shown above the main table (page 1 only in the UI).
             // Always computed so the client can decide; cap enforced at mutation time.
             'pinnedLiquidations' => Inertia::defer(fn () =>
                 $this->liquidationService
