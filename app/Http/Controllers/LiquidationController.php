@@ -1995,6 +1995,7 @@ class LiquidationController extends Controller
             return [
                 'program_code'  => $code,
                 'count'         => $group->count(),
+                'grantees'      => $group->sum('number_of_grantees'),
                 'disbursements' => $disbursements,
                 'liquidated'    => $liquidated,
                 'unliquidated'  => $unliquidated,

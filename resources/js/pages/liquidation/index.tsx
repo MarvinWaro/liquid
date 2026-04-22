@@ -24,7 +24,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown, Percent, Printer, Pin } from 'lucide-react';
+import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown, Percent, Printer, Pin, Users } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
 import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
@@ -46,6 +46,7 @@ import { LiquidationTableSkeleton } from '@/components/liquidations/index/liquid
 
 interface TableSummary {
     total_records: number;
+    total_grantees: number;
     total_disbursed: number;
     total_liquidated: number;
     total_unliquidated: number;
@@ -682,13 +683,22 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
 
                             {/* Summary stats bar */}
                             {cachedSummary ? (
-                                <div className={`grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4 transition-opacity duration-150 ${isRevalidating ? 'opacity-60' : ''}`}>
+                                <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4 transition-opacity duration-150 ${isRevalidating ? 'opacity-60' : ''}`}>
                                     <div className="rounded-lg border bg-card p-3">
                                         <div className="flex items-center gap-1.5 mb-1">
                                             <FileBarChart2 className="h-3.5 w-3.5 text-blue-600" />
                                             <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Records</p>
                                         </div>
                                         <p className="text-lg font-bold tracking-tight">{cachedSummary.total_records.toLocaleString()}</p>
+                                    </div>
+                                    <div className="rounded-lg border bg-card p-3">
+                                        <div className="flex items-center gap-1.5 mb-1">
+                                            <Users className="h-3.5 w-3.5 text-sky-600" />
+                                            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Grantees</p>
+                                        </div>
+                                        <p className="text-lg font-bold tracking-tight text-sky-700 dark:text-sky-400">
+                                            {cachedSummary.total_grantees.toLocaleString()}
+                                        </p>
                                     </div>
                                     <div className="rounded-lg border bg-card p-3">
                                         <div className="flex items-center gap-1.5 mb-1">
@@ -730,8 +740,8 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                                     </div>
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
-                                    {[...Array(5)].map((_, i) => (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+                                    {[...Array(6)].map((_, i) => (
                                         <div key={i} className="rounded-lg border bg-card p-3 animate-pulse">
                                             <div className="h-3 w-20 bg-muted rounded mb-2" />
                                             <div className="h-5 w-28 bg-muted rounded" />

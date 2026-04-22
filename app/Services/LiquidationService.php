@@ -44,6 +44,7 @@ class LiquidationService
         $this->applyFilters($query, $filters);
 
         $stats = $query->selectRaw('COUNT(*) as total_records')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.number_of_grantees), 0) as total_grantees')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursed')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_liquidated')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received - liquidation_financials.amount_liquidated), 0) as total_unliquidated')
@@ -52,6 +53,7 @@ class LiquidationService
 
         return [
             'total_records' => (int) ($stats->total_records ?? 0),
+            'total_grantees' => (int) ($stats->total_grantees ?? 0),
             'total_disbursed' => (float) ($stats->total_disbursed ?? 0),
             'total_liquidated' => (float) ($stats->total_liquidated ?? 0),
             'total_unliquidated' => (float) ($stats->total_unliquidated ?? 0),

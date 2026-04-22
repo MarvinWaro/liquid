@@ -170,7 +170,7 @@ class LiquidationReportExporter
                 ->withBackgroundColor('F3F4F6');
 
             $writer->addRow($this->styledRow(
-                ['Program', 'Records', 'Total Disbursements', 'Amount Liquidated', 'Unliquidated', '% Age of Liquidation'],
+                ['Program', 'Records', 'Grantees', 'Total Disbursements', 'Amount Liquidated', 'Unliquidated', '% Age of Liquidation'],
                 $summaryHeaderStyle
             ));
             $rowNum++;
@@ -179,6 +179,7 @@ class LiquidationReportExporter
                 $writer->addRow(new Row([
                     new StringCell((string) $ps['program_code'], $summaryBodyStyle),
                     new NumericCell((int) $ps['count'], $summaryBodyStyle),
+                    new NumericCell((int) ($ps['grantees'] ?? 0), $summaryBodyStyle),
                     new NumericCell((float) $ps['disbursements'], $summaryMoneyStyle),
                     new NumericCell((float) $ps['liquidated'], $summaryMoneyStyle),
                     new NumericCell((float) $ps['unliquidated'], $summaryMoneyStyle),
@@ -194,6 +195,7 @@ class LiquidationReportExporter
             $writer->addRow(new Row([
                 new StringCell('TOTAL', $summaryTotalText),
                 new StringCell('', $summaryTotalText),
+                new NumericCell((int) ($totals['grantees'] ?? 0), $summaryTotalText),
                 new NumericCell((float) $totals['disbursements'], $summaryTotalMoney),
                 new NumericCell((float) $totals['liquidated'], $summaryTotalMoney),
                 new NumericCell((float) $totals['unliquidated'], $summaryTotalMoney),
@@ -268,10 +270,11 @@ class LiquidationReportExporter
                 ->withCellAlignment(CellAlignment::CENTER);
 
             $cells = [];
-            for ($i = 0; $i < 9; $i++) {
+            for ($i = 0; $i < 8; $i++) {
                 $cells[] = new StringCell('', $totalText);
             }
             $cells[] = new StringCell('TOTAL', $totalText);
+            $cells[] = new NumericCell((int) ($totals['grantees'] ?? 0), $totalText);
             $cells[] = new NumericCell((float) $totals['disbursements'], $totalMoney);
             $cells[] = new NumericCell((float) $totals['liquidated'], $totalMoney);
             $cells[] = new NumericCell((float) $totals['unliquidated'], $totalMoney);
@@ -322,12 +325,13 @@ class LiquidationReportExporter
         $programSummary = $data['programSummary'] ?? collect();
         if ($programSummary->isNotEmpty()) {
             $writer->addRow(Row::fromValues([
-                'Program', 'Records', 'Total Disbursements', 'Amount Liquidated', 'Unliquidated', '% Age of Liquidation',
+                'Program', 'Records', 'Grantees', 'Total Disbursements', 'Amount Liquidated', 'Unliquidated', '% Age of Liquidation',
             ]));
             foreach ($programSummary as $ps) {
                 $writer->addRow(Row::fromValues([
                     $ps['program_code'],
                     (int) $ps['count'],
+                    (int) ($ps['grantees'] ?? 0),
                     number_format((float) $ps['disbursements'], 2, '.', ''),
                     number_format((float) $ps['liquidated'], 2, '.', ''),
                     number_format((float) $ps['unliquidated'], 2, '.', ''),
@@ -341,6 +345,7 @@ class LiquidationReportExporter
                 : 0;
             $writer->addRow(Row::fromValues([
                 'TOTAL', '',
+                (int) ($totals['grantees'] ?? 0),
                 number_format((float) $totals['disbursements'], 2, '.', ''),
                 number_format((float) $totals['liquidated'], 2, '.', ''),
                 number_format((float) $totals['unliquidated'], 2, '.', ''),
@@ -381,7 +386,8 @@ class LiquidationReportExporter
                 ? round((($totals['liquidated'] + $totals['for_endorsement']) / $totals['disbursements']) * 100, 2)
                 : 0;
             $writer->addRow(Row::fromValues([
-                '', '', '', '', '', '', '', '', '', 'TOTAL',
+                '', '', '', '', '', '', '', '', 'TOTAL',
+                (int) ($totals['grantees'] ?? 0),
                 number_format((float) $totals['disbursements'], 2, '.', ''),
                 number_format((float) $totals['liquidated'], 2, '.', ''),
                 number_format((float) $totals['unliquidated'], 2, '.', ''),
