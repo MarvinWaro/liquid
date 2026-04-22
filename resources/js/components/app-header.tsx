@@ -32,8 +32,10 @@ import {
 import { Link, usePage } from '@inertiajs/react';
 import {
     BarChart3,
+    CalendarRange,
     Check,
     ChevronDown,
+    FileBarChart,
     FileText,
     LayoutGrid,
     Megaphone,
@@ -81,6 +83,16 @@ const allNavItems: (NavItem & { ability?: keyof NavigationAbilities; children?: 
                 ability: 'canViewSummaryHEI',
             },
         ],
+    },
+    {
+        title: 'Report',
+        href: '/report',
+        icon: FileBarChart,
+    },
+    {
+        title: 'Fiscal Year',
+        href: '/fiscal-year',
+        icon: CalendarRange,
     },
     {
         title: 'Contact & Support',

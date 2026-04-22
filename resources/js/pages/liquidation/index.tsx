@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import AppLayout from '@/layouts/app-layout';
-import { Deferred, Head, router } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import {
     Table,
@@ -88,6 +88,17 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Liquidation Management', href: route('liquidation.index') },
 ];
 
+// Retain the last non-undefined value so Inertia's deferred re-fetches
+// (pagination, filter changes, partial reloads) can keep rendering the
+// previous data instead of flashing a skeleton on every request.
+function useStaleWhileRevalidate<T>(value: T | undefined): T | undefined {
+    const ref = useRef<T | undefined>(value);
+    if (value !== undefined) {
+        ref.current = value;
+    }
+    return ref.current;
+}
+
 export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10, tableSummary, programs, createPrograms, academicYears, rcNoteStatuses, heis, regions, filters, permissions, userRole }: Props) {
     const toArr = (v: string | string[] | undefined): string[] =>
         !v ? [] : Array.isArray(v) ? v : v === 'all' ? [] : [v];
@@ -124,6 +135,14 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const isHEI = userRole === 'HEI';
     const canCreate = (permissions.create || isRC) && !isHEI;
     const canFilterByRegion = userRole === 'Super Admin' || userRole === 'Admin';
+
+    // Stale-while-revalidate: show the previous page's data during subsequent
+    // navigations (pagination, filter changes) instead of a disruptive skeleton.
+    // The skeleton only shows on the very first cold load when no cached data exists.
+    const cachedLiquidations = useStaleWhileRevalidate(liquidations);
+    const cachedPinned = useStaleWhileRevalidate(pinnedLiquidations);
+    const cachedSummary = useStaleWhileRevalidate(tableSummary);
+    const isRevalidating = !!cachedLiquidations && !liquidations;
 
     const getFilterParams = (overrides: Record<string, any> = {}) => {
         const raw: Record<string, any> = {
@@ -662,7 +681,55 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                             />
 
                             {/* Summary stats bar */}
-                            <Deferred data="tableSummary" fallback={
+                            {cachedSummary ? (
+                                <div className={`grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4 transition-opacity duration-150 ${isRevalidating ? 'opacity-60' : ''}`}>
+                                    <div className="rounded-lg border bg-card p-3">
+                                        <div className="flex items-center gap-1.5 mb-1">
+                                            <FileBarChart2 className="h-3.5 w-3.5 text-blue-600" />
+                                            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Records</p>
+                                        </div>
+                                        <p className="text-lg font-bold tracking-tight">{cachedSummary.total_records.toLocaleString()}</p>
+                                    </div>
+                                    <div className="rounded-lg border bg-card p-3">
+                                        <div className="flex items-center gap-1.5 mb-1">
+                                            <Banknote className="h-3.5 w-3.5 text-emerald-600" />
+                                            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Disbursed</p>
+                                        </div>
+                                        <p className="text-lg font-bold tracking-tight text-emerald-700 dark:text-emerald-400">
+                                            {new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(cachedSummary.total_disbursed)}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-lg border bg-card p-3">
+                                        <div className="flex items-center gap-1.5 mb-1">
+                                            <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                                            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Liquidated</p>
+                                        </div>
+                                        <p className="text-lg font-bold tracking-tight text-green-700 dark:text-green-400">
+                                            {new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(cachedSummary.total_liquidated)}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-lg border bg-card p-3">
+                                        <div className="flex items-center gap-1.5 mb-1">
+                                            <TrendingDown className="h-3.5 w-3.5 text-red-600" />
+                                            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Unliquidated</p>
+                                        </div>
+                                        <p className="text-lg font-bold tracking-tight text-red-600 dark:text-red-400">
+                                            {new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(cachedSummary.total_unliquidated)}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-lg border bg-card p-3">
+                                        <div className="flex items-center gap-1.5 mb-1">
+                                            <Percent className="h-3.5 w-3.5 text-violet-600" />
+                                            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">%Age of Liquidation</p>
+                                        </div>
+                                        <p className="text-lg font-bold tracking-tight text-violet-700 dark:text-violet-400">
+                                            {cachedSummary.total_disbursed > 0
+                                                ? (((cachedSummary.total_liquidated + cachedSummary.for_endorsement) / cachedSummary.total_disbursed) * 100).toFixed(2)
+                                                : '0.00'}%
+                                        </p>
+                                    </div>
+                                </div>
+                            ) : (
                                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
                                     {[...Array(5)].map((_, i) => (
                                         <div key={i} className="rounded-lg border bg-card p-3 animate-pulse">
@@ -671,76 +738,30 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                                         </div>
                                     ))}
                                 </div>
-                            }>
-                                {tableSummary && (
-                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
-                                        <div className="rounded-lg border bg-card p-3">
-                                            <div className="flex items-center gap-1.5 mb-1">
-                                                <FileBarChart2 className="h-3.5 w-3.5 text-blue-600" />
-                                                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Records</p>
-                                            </div>
-                                            <p className="text-lg font-bold tracking-tight">{tableSummary.total_records.toLocaleString()}</p>
-                                        </div>
-                                        <div className="rounded-lg border bg-card p-3">
-                                            <div className="flex items-center gap-1.5 mb-1">
-                                                <Banknote className="h-3.5 w-3.5 text-emerald-600" />
-                                                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Disbursed</p>
-                                            </div>
-                                            <p className="text-lg font-bold tracking-tight text-emerald-700 dark:text-emerald-400">
-                                                {new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(tableSummary.total_disbursed)}
-                                            </p>
-                                        </div>
-                                        <div className="rounded-lg border bg-card p-3">
-                                            <div className="flex items-center gap-1.5 mb-1">
-                                                <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                                                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Liquidated</p>
-                                            </div>
-                                            <p className="text-lg font-bold tracking-tight text-green-700 dark:text-green-400">
-                                                {new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(tableSummary.total_liquidated)}
-                                            </p>
-                                        </div>
-                                        <div className="rounded-lg border bg-card p-3">
-                                            <div className="flex items-center gap-1.5 mb-1">
-                                                <TrendingDown className="h-3.5 w-3.5 text-red-600" />
-                                                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Unliquidated</p>
-                                            </div>
-                                            <p className="text-lg font-bold tracking-tight text-red-600 dark:text-red-400">
-                                                {new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(tableSummary.total_unliquidated)}
-                                            </p>
-                                        </div>
-                                        <div className="rounded-lg border bg-card p-3">
-                                            <div className="flex items-center gap-1.5 mb-1">
-                                                <Percent className="h-3.5 w-3.5 text-violet-600" />
-                                                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">%Age of Liquidation</p>
-                                            </div>
-                                            <p className="text-lg font-bold tracking-tight text-violet-700 dark:text-violet-400">
-                                                {tableSummary.total_disbursed > 0
-                                                    ? (((tableSummary.total_liquidated + tableSummary.for_endorsement) / tableSummary.total_disbursed) * 100).toFixed(2)
-                                                    : '0.00'}%
-                                            </p>
-                                        </div>
-                                    </div>
-                                )}
-                            </Deferred>
+                            )}
 
-                            {/* Table with deferred loading */}
-                            <Deferred data="liquidations" fallback={<LiquidationTableSkeleton />}>
-                                <LiquidationTable
-                                    liquidations={liquidations!}
-                                    pinnedLiquidations={pinnedLiquidations}
-                                    pinLimit={pinLimit}
-                                    permissions={permissions}
-                                    selectedIds={selectedIds}
-                                    onSelect={handleSelect}
-                                    onSelectAll={handleSelectAll}
-                                    onVoid={handleVoid}
-                                    onRestore={handleRestore}
-                                    onEndorse={handleEndorseSingle}
-                                    onTogglePin={handleTogglePin}
-                                    lastImportCount={lastImportCount}
-                                    onDismissImport={() => setLastImportCount(null)}
-                                />
-                            </Deferred>
+                            {/* Table with stale-while-revalidate loading */}
+                            {cachedLiquidations ? (
+                                <div className={`transition-opacity duration-150 ${isRevalidating ? 'opacity-60 pointer-events-none' : ''}`}>
+                                    <LiquidationTable
+                                        liquidations={cachedLiquidations}
+                                        pinnedLiquidations={cachedPinned}
+                                        pinLimit={pinLimit}
+                                        permissions={permissions}
+                                        selectedIds={selectedIds}
+                                        onSelect={handleSelect}
+                                        onSelectAll={handleSelectAll}
+                                        onVoid={handleVoid}
+                                        onRestore={handleRestore}
+                                        onEndorse={handleEndorseSingle}
+                                        onTogglePin={handleTogglePin}
+                                        lastImportCount={lastImportCount}
+                                        onDismissImport={() => setLastImportCount(null)}
+                                    />
+                                </div>
+                            ) : (
+                                <LiquidationTableSkeleton />
+                            )}
 
                         </CardContent>
 
@@ -781,8 +802,6 @@ const LiquidationTable = React.memo(function LiquidationTable({
     lastImportCount: number | null;
     onDismissImport: () => void;
 }) {
-    if (!liquidations?.data) return <LiquidationTableSkeleton />;
-
     const selectableCount = liquidations.data.filter(l => !l.is_voided).length;
     const allSelected = selectableCount > 0 && selectedIds.size >= selectableCount;
     const someSelected = selectedIds.size > 0 && !allSelected;
@@ -947,7 +966,7 @@ const LiquidationTable = React.memo(function LiquidationTable({
                                 key={index}
                                 variant={link.active ? "default" : "outline"}
                                 size="sm"
-                                onClick={() => link.url && router.visit(link.url)}
+                                onClick={() => link.url && router.visit(link.url, { preserveState: true, preserveScroll: true })}
                                 disabled={!link.url}
                                 dangerouslySetInnerHTML={{ __html: link.label }}
                                 className="h-8 min-w-[32px]"

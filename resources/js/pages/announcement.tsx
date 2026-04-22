@@ -89,7 +89,7 @@ export default function Announcement() {
     const featured = posts.find((p) => p.is_featured) ?? null;
     // Sidebar only renders when a featured post exists — so only dedupe against
     // it in that case. Otherwise every post flows into the Recent grid.
-    const otherFeaturedLike = featured ? posts.filter((p) => !p.is_featured).slice(0, 3) : [];
+    const otherFeaturedLike = featured ? posts.filter((p) => !p.is_featured).slice(0, 2) : [];
     const sidebarIds = new Set(otherFeaturedLike.map((p) => p.id));
     const recent = posts.filter((p) => p.id !== featured?.id && !sidebarIds.has(p.id));
 

@@ -38,6 +38,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('announcement/{announcement:slug}/mentionable-users', [\App\Http\Controllers\AnnouncementCommentController::class, 'mentionableUsers'])->name('announcement-comments.mentionable-users');
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('contact-support', fn () => Inertia::render('contact-support'))->name('contact-support');
+    Route::get('report', fn () => Inertia::render('report'))->name('report');
+    Route::get('fiscal-year', fn () => Inertia::render('fiscal-year'))->name('fiscal-year');
     Route::get('summary/academic-year', [DashboardController::class, 'summaryPerAY'])->name('summary.academic-year');
     Route::get('summary/hei', [DashboardController::class, 'summaryPerHEI'])->name('summary.hei');
 
