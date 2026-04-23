@@ -141,8 +141,11 @@ class LiquidationService
      */
     public function getPaginatedLiquidations(User $user, array $filters = []): LengthAwarePaginator
     {
+        // Select from the liquidations table explicitly so sort joins on
+        // heis/programs/liquidation_financials don't collide on shared column
+        // names (e.g. id, name, created_at).
         $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus'])
-            ->orderBy('control_no', 'asc');
+            ->select('liquidations.*');
 
         $this->applyRoleFilter($query, $user);
 
@@ -152,8 +155,72 @@ class LiquidationService
         }
 
         $this->applyFilters($query, $filters);
+        $this->applySort($query, $filters);
 
         return $query->paginate(15)->withQueryString();
+    }
+
+    /**
+     * Apply user-requested column sort. Falls back to control_no ASC when the
+     * key is missing or not whitelisted. A stable secondary sort on control_no
+     * keeps pagination deterministic when the primary key has duplicates.
+     */
+    private function applySort(Builder $query, array $filters): void
+    {
+        $direction = strtolower((string) ($filters['direction'] ?? '')) === 'desc' ? 'desc' : 'asc';
+        $sort = $filters['sort'] ?? null;
+
+        switch ($sort) {
+            case 'control_no':
+                $query->orderBy('liquidations.control_no', $direction);
+                break;
+            case 'batch':
+                $query->orderBy('liquidations.batch_no', $direction);
+                break;
+            case 'program':
+                $query->leftJoin('programs as p_sort', 'p_sort.id', '=', 'liquidations.program_id')
+                    ->orderBy('p_sort.name', $direction);
+                break;
+            case 'hei':
+                $query->leftJoin('heis as h_sort', 'h_sort.id', '=', 'liquidations.hei_id')
+                    ->orderBy('h_sort.name', $direction);
+                break;
+            case 'grantees':
+                $query->leftJoin('liquidation_financials as lf_sort', 'lf_sort.liquidation_id', '=', 'liquidations.id')
+                    ->orderBy('lf_sort.number_of_grantees', $direction);
+                break;
+            case 'disbursements':
+                $query->leftJoin('liquidation_financials as lf_sort', 'lf_sort.liquidation_id', '=', 'liquidations.id')
+                    ->orderBy('lf_sort.amount_received', $direction);
+                break;
+            case 'liquidated':
+                $query->leftJoin('liquidation_financials as lf_sort', 'lf_sort.liquidation_id', '=', 'liquidations.id')
+                    ->orderBy('lf_sort.amount_liquidated', $direction);
+                break;
+            case 'unliquidated':
+                $query->leftJoin('liquidation_financials as lf_sort', 'lf_sort.liquidation_id', '=', 'liquidations.id')
+                    ->orderByRaw("(COALESCE(lf_sort.amount_received, 0) - COALESCE(lf_sort.amount_liquidated, 0)) {$direction}");
+                break;
+            case 'percentage':
+                $query->leftJoin('liquidation_financials as lf_sort', 'lf_sort.liquidation_id', '=', 'liquidations.id')
+                    ->orderByRaw("CASE WHEN COALESCE(lf_sort.amount_received, 0) > 0 THEN (lf_sort.amount_liquidated / lf_sort.amount_received) ELSE 0 END {$direction}");
+                break;
+            case 'document_status':
+                $query->leftJoin('document_statuses as ds_sort', 'ds_sort.id', '=', 'liquidations.document_status_id')
+                    ->orderBy('ds_sort.name', $direction);
+                break;
+            case 'liquidation_status':
+                $query->leftJoin('liquidation_statuses as ls_sort', 'ls_sort.id', '=', 'liquidations.liquidation_status_id')
+                    ->orderBy('ls_sort.name', $direction);
+                break;
+            default:
+                $query->orderBy('liquidations.control_no', 'asc');
+                return;
+        }
+
+        // Stable secondary sort so rows with tied primary values don't shuffle
+        // between pages.
+        $query->orderBy('liquidations.control_no', 'asc');
     }
 
     /**

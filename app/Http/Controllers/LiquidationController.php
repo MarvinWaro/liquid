@@ -77,6 +77,8 @@ class LiquidationController extends Controller
         'academic_year',
         'rc_note_status',
         'region',
+        'sort',
+        'direction',
     ];
 
     /** Roles allowed to filter by region (others are implicitly scoped). */
