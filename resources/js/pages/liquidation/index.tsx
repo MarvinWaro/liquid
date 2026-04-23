@@ -24,7 +24,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown, Percent, Printer, Pin, Users } from 'lucide-react';
+import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown, Percent, Printer, Pin, Users, Loader2 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
 import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
@@ -131,6 +131,8 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const [isEndorseModalOpen, setIsEndorseModalOpen] = useState(false);
     const [endorseTarget, setEndorseTarget] = useState<Liquidation | null>(null);
     const [isEndorsing, setIsEndorsing] = useState(false);
+    const [exportKind, setExportKind] = useState<null | 'excel' | 'csv'>(null);
+    const exportAbortRef = useRef<AbortController | null>(null);
 
     const isRC = userRole === 'Regional Coordinator';
     const isHEI = userRole === 'HEI';
@@ -279,17 +281,74 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
         newTab.location.href = url;
     };
 
-    const handleExportExcel = () => {
+    const downloadReport = async (kind: 'excel' | 'csv') => {
+        if (exportKind) return; // one at a time
+
         const qs = buildReportQueryString();
-        const url = route('liquidation.export-excel') + (qs ? `?${qs}` : '');
-        window.location.href = url;
+        const routeName = kind === 'excel' ? 'liquidation.export-excel' : 'liquidation.export-csv';
+        const url = route(routeName) + (qs ? `?${qs}` : '');
+        const fallbackName = `liquidation-report-${new Date().toISOString().slice(0, 10)}.${kind === 'excel' ? 'xlsx' : 'csv'}`;
+        const label = kind === 'excel' ? 'Excel' : 'CSV';
+
+        const controller = new AbortController();
+        exportAbortRef.current = controller;
+        setExportKind(kind);
+        const toastId = toast.loading(`Preparing ${label} export — this may take a while for large datasets…`, {
+            duration: Infinity,
+            action: {
+                label: 'Cancel',
+                onClick: () => controller.abort(),
+            },
+        });
+
+        let blobUrl: string | null = null;
+        try {
+            const res = await fetch(url, {
+                credentials: 'same-origin',
+                headers: { Accept: '*/*' },
+                signal: controller.signal,
+            });
+            if (!res.ok) {
+                throw new Error(res.status === 403 ? 'You are not allowed to export this report.' : `Export failed (${res.status}).`);
+            }
+
+            const disposition = res.headers.get('Content-Disposition') || '';
+            const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+            const filename = match ? decodeURIComponent(match[1]) : fallbackName;
+
+            const blob = await res.blob();
+            blobUrl = URL.createObjectURL(blob);
+
+            const anchor = document.createElement('a');
+            anchor.href = blobUrl;
+            anchor.download = filename;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+
+            toast.dismiss(toastId);
+            toast.success(`${label} downloaded`);
+        } catch (e: any) {
+            toast.dismiss(toastId);
+            if (e?.name === 'AbortError') {
+                toast.info(`${label} export cancelled.`);
+            } else {
+                toast.error(e?.message || `${label} export failed.`);
+            }
+        } finally {
+            if (blobUrl) URL.revokeObjectURL(blobUrl);
+            if (exportAbortRef.current === controller) exportAbortRef.current = null;
+            setExportKind(null);
+        }
     };
 
-    const handleExportCsv = () => {
-        const qs = buildReportQueryString();
-        const url = route('liquidation.export-csv') + (qs ? `?${qs}` : '');
-        window.location.href = url;
-    };
+    const handleExportExcel = () => { downloadReport('excel'); };
+    const handleExportCsv = () => { downloadReport('csv'); };
+
+    // Cancel any in-flight export on unmount so we don't leak a request.
+    useEffect(() => {
+        return () => { exportAbortRef.current?.abort(); };
+    }, []);
 
     const handleImportComplete = (result: { imported: number; errors: any[] }) => {
         if (result.errors.length > 0) {
@@ -436,22 +495,31 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                         <div className="flex gap-2">
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                    <Button variant="outline">
-                                        <Printer className="h-4 w-4 mr-2" />
-                                        Print Report
-                                        <ChevronDown className="h-3.5 w-3.5 ml-1.5 opacity-60" />
+                                    <Button variant="outline" disabled={exportKind !== null}>
+                                        {exportKind ? (
+                                            <>
+                                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                                Preparing {exportKind === 'excel' ? 'Excel' : 'CSV'}…
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Printer className="h-4 w-4 mr-2" />
+                                                Print Report
+                                                <ChevronDown className="h-3.5 w-3.5 ml-1.5 opacity-60" />
+                                            </>
+                                        )}
                                     </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="w-48">
-                                    <DropdownMenuItem onClick={handlePrintReport}>
+                                    <DropdownMenuItem onClick={handlePrintReport} disabled={exportKind !== null}>
                                         <Printer className="h-4 w-4 mr-2" />
                                         Print
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={handleExportExcel}>
+                                    <DropdownMenuItem onClick={handleExportExcel} disabled={exportKind !== null}>
                                         <FileSpreadsheet className="h-4 w-4 mr-2" />
                                         Export to Excel
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={handleExportCsv}>
+                                    <DropdownMenuItem onClick={handleExportCsv} disabled={exportKind !== null}>
                                         <FileText className="h-4 w-4 mr-2" />
                                         Export to CSV
                                     </DropdownMenuItem>
