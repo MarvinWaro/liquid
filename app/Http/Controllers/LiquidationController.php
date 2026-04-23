@@ -82,8 +82,10 @@ class LiquidationController extends Controller
     /** Roles allowed to filter by region (others are implicitly scoped). */
     private const REGION_FILTER_ROLES = ['Super Admin', 'Admin'];
 
-    /** Max rows rendered in the printed report to prevent OOM. */
-    private const PRINT_REPORT_ROW_CAP = 5000;
+    /** Safety ceiling for rows rendered in a single print/export run.
+     *  Real-world expected peak is ~18k; 50k gives comfortable headroom
+     *  while keeping memory bounded on small instances. */
+    private const PRINT_REPORT_ROW_CAP = 50000;
 
     /** Max liquidations a single user can pin at once. */
     private const PIN_LIMIT = 10;
@@ -1897,6 +1899,10 @@ class LiquidationController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
+        // Large exports can outrun default limits; raise only for this request.
+        @set_time_limit(0);
+        @ini_set('memory_limit', '512M');
+
         $request->validate([
             'search' => ['nullable', 'string', 'max:255'],
             'program' => ['nullable', 'array'],
@@ -1969,39 +1975,14 @@ class LiquidationController extends Controller
                 '_raw_disbursements' => $disbursements,
                 '_raw_liquidated' => $liquidated,
                 '_raw_unliquidated' => $unliquidated,
-                '_raw_for_endorsement' => $forEndorsement,
             ];
         });
 
-        // Compute totals
-        $totals = [
-            'grantees' => $liquidations->sum('number_of_grantees'),
-            'disbursements' => $liquidations->sum('_raw_disbursements'),
-            'liquidated' => $liquidations->sum('_raw_liquidated'),
-            'unliquidated' => $liquidations->sum('_raw_unliquidated'),
-            'for_endorsement' => $liquidations->sum('_raw_for_endorsement'),
-        ];
-
-        // Per-program summary (dynamic — only programs present in the data)
-        $programSummary = $liquidations->groupBy('program_code')->map(function ($group, $code) {
-            $disbursements = $group->sum('_raw_disbursements');
-            $liquidated    = $group->sum('_raw_liquidated');
-            $unliquidated  = $disbursements - $liquidated;
-            $forEndorsement = $group->sum('_raw_for_endorsement');
-            $percentage    = $disbursements > 0
-                ? round((($liquidated + $forEndorsement) / $disbursements) * 100, 2)
-                : 0;
-
-            return [
-                'program_code'  => $code,
-                'count'         => $group->count(),
-                'grantees'      => $group->sum('number_of_grantees'),
-                'disbursements' => $disbursements,
-                'liquidated'    => $liquidated,
-                'unliquidated'  => $unliquidated,
-                'percentage'    => $percentage,
-            ];
-        })->sortKeys()->values();
+        // Totals and per-program summary computed on the FULL filtered query
+        // (not the capped $liquidations collection) so numbers match the index card.
+        $aggregates = $this->liquidationService->getReportAggregates($user, $filters);
+        $totals = $aggregates['totals'];
+        $programSummary = $aggregates['programSummary'];
 
         // Build active filter description
         $activeFilters = $this->buildFilterDescription($filters);
