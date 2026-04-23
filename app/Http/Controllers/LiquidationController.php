@@ -1927,7 +1927,7 @@ class LiquidationController extends Controller
         }
 
         // Get filtered records with a safety cap to prevent OOM on small instances
-        $query = Liquidation::with(['hei', 'program', 'financial', 'semester', 'academicYear', 'documentStatus', 'liquidationStatus', 'rcNoteStatus', 'trackingEntries'])
+        $query = Liquidation::with(['hei', 'program', 'financial', 'semester', 'academicYear', 'documentStatus', 'liquidationStatus', 'rcNoteStatus'])
             ->orderBy('control_no', 'asc');
 
         $this->liquidationService->applyRoleAndFilters($query, $user, $filters);

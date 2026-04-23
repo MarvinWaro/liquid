@@ -141,7 +141,7 @@ class LiquidationService
      */
     public function getPaginatedLiquidations(User $user, array $filters = []): LengthAwarePaginator
     {
-        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus', 'trackingEntries'])
+        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus'])
             ->orderBy('control_no', 'asc');
 
         $this->applyRoleFilter($query, $user);
