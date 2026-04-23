@@ -61,7 +61,8 @@
       "Bash(grep -E \"public function|public .*\\\\\\\\\\\\$\" vendor/openspout/openspout/src/Writer/Common/AbstractOptions.php)",
       "Bash(npx vue-tsc *)",
       "Bash(npx --no-install tsc --noEmit -p tsconfig.json)",
-      "Bash(npx --no-install vite build)"
+      "Bash(npx --no-install vite build)",
+      "Bash(npm run *)"
     ]
   }
 }

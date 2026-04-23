@@ -34,27 +34,28 @@ class DashboardController extends Controller
      */
     private function adminDashboard(Request $request)
     {
-        $regionId      = $request->query('region_id') ?: null;
-        $programFilter = $request->query('program_id') ?: null;
-
         $programs = Program::select('id', 'name', 'code', 'parent_id')->orderBy('name')->get();
         $regions  = Region::select('id', 'name', 'code')->orderBy('name')->get();
 
-        // Validate region_id — fall back silently if unknown.
-        if ($regionId && !$regions->firstWhere('id', $regionId)) {
-            $regionId = null;
+        $regionIds      = $this->normalizeToIdArray($request->query('region_id'));
+        $programFilters = $this->normalizeToIdArray($request->query('program_id'));
+
+        // Validate region IDs — drop any that are unknown.
+        if ($regionIds) {
+            $regionIds = array_values(array_filter($regionIds, fn ($id) => $regions->firstWhere('id', $id)));
+            if (empty($regionIds)) $regionIds = null;
         }
 
-        $programIds = $this->resolveProgramIdsFromFilter($programFilter, $programs);
-        // If the filter value is invalid, reset it so the UI and cache stay consistent.
-        if ($programFilter && $programIds === null && !in_array($programFilter, ['all', 'unifast', 'stufaps'], true)) {
-            $programFilter = null;
-        }
+        $programIds = $this->resolveProgramIdsFromFilters($programFilters ?? [], $programs);
+
+        // Sort for stable cache keys regardless of selection order.
+        $regionKey  = $regionIds ? implode(',', collect($regionIds)->sort()->values()->all()) : null;
+        $programKey = $programFilters ? implode(',', collect($programFilters)->sort()->values()->all()) : null;
 
         $scope = [
-            'role'       => 'admin',
-            'region_id'  => $regionId,
-            'program'    => $programFilter,
+            'role'        => 'admin',
+            'region_ids'  => $regionKey,
+            'program_ids' => $programKey,
         ];
 
         return Inertia::render('dashboard', [
@@ -62,20 +63,57 @@ class DashboardController extends Controller
             'regions' => $regions,
             'programs' => $programs,
             'filters' => [
-                'region_id'  => $regionId,
-                'program_id' => $programFilter,
+                'region_id'  => $regionIds ?? [],
+                'program_id' => $programFilters ?? [],
             ],
-            'totalStats' => DashboardCache::remember('totalStats', $scope, fn () => $this->getTotalStats($regionId, $programIds)),
+            'totalStats' => DashboardCache::remember('totalStats', $scope, fn () => $this->getTotalStats($regionIds, $programIds)),
 
             // Deferred — queries run only after initial paint is sent to browser
             // Group into 2 batches: core charts (1 request) + supplementary (1 request)
-            'summaryPerAY' => Inertia::defer(fn () => DashboardCache::remember('summaryPerAY', $scope, fn () => $this->getSummaryPerAY(null, $regionId, $programIds)), 'charts'),
-            'summaryPerHEI' => Inertia::defer(fn () => DashboardCache::remember('summaryPerHEI', $scope, fn () => $this->getSummaryPerHEI($regionId, $programIds)), 'charts'),
-            'statusDistribution' => Inertia::defer(fn () => DashboardCache::remember('statusDistribution', $scope, fn () => $this->getLiquidationStatusDistribution(null, $regionId, $programIds)), 'charts'),
-            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates(null, null, $regionId, $programIds), 'charts'),
-            'overviewStats' => Inertia::defer(fn () => DashboardCache::remember('overviewStats', $scope, fn () => $this->getOverviewStats($regionId, $programIds)), 'charts'),
-            'fundSourceData' => Inertia::defer(fn () => DashboardCache::remember('fundSourceData', $scope, fn () => $this->computeFundSourceData(null, $regionId)), 'charts-extra'),
+            'summaryPerAY' => Inertia::defer(fn () => DashboardCache::remember('summaryPerAY', $scope, fn () => $this->getSummaryPerAY(null, $regionIds, $programIds)), 'charts'),
+            'summaryPerHEI' => Inertia::defer(fn () => DashboardCache::remember('summaryPerHEI', $scope, fn () => $this->getSummaryPerHEI($regionIds, $programIds)), 'charts'),
+            'statusDistribution' => Inertia::defer(fn () => DashboardCache::remember('statusDistribution', $scope, fn () => $this->getLiquidationStatusDistribution(null, $regionIds, $programIds)), 'charts'),
+            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates(null, null, $regionIds, $programIds), 'charts'),
+            'overviewStats' => Inertia::defer(fn () => DashboardCache::remember('overviewStats', $scope, fn () => $this->getOverviewStats($regionIds, $programIds)), 'charts'),
+            'fundSourceData' => Inertia::defer(fn () => DashboardCache::remember('fundSourceData', $scope, fn () => $this->computeFundSourceData(null, $regionIds)), 'charts-extra'),
         ]);
+    }
+
+    /**
+     * Normalize a mixed filter value (scalar, array, null, empty) into a clean id array or null.
+     * Accepts: string, string[], null, empty string, empty array.
+     */
+    private function normalizeToIdArray(mixed $value): ?array
+    {
+        if ($value === null || $value === '') return null;
+        if (is_array($value)) {
+            $cleaned = array_values(array_filter($value, fn ($v) => $v !== null && $v !== '' && $v !== 'all'));
+            return empty($cleaned) ? null : $cleaned;
+        }
+        if ($value === 'all') return null;
+        return [$value];
+    }
+
+    /**
+     * Resolve multiple filter values into a single union of concrete program IDs.
+     * Empty array / any 'all' => null (no scoping).
+     */
+    private function resolveProgramIdsFromFilters(array $values, Collection $programs): ?array
+    {
+        if (empty($values)) return null;
+
+        $merged = [];
+        foreach ($values as $value) {
+            $resolved = $this->resolveProgramIdsFromFilter((string) $value, $programs);
+            if ($resolved === null) {
+                // A value meant "all" or was invalid/unknown; treat it as no scoping.
+                return null;
+            }
+            $merged = array_merge($merged, $resolved);
+        }
+
+        $unique = array_values(array_unique($merged));
+        return empty($unique) ? null : $unique;
     }
 
     /**
@@ -260,7 +298,7 @@ class DashboardController extends Controller
     /**
      * Compute fund-source-specific dashboard data (UniFAST vs STuFAPs).
      */
-    private function computeFundSourceData(?string $heiId = null, ?string $regionId = null, bool $endorsedOnly = false, bool $coaEndorsedOnly = false): array
+    private function computeFundSourceData(?string $heiId = null, string|array|null $regionId = null, bool $endorsedOnly = false, bool $coaEndorsedOnly = false): array
     {
         $fs = $this->getFundSourceProgramIds();
         $empty = [
@@ -282,8 +320,10 @@ class DashboardController extends Controller
         return $result;
     }
 
-    private function getSummaryPerAY(?string $heiId = null, ?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false)
+    private function getSummaryPerAY(?string $heiId = null, string|array|null $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false)
     {
+        $regionIds = $this->normalizeToIdArray($regionId);
+
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id');
@@ -299,9 +339,9 @@ class DashboardController extends Controller
             $query->where('liquidations.hei_id', $heiId);
         }
 
-        if ($regionId) {
+        if ($regionIds) {
             $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
-                ->where('heis.region_id', $regionId);
+                ->whereIn('heis.region_id', $regionIds);
         }
 
         if ($programIds) {
@@ -341,8 +381,10 @@ class DashboardController extends Controller
     /**
      * Get summary per HEI with joins to liquidation_financials.
      */
-    private function getSummaryPerHEI(?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false)
+    private function getSummaryPerHEI(string|array|null $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false)
     {
+        $regionIds = $this->normalizeToIdArray($regionId);
+
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id')
@@ -355,8 +397,8 @@ class DashboardController extends Controller
             $query->whereNotNull('liquidations.reviewed_at');
         }
 
-        if ($regionId) {
-            $query->where('heis.region_id', $regionId);
+        if ($regionIds) {
+            $query->whereIn('heis.region_id', $regionIds);
         }
 
         if ($programIds) {
@@ -411,8 +453,10 @@ class DashboardController extends Controller
     /**
      * Get total stats with joins to liquidation_financials.
      */
-    private function getTotalStats(?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, ?string $heiId = null, bool $endorsedOnly = false, bool $coaEndorsedOnly = false): array
+    private function getTotalStats(string|array|null $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, ?string $heiId = null, bool $endorsedOnly = false, bool $coaEndorsedOnly = false): array
     {
+        $regionIds = $this->normalizeToIdArray($regionId);
+
         $query = DB::table('liquidations')
             ->leftJoin('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id')
@@ -429,9 +473,9 @@ class DashboardController extends Controller
             $query->where('liquidations.hei_id', $heiId);
         }
 
-        if ($regionId) {
+        if ($regionIds) {
             $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
-                ->where('heis.region_id', $regionId);
+                ->whereIn('heis.region_id', $regionIds);
         }
 
         if ($programIds) {
@@ -472,8 +516,8 @@ class DashboardController extends Controller
             $pendingQuery->where('hei_id', $heiId);
         }
 
-        if ($regionId) {
-            $pendingQuery->whereHas('hei', fn($q) => $q->where('region_id', $regionId));
+        if ($regionIds) {
+            $pendingQuery->whereHas('hei', fn($q) => $q->whereIn('region_id', $regionIds));
         }
 
         if ($programIds) {
@@ -507,7 +551,7 @@ class DashboardController extends Controller
                 ->whereNotNull('coa_endorsed_at');
 
             if ($heiId) $completedQuery->where('hei_id', $heiId);
-            if ($regionId) $completedQuery->whereHas('hei', fn($q) => $q->where('region_id', $regionId));
+            if ($regionIds) $completedQuery->whereHas('hei', fn($q) => $q->whereIn('region_id', $regionIds));
             if ($programIds) $completedQuery->whereIn('program_id', $programIds);
 
             $result['completed'] = $completedQuery->count();
@@ -548,11 +592,13 @@ class DashboardController extends Controller
     /**
      * Overview stats for Admin/Super Admin: HEI count, total grantees, per-program breakdown.
      */
-    private function getOverviewStats(?string $regionId = null, ?array $programIds = null): array
+    private function getOverviewStats(string|array|null $regionId = null, ?array $programIds = null): array
     {
+        $regionIds = $this->normalizeToIdArray($regionId);
+
         $heiQuery = HEI::where('status', 'active');
-        if ($regionId) {
-            $heiQuery->where('region_id', $regionId);
+        if ($regionIds) {
+            $heiQuery->whereIn('region_id', $regionIds);
         }
         $totalHeis = $heiQuery->count();
 
@@ -562,9 +608,9 @@ class DashboardController extends Controller
             ->join('programs', 'liquidations.program_id', '=', 'programs.id')
             ->whereNull('liquidations.deleted_at');
 
-        if ($regionId) {
+        if ($regionIds) {
             $programStats->join('heis', 'liquidations.hei_id', '=', 'heis.id')
-                ->where('heis.region_id', $regionId);
+                ->whereIn('heis.region_id', $regionIds);
         }
 
         if ($programIds) {
@@ -628,8 +674,10 @@ class DashboardController extends Controller
     /**
      * Get liquidation status distribution (using liquidation_statuses lookup table).
      */
-    private function getLiquidationStatusDistribution(?string $heiId = null, ?string $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false)
+    private function getLiquidationStatusDistribution(?string $heiId = null, string|array|null $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false)
     {
+        $regionIds = $this->normalizeToIdArray($regionId);
+
         $query = Liquidation::join('liquidation_statuses', 'liquidations.liquidation_status_id', '=', 'liquidation_statuses.id')
             ->excludeVoided()
             ->select('liquidation_statuses.name as status')
@@ -645,8 +693,8 @@ class DashboardController extends Controller
             $query->where('liquidations.hei_id', $heiId);
         }
 
-        if ($regionId) {
-            $query->whereHas('hei', fn($q) => $q->where('region_id', $regionId));
+        if ($regionIds) {
+            $query->whereHas('hei', fn($q) => $q->whereIn('region_id', $regionIds));
         }
 
         if ($programIds) {
@@ -1089,8 +1137,9 @@ class DashboardController extends Controller
     /**
      * Get calendar due dates for the dashboard, scoped by role.
      */
-    private function getCalendarDueDates($user = null, ?string $userRole = null, ?string $adminRegionId = null, ?array $adminProgramIds = null): array
+    private function getCalendarDueDates($user = null, ?string $userRole = null, string|array|null $adminRegionId = null, ?array $adminProgramIds = null): array
     {
+        $adminRegionIds = $this->normalizeToIdArray($adminRegionId);
         $query = Liquidation::with([
             'financial:id,liquidation_id,due_date,amount_received',
             'hei:id,name',
@@ -1119,8 +1168,8 @@ class DashboardController extends Controller
             }
         } else {
             // Admin/Super Admin: honour optional region + program filters.
-            if ($adminRegionId) {
-                $query->whereHas('hei', fn($q) => $q->where('region_id', $adminRegionId));
+            if ($adminRegionIds) {
+                $query->whereHas('hei', fn($q) => $q->whereIn('region_id', $adminRegionIds));
             }
             if ($adminProgramIds) {
                 $query->whereIn('program_id', $adminProgramIds);

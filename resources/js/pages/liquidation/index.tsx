@@ -24,7 +24,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown, Percent, Printer, Pin, Users, Loader2 } from 'lucide-react';
+import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, ChevronUp, ChevronsUpDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown, Percent, Printer, Pin, Users, Loader2 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
 import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
@@ -43,6 +43,20 @@ interface RegionOption {
 import { LiquidationFilters } from '@/components/liquidations/index/liquidation-filters';
 import { LiquidationTableRow } from '@/components/liquidations/index/liquidation-table-row';
 import { LiquidationTableSkeleton } from '@/components/liquidations/index/liquidation-table-skeleton';
+
+/** Whitelist of server-sortable columns. Kept in sync with LiquidationService::applySort. */
+type SortKey =
+    | 'program'
+    | 'hei'
+    | 'batch'
+    | 'control_no'
+    | 'grantees'
+    | 'disbursements'
+    | 'liquidated'
+    | 'unliquidated'
+    | 'document_status'
+    | 'liquidation_status'
+    | 'percentage';
 
 interface TableSummary {
     total_records: number;
@@ -76,6 +90,8 @@ interface Props {
         academic_year?: string | string[];
         rc_note_status?: string | string[];
         region?: string | string[];
+        sort?: string;
+        direction?: 'asc' | 'desc';
     };
     permissions: {
         review: boolean;
@@ -111,6 +127,13 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const [academicYearFilter, setAcademicYearFilter] = useState<string[]>(toArr(filters.academic_year));
     const [rcNoteStatusFilter, setRcNoteStatusFilter] = useState<string[]>(toArr(filters.rc_note_status));
     const [regionFilter, setRegionFilter] = useState<string[]>(toArr(filters.region));
+    // When no filters are set, PHP serializes `filters` as an empty JSON array,
+    // which makes `filters.sort` resolve to `Array.prototype.sort` — a function
+    // React would then invoke as the initial state. Guard with a type check.
+    const [sortKey, setSortKey] = useState<SortKey | null>(() =>
+        typeof filters.sort === 'string' ? (filters.sort as SortKey) : null,
+    );
+    const [sortDir, setSortDir] = useState<'asc' | 'desc'>(filters.direction === 'desc' ? 'desc' : 'asc');
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isBulkEntryOpen, setIsBulkEntryOpen] = useState(false);
     const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
@@ -156,12 +179,15 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
             academic_year: academicYearFilter,
             rc_note_status: rcNoteStatusFilter,
             ...(canFilterByRegion ? { region: regionFilter } : {}),
+            ...(sortKey ? { sort: sortKey, direction: sortDir } : {}),
             ...overrides,
         };
-        // Strip empty arrays / empty strings so they don't pollute the URL
+        // Strip empty arrays / empty strings so they don't pollute the URL.
+        // Explicit `undefined` in overrides is how callers clear a key.
         const params: Record<string, any> = {};
         for (const [k, v] of Object.entries(raw)) {
-            if (Array.isArray(v) ? v.length > 0 : v) params[k] = v;
+            if (v === undefined || v === null) continue;
+            if (Array.isArray(v) ? v.length > 0 : v !== '') params[k] = v;
         }
         return params;
     };
@@ -219,6 +245,32 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const handleRegionFilter = useCallback((value: string[]) => {
         setRegionFilter(value);
     }, []);
+
+    // Three-state cycle on header click: asc → desc → cleared (default order).
+    // Reset to page 1 so the user actually sees the newly sorted top rows.
+    const handleSort = useCallback((key: SortKey) => {
+        let nextKey: SortKey | null = key;
+        let nextDir: 'asc' | 'desc' = 'asc';
+        if (sortKey === key) {
+            if (sortDir === 'asc') {
+                nextDir = 'desc';
+            } else {
+                nextKey = null;
+            }
+        }
+        setSortKey(nextKey);
+        setSortDir(nextDir);
+        const overrides = nextKey
+            ? { sort: nextKey, direction: nextDir, page: undefined }
+            : { sort: undefined, direction: undefined, page: undefined };
+        router.get(route('liquidation.index'), getFilterParams(overrides), {
+            preserveState: true,
+            preserveScroll: true,
+        });
+        // getFilterParams intentionally reads live state; deps cover the
+        // interactive inputs that shape the URL.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sortKey, sortDir, searchQuery, programFilter, documentStatusFilter, liquidationStatusFilter, academicYearFilter, rcNoteStatusFilter, regionFilter, canFilterByRegion]);
 
     const handleDownloadTemplate = () => {
         window.location.href = route('liquidation.download-rc-template');
@@ -835,6 +887,9 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                                         onTogglePin={handleTogglePin}
                                         lastImportCount={lastImportCount}
                                         onDismissImport={() => setLastImportCount(null)}
+                                        sortKey={sortKey}
+                                        sortDir={sortDir}
+                                        onSort={handleSort}
                                     />
                                 </div>
                             ) : (
@@ -865,6 +920,9 @@ const LiquidationTable = React.memo(function LiquidationTable({
     onTogglePin,
     lastImportCount,
     onDismissImport,
+    sortKey,
+    sortDir,
+    onSort,
 }: {
     liquidations: NonNullable<Props['liquidations']>;
     pinnedLiquidations?: Liquidation[];
@@ -879,7 +937,39 @@ const LiquidationTable = React.memo(function LiquidationTable({
     onTogglePin: (l: Liquidation) => void;
     lastImportCount: number | null;
     onDismissImport: () => void;
+    sortKey: SortKey | null;
+    sortDir: 'asc' | 'desc';
+    onSort: (key: SortKey) => void;
 }) {
+    const renderSortIcon = (key: SortKey) => {
+        if (sortKey !== key) return <ChevronsUpDown className="h-3 w-3 ml-1 opacity-40" />;
+        return sortDir === 'asc'
+            ? <ChevronUp className="h-3 w-3 ml-1 text-primary" />
+            : <ChevronDown className="h-3 w-3 ml-1 text-primary" />;
+    };
+
+    // Wrapper that makes a header cell clickable and renders the sort icon.
+    // Non-sortable columns keep their original static TableHead and are unaffected.
+    const SortableHead = ({ col, label, className = '', align = 'left' }: {
+        col: SortKey;
+        label: React.ReactNode;
+        className?: string;
+        align?: 'left' | 'right' | 'center';
+    }) => {
+        const alignCls = align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start';
+        return (
+            <TableHead
+                className={`h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase cursor-pointer select-none hover:text-foreground transition-colors ${className}`}
+                onClick={() => onSort(col)}
+                aria-sort={sortKey === col ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+            >
+                <span className={`inline-flex items-center ${alignCls} w-full`}>
+                    {label}
+                    {renderSortIcon(col)}
+                </span>
+            </TableHead>
+        );
+    };
     const selectableCount = liquidations.data.filter(l => !l.is_voided).length;
     const allSelected = selectableCount > 0 && selectedIds.size >= selectableCount;
     const someSelected = selectedIds.size > 0 && !allSelected;
@@ -948,20 +1038,20 @@ const LiquidationTable = React.memo(function LiquidationTable({
                                     />
                                 )}
                             </TableHead>
-                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Program</TableHead>
-                            <TableHead className="h-9 max-w-[300px] text-xs font-medium tracking-wider text-muted-foreground uppercase">HEI</TableHead>
+                            <SortableHead col="program" label="Program" />
+                            <SortableHead col="hei" label="HEI" className="max-w-[300px]" />
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Period</TableHead>
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Dates</TableHead>
-                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Batch</TableHead>
-                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Control / Ledger No.</TableHead>
-                            <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Grantees</TableHead>
-                            <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Disbursements</TableHead>
-                            <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Liquidated</TableHead>
-                            <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Unliquidated</TableHead>
-                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Documents Status</TableHead>
+                            <SortableHead col="batch" label="Batch" />
+                            <SortableHead col="control_no" label="Control / Ledger No." />
+                            <SortableHead col="grantees" label="Grantees" className="text-right" align="right" />
+                            <SortableHead col="disbursements" label="Disbursements" className="text-right" align="right" />
+                            <SortableHead col="liquidated" label="Liquidated" className="text-right" align="right" />
+                            <SortableHead col="unliquidated" label="Unliquidated" className="text-right" align="right" />
+                            <SortableHead col="document_status" label="Documents Status" />
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">RC Notes</TableHead>
-                            <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Liquidation Status</TableHead>
-                            <TableHead className="h-9 text-center px-3 text-xs font-medium tracking-wider text-muted-foreground uppercase leading-tight">Percentage of<br />Liquidation</TableHead>
+                            <SortableHead col="liquidation_status" label="Liquidation Status" />
+                            <SortableHead col="percentage" label={<>Percentage of<br />Liquidation</>} className="text-center px-3 leading-tight" align="center" />
                             <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Lapsing</TableHead>
                             <TableHead className="h-9 text-right pr-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">Actions</TableHead>
                         </TableRow>

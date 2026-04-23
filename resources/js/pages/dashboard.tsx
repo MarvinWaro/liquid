@@ -2,8 +2,9 @@ import AppLayout from '@/layouts/app-layout';
 import { dashboard } from '@/routes';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
-import React, { useCallback, useDeferredValue, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { MultiSelectFilter, type FilterOption } from '@/components/liquidations/index/multi-select-filter';
 import {
     Card,
     CardContent,
@@ -13,10 +14,7 @@ import {
 import {
     Select,
     SelectContent,
-    SelectGroup,
     SelectItem,
-    SelectLabel,
-    SelectSeparator,
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
@@ -141,8 +139,8 @@ interface DashboardProps {
     regions?: RegionOption[];
     programs?: ProgramOption[];
     filters?: {
-        region_id: string | null;
-        program_id: string | null;
+        region_id: string[] | null;
+        program_id: string[] | null;
     };
 }
 
@@ -174,36 +172,66 @@ export default function Dashboard({
     programs = [],
     filters,
 }: DashboardProps) {
-    // Admin server-side filter selections (Region + Program) — default to 'all'.
-    const regionValue = filters?.region_id ?? 'all';
-    const programValue = filters?.program_id ?? 'all';
+    // Admin server-side filter selections — local state is the source of truth after mount.
+    // Initialized once from server props; never re-synced from props to avoid
+    // feedback loops (Inertia hands us a new array reference on every response
+    // even when the content is identical).
+    const [selectedRegionIds, setSelectedRegionIds] = useState<string[]>(() =>
+        Array.isArray(filters?.region_id) ? filters!.region_id! : [],
+    );
+    const [selectedProgramIds, setSelectedProgramIds] = useState<string[]>(() =>
+        Array.isArray(filters?.program_id) ? filters!.program_id! : [],
+    );
 
-    const applyAdminFilters = useCallback((next: { region_id?: string; program_id?: string }) => {
-        const params: Record<string, string> = {};
-        const resolvedRegion = next.region_id ?? regionValue;
-        const resolvedProgram = next.program_id ?? programValue;
-        if (resolvedRegion && resolvedRegion !== 'all') params.region_id = resolvedRegion;
-        if (resolvedProgram && resolvedProgram !== 'all') params.program_id = resolvedProgram;
-        router.get('/dashboard', params, {
-            preserveState: true,
-            preserveScroll: true,
-            replace: true,
-        });
-    }, [regionValue, programValue]);
+    // Debounced server push so rapid checkbox toggles coalesce into one request.
+    const isInitialFilterMount = useRef(true);
+    useEffect(() => {
+        if (!isAdmin) return;
+        if (isInitialFilterMount.current) {
+            isInitialFilterMount.current = false;
+            return;
+        }
+        const handle = window.setTimeout(() => {
+            const params: Record<string, string[]> = {};
+            if (selectedRegionIds.length > 0) params.region_id = selectedRegionIds;
+            if (selectedProgramIds.length > 0) params.program_id = selectedProgramIds;
+            router.get('/dashboard', params, {
+                preserveState: true,
+                preserveScroll: true,
+                replace: true,
+            });
+        }, 350);
+        return () => window.clearTimeout(handle);
+    }, [isAdmin, selectedRegionIds, selectedProgramIds]);
 
-    // Group STuFAPs programs under their parents for the Program select.
-    const { unifastPrograms, stufapsParents, stufapsChildrenByParent } = useMemo(() => {
+    // Build flat FilterOption lists (with visual grouping) for the MultiSelectFilter.
+    const regionOptions = useMemo<FilterOption[]>(
+        () => regions.map(r => ({ value: r.id, label: r.code ? `${r.code} — ${r.name}` : r.name })),
+        [regions],
+    );
+
+    const programOptions = useMemo<FilterOption[]>(() => {
         const unifastCodes = ['TES', 'TDP'];
         const unifast = programs.filter(p => !p.parent_id && unifastCodes.includes((p.code ?? '').toUpperCase()));
-        const stufapsP = programs.filter(p => !p.parent_id && !unifastCodes.includes((p.code ?? '').toUpperCase()));
-        const children = programs.filter(p => p.parent_id);
-        const byParent = new Map<string, ProgramOption[]>();
-        children.forEach(p => {
-            const list = byParent.get(p.parent_id!) ?? [];
+        const stufapsParents = programs.filter(p => !p.parent_id && !unifastCodes.includes((p.code ?? '').toUpperCase()));
+        const childrenByParent = new Map<string, ProgramOption[]>();
+        programs.filter(p => p.parent_id).forEach(p => {
+            const list = childrenByParent.get(p.parent_id!) ?? [];
             list.push(p);
-            byParent.set(p.parent_id!, list);
+            childrenByParent.set(p.parent_id!, list);
         });
-        return { unifastPrograms: unifast, stufapsParents: stufapsP, stufapsChildrenByParent: byParent };
+
+        const opts: FilterOption[] = [];
+        unifast.forEach(p => {
+            opts.push({ value: p.id, label: p.code ?? p.name, group: 'UniFAST' });
+        });
+        stufapsParents.forEach(parent => {
+            opts.push({ value: parent.id, label: parent.code ?? parent.name, group: 'STuFAPs' });
+            (childrenByParent.get(parent.id) ?? []).forEach(child => {
+                opts.push({ value: child.id, label: child.code ?? child.name, group: 'STuFAPs', indent: true });
+            });
+        });
+        return opts;
     }, [programs]);
 
     // Deferred props are undefined until loaded
@@ -465,56 +493,22 @@ export default function Dashboard({
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
                             {isAdmin && regions.length > 0 && (
-                                <Select value={regionValue} onValueChange={(v) => applyAdminFilters({ region_id: v })}>
-                                    <SelectTrigger className="w-[160px] h-8 text-xs">
-                                        <SelectValue placeholder="All Regions" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all" className="text-xs">All Regions</SelectItem>
-                                        {regions.map(r => (
-                                            <SelectItem key={r.id} value={r.id} className="text-xs">
-                                                {r.code ? `${r.code} — ${r.name}` : r.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <MultiSelectFilter
+                                    label="All Regions"
+                                    options={regionOptions}
+                                    selected={selectedRegionIds}
+                                    onChange={setSelectedRegionIds}
+                                    width="w-[180px]"
+                                />
                             )}
                             {isAdmin && programs.length > 0 && (
-                                <Select value={programValue} onValueChange={(v) => applyAdminFilters({ program_id: v })}>
-                                    <SelectTrigger className="w-[180px] h-8 text-xs">
-                                        <SelectValue placeholder="All Programs" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all" className="text-xs">All Programs</SelectItem>
-                                        <SelectSeparator />
-                                        <SelectGroup>
-                                            <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">UniFAST</SelectLabel>
-                                            <SelectItem value="unifast" className="text-xs">All UniFAST</SelectItem>
-                                            {unifastPrograms.map(p => (
-                                                <SelectItem key={p.id} value={p.id} className="pl-6 text-xs">{p.code ?? p.name}</SelectItem>
-                                            ))}
-                                        </SelectGroup>
-                                        <SelectSeparator />
-                                        <SelectGroup>
-                                            <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">STuFAPs</SelectLabel>
-                                            <SelectItem value="stufaps" className="text-xs">All STuFAPs</SelectItem>
-                                            {stufapsParents.map(parent => {
-                                                const children = stufapsChildrenByParent.get(parent.id) ?? [];
-                                                if (children.length > 0) {
-                                                    return (
-                                                        <React.Fragment key={parent.id}>
-                                                            <SelectItem value={parent.id} className="pl-6 text-xs font-medium">{parent.code ?? parent.name}</SelectItem>
-                                                            {children.map(child => (
-                                                                <SelectItem key={child.id} value={child.id} className="pl-10 text-[11px]">{child.code ?? child.name}</SelectItem>
-                                                            ))}
-                                                        </React.Fragment>
-                                                    );
-                                                }
-                                                return <SelectItem key={parent.id} value={parent.id} className="pl-6 text-xs">{parent.code ?? parent.name}</SelectItem>;
-                                            })}
-                                        </SelectGroup>
-                                    </SelectContent>
-                                </Select>
+                                <MultiSelectFilter
+                                    label="All Programs"
+                                    options={programOptions}
+                                    selected={selectedProgramIds}
+                                    onChange={setSelectedProgramIds}
+                                    width="w-[200px]"
+                                />
                             )}
                             {fundSourceData && !isAdmin && (
                                 <Select value={fundSourceFilter} onValueChange={(v) => handleFundSourceChange(v as ProgramFilter)}>
