@@ -62,6 +62,81 @@ class LiquidationService
     }
 
     /**
+     * Get aggregate totals and per-program summary for the report (print/export).
+     * Computed via DB-level SUM() on the full filtered query so the numbers
+     * match the index card even when row display is capped.
+     */
+    public function getReportAggregates(User $user, array $filters = []): array
+    {
+        $totalsQuery = Liquidation::join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
+            ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id');
+
+        $this->applyRoleFilter($totalsQuery, $user);
+        if (!$this->isFilteringVoided($filters)) {
+            $totalsQuery->excludeVoided();
+        }
+        $this->applyFilters($totalsQuery, $filters);
+
+        $stats = $totalsQuery
+            ->selectRaw('COALESCE(SUM(liquidation_financials.number_of_grantees), 0) as grantees')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as disbursements')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as liquidated')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received - liquidation_financials.amount_liquidated), 0) as unliquidated')
+            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
+            ->first();
+
+        $totals = [
+            'grantees'        => (int) ($stats->grantees ?? 0),
+            'disbursements'   => (float) ($stats->disbursements ?? 0),
+            'liquidated'      => (float) ($stats->liquidated ?? 0),
+            'unliquidated'    => (float) ($stats->unliquidated ?? 0),
+            'for_endorsement' => (float) ($stats->for_endorsement ?? 0),
+        ];
+
+        $summaryQuery = Liquidation::join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
+            ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id')
+            ->join('programs', 'liquidations.program_id', '=', 'programs.id');
+
+        $this->applyRoleFilter($summaryQuery, $user);
+        if (!$this->isFilteringVoided($filters)) {
+            $summaryQuery->excludeVoided();
+        }
+        $this->applyFilters($summaryQuery, $filters);
+
+        $programRows = $summaryQuery
+            ->groupBy('programs.code')
+            ->orderBy('programs.code')
+            ->selectRaw('programs.code as program_code')
+            ->selectRaw('COUNT(*) as count')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.number_of_grantees), 0) as grantees')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as disbursements')
+            ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as liquidated')
+            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
+            ->get();
+
+        $programSummary = $programRows->map(function ($row) {
+            $disbursements = (float) $row->disbursements;
+            $liquidated    = (float) $row->liquidated;
+            $forEnd        = (float) $row->for_endorsement;
+            $percentage    = $disbursements > 0
+                ? round((($liquidated + $forEnd) / $disbursements) * 100, 2)
+                : 0;
+
+            return [
+                'program_code'  => (string) $row->program_code,
+                'count'         => (int) $row->count,
+                'grantees'      => (int) $row->grantees,
+                'disbursements' => $disbursements,
+                'liquidated'    => $liquidated,
+                'unliquidated'  => $disbursements - $liquidated,
+                'percentage'    => $percentage,
+            ];
+        })->values();
+
+        return ['totals' => $totals, 'programSummary' => $programSummary];
+    }
+
+    /**
      * Get paginated liquidations based on user role.
      */
     public function getPaginatedLiquidations(User $user, array $filters = []): LengthAwarePaginator
