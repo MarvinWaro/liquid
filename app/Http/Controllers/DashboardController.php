@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AcademicYear;
 use App\Models\Liquidation;
 use App\Models\LiquidationStatus;
 use App\Models\HEI;
@@ -36,9 +37,11 @@ class DashboardController extends Controller
     {
         $programs = Program::select('id', 'name', 'code', 'parent_id')->orderBy('name')->get();
         $regions  = Region::select('id', 'name', 'code')->orderBy('name')->get();
+        $academicYears = AcademicYear::active()->ordered()->get(['id', 'code', 'name']);
 
         $regionIds      = $this->normalizeToIdArray($request->query('region_id'));
         $programFilters = $this->normalizeToIdArray($request->query('program_id'));
+        $academicYearIds = $this->normalizeToIdArray($request->query('academic_year_id'));
 
         // Validate region IDs — drop any that are unknown.
         if ($regionIds) {
@@ -46,36 +49,47 @@ class DashboardController extends Controller
             if (empty($regionIds)) $regionIds = null;
         }
 
+        // Validate academic year IDs — drop any that are unknown / inactive.
+        if ($academicYearIds) {
+            $academicYearIds = array_values(array_filter($academicYearIds, fn ($id) => $academicYears->firstWhere('id', $id)));
+            if (empty($academicYearIds)) $academicYearIds = null;
+        }
+
         $programIds = $this->resolveProgramIdsFromFilters($programFilters ?? [], $programs);
 
         // Sort for stable cache keys regardless of selection order.
         $regionKey  = $regionIds ? implode(',', collect($regionIds)->sort()->values()->all()) : null;
         $programKey = $programFilters ? implode(',', collect($programFilters)->sort()->values()->all()) : null;
+        $academicYearKey = $academicYearIds ? implode(',', collect($academicYearIds)->sort()->values()->all()) : null;
 
         $scope = [
             'role'        => 'admin',
             'region_ids'  => $regionKey,
             'program_ids' => $programKey,
+            'academic_year_ids' => $academicYearKey,
         ];
 
         return Inertia::render('dashboard', [
             'isAdmin' => true,
             'regions' => $regions,
             'programs' => $programs,
+            'academicYears' => $academicYears,
             'filters' => [
                 'region_id'  => $regionIds ?? [],
                 'program_id' => $programFilters ?? [],
+                'academic_year_id' => $academicYearIds ?? [],
             ],
-            'totalStats' => DashboardCache::remember('totalStats', $scope, fn () => $this->getTotalStats($regionIds, $programIds)),
+            'totalStats' => DashboardCache::remember('totalStats', $scope, fn () => $this->getTotalStats($regionIds, $programIds, false, null, false, false, $academicYearIds)),
 
             // Deferred — queries run only after initial paint is sent to browser
             // Group into 2 batches: core charts (1 request) + supplementary (1 request)
-            'summaryPerAY' => Inertia::defer(fn () => DashboardCache::remember('summaryPerAY', $scope, fn () => $this->getSummaryPerAY(null, $regionIds, $programIds)), 'charts'),
-            'summaryPerHEI' => Inertia::defer(fn () => DashboardCache::remember('summaryPerHEI', $scope, fn () => $this->getSummaryPerHEI($regionIds, $programIds)), 'charts'),
-            'statusDistribution' => Inertia::defer(fn () => DashboardCache::remember('statusDistribution', $scope, fn () => $this->getLiquidationStatusDistribution(null, $regionIds, $programIds)), 'charts'),
-            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates(null, null, $regionIds, $programIds), 'charts'),
-            'overviewStats' => Inertia::defer(fn () => DashboardCache::remember('overviewStats', $scope, fn () => $this->getOverviewStats($regionIds, $programIds)), 'charts'),
-            'fundSourceData' => Inertia::defer(fn () => DashboardCache::remember('fundSourceData', $scope, fn () => $this->computeFundSourceData(null, $regionIds)), 'charts-extra'),
+            'summaryPerAY' => Inertia::defer(fn () => DashboardCache::remember('summaryPerAY', $scope, fn () => $this->getSummaryPerAY(null, $regionIds, $programIds, false, false, false, $academicYearIds)), 'charts'),
+            'summaryPerHEI' => Inertia::defer(fn () => DashboardCache::remember('summaryPerHEI', $scope, fn () => $this->getSummaryPerHEI($regionIds, $programIds, false, false, false, $academicYearIds)), 'charts'),
+            'statusDistribution' => Inertia::defer(fn () => DashboardCache::remember('statusDistribution', $scope, fn () => $this->getLiquidationStatusDistribution(null, $regionIds, $programIds, false, false, false, $academicYearIds)), 'charts'),
+            'calendarDueDates' => Inertia::defer(fn () => $this->getCalendarDueDates(null, null, $regionIds, $programIds, $academicYearIds), 'charts'),
+            'overviewStats' => Inertia::defer(fn () => DashboardCache::remember('overviewStats', $scope, fn () => $this->getOverviewStats($regionIds, $programIds, $academicYearIds)), 'charts'),
+            'granteesTrend' => Inertia::defer(fn () => DashboardCache::remember('granteesTrend', $scope, fn () => $this->getGranteesTrend($regionIds, $programIds, $academicYearIds)), 'charts'),
+            'fundSourceData' => Inertia::defer(fn () => DashboardCache::remember('fundSourceData', $scope, fn () => $this->computeFundSourceData(null, $regionIds, false, false, $academicYearIds)), 'charts-extra'),
         ]);
     }
 
@@ -298,7 +312,7 @@ class DashboardController extends Controller
     /**
      * Compute fund-source-specific dashboard data (UniFAST vs STuFAPs).
      */
-    private function computeFundSourceData(?string $heiId = null, string|array|null $regionId = null, bool $endorsedOnly = false, bool $coaEndorsedOnly = false): array
+    private function computeFundSourceData(?string $heiId = null, string|array|null $regionId = null, bool $endorsedOnly = false, bool $coaEndorsedOnly = false, ?array $academicYearIds = null): array
     {
         $fs = $this->getFundSourceProgramIds();
         $empty = [
@@ -311,16 +325,16 @@ class DashboardController extends Controller
         foreach (['unifast', 'tes', 'tdp', 'stufaps'] as $source) {
             $ids = $fs[$source];
             $result[$source] = [
-                'totalStats' => !empty($ids) ? $this->getTotalStats($regionId, $ids, false, $heiId, $endorsedOnly, $coaEndorsedOnly) : $empty,
-                'summaryPerAY' => !empty($ids) ? $this->getSummaryPerAY($heiId, $regionId, $ids, false, $endorsedOnly, $coaEndorsedOnly) : [],
-                'statusDistribution' => !empty($ids) ? $this->getLiquidationStatusDistribution($heiId, $regionId, $ids, false, $endorsedOnly, $coaEndorsedOnly) : [],
+                'totalStats' => !empty($ids) ? $this->getTotalStats($regionId, $ids, false, $heiId, $endorsedOnly, $coaEndorsedOnly, $academicYearIds) : $empty,
+                'summaryPerAY' => !empty($ids) ? $this->getSummaryPerAY($heiId, $regionId, $ids, false, $endorsedOnly, $coaEndorsedOnly, $academicYearIds) : [],
+                'statusDistribution' => !empty($ids) ? $this->getLiquidationStatusDistribution($heiId, $regionId, $ids, false, $endorsedOnly, $coaEndorsedOnly, $academicYearIds) : [],
             ];
         }
 
         return $result;
     }
 
-    private function getSummaryPerAY(?string $heiId = null, string|array|null $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false)
+    private function getSummaryPerAY(?string $heiId = null, string|array|null $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false, ?array $academicYearIds = null)
     {
         $regionIds = $this->normalizeToIdArray($regionId);
 
@@ -346,6 +360,10 @@ class DashboardController extends Controller
 
         if ($programIds) {
             $query->whereIn('liquidations.program_id', $programIds);
+        }
+
+        if ($academicYearIds) {
+            $query->whereIn('liquidations.academic_year_id', $academicYearIds);
         }
 
         if ($excludeSubPrograms) {
@@ -381,7 +399,7 @@ class DashboardController extends Controller
     /**
      * Get summary per HEI with joins to liquidation_financials.
      */
-    private function getSummaryPerHEI(string|array|null $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false)
+    private function getSummaryPerHEI(string|array|null $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false, ?array $academicYearIds = null)
     {
         $regionIds = $this->normalizeToIdArray($regionId);
 
@@ -403,6 +421,10 @@ class DashboardController extends Controller
 
         if ($programIds) {
             $query->whereIn('liquidations.program_id', $programIds);
+        }
+
+        if ($academicYearIds) {
+            $query->whereIn('liquidations.academic_year_id', $academicYearIds);
         }
 
         if ($excludeSubPrograms) {
@@ -453,7 +475,7 @@ class DashboardController extends Controller
     /**
      * Get total stats with joins to liquidation_financials.
      */
-    private function getTotalStats(string|array|null $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, ?string $heiId = null, bool $endorsedOnly = false, bool $coaEndorsedOnly = false): array
+    private function getTotalStats(string|array|null $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, ?string $heiId = null, bool $endorsedOnly = false, bool $coaEndorsedOnly = false, ?array $academicYearIds = null): array
     {
         $regionIds = $this->normalizeToIdArray($regionId);
 
@@ -480,6 +502,10 @@ class DashboardController extends Controller
 
         if ($programIds) {
             $query->whereIn('liquidations.program_id', $programIds);
+        }
+
+        if ($academicYearIds) {
+            $query->whereIn('liquidations.academic_year_id', $academicYearIds);
         }
 
         if ($excludeSubPrograms) {
@@ -524,6 +550,10 @@ class DashboardController extends Controller
             $pendingQuery->whereIn('program_id', $programIds);
         }
 
+        if ($academicYearIds) {
+            $pendingQuery->whereIn('academic_year_id', $academicYearIds);
+        }
+
         if ($excludeSubPrograms) {
             $subProgramIds = Program::whereNotNull('parent_id')->pluck('id');
             if ($subProgramIds->isNotEmpty()) {
@@ -553,6 +583,7 @@ class DashboardController extends Controller
             if ($heiId) $completedQuery->where('hei_id', $heiId);
             if ($regionIds) $completedQuery->whereHas('hei', fn($q) => $q->whereIn('region_id', $regionIds));
             if ($programIds) $completedQuery->whereIn('program_id', $programIds);
+            if ($academicYearIds) $completedQuery->whereIn('academic_year_id', $academicYearIds);
 
             $result['completed'] = $completedQuery->count();
         }
@@ -592,7 +623,7 @@ class DashboardController extends Controller
     /**
      * Overview stats for Admin/Super Admin: HEI count, total grantees, per-program breakdown.
      */
-    private function getOverviewStats(string|array|null $regionId = null, ?array $programIds = null): array
+    private function getOverviewStats(string|array|null $regionId = null, ?array $programIds = null, ?array $academicYearIds = null): array
     {
         $regionIds = $this->normalizeToIdArray($regionId);
 
@@ -615,6 +646,10 @@ class DashboardController extends Controller
 
         if ($programIds) {
             $programStats->whereIn('liquidations.program_id', $programIds);
+        }
+
+        if ($academicYearIds) {
+            $programStats->whereIn('liquidations.academic_year_id', $academicYearIds);
         }
 
         $programStats = $programStats
@@ -672,9 +707,89 @@ class DashboardController extends Controller
     }
 
     /**
+     * Monthly grantee counts across history, split into TES / TDP / STuFAPs series.
+     * Client slices the returned set to 1y / 3y / all without a refetch.
+     */
+    private function getGranteesTrend(string|array|null $regionId = null, ?array $programIds = null, ?array $academicYearIds = null): array
+    {
+        $regionIds = $this->normalizeToIdArray($regionId);
+        $fs = $this->getFundSourceProgramIds();
+        $tesIds = $fs['tes'];
+        $tdpIds = $fs['tdp'];
+        $unifastIds = $fs['unifast'];
+
+        $hasTes = !empty($tesIds);
+        $hasTdp = !empty($tdpIds);
+        $hasUnifast = !empty($unifastIds);
+
+        $tesPlaceholders = $hasTes ? implode(',', array_fill(0, count($tesIds), '?')) : '';
+        $tdpPlaceholders = $hasTdp ? implode(',', array_fill(0, count($tdpIds), '?')) : '';
+        $unifastPlaceholders = $hasUnifast ? implode(',', array_fill(0, count($unifastIds), '?')) : '';
+
+        $query = DB::table('liquidations')
+            ->join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
+            ->whereNotNull('liquidation_financials.date_fund_released')
+            ->whereNotNull('liquidation_financials.number_of_grantees');
+        $this->applyBaseExclusions($query);
+
+        if ($regionIds) {
+            $query->join('heis', 'liquidations.hei_id', '=', 'heis.id')
+                ->whereIn('heis.region_id', $regionIds);
+        }
+        if ($programIds) {
+            $query->whereIn('liquidations.program_id', $programIds);
+        }
+        if ($academicYearIds) {
+            $query->whereIn('liquidations.academic_year_id', $academicYearIds);
+        }
+
+        // Bucket by month (first day of month) so the trend stays readable across years
+        // of historical release dates without shipping a giant daily payload.
+        $query->select(DB::raw("DATE_FORMAT(liquidation_financials.date_fund_released, '%Y-%m-01') as date"));
+
+        if ($hasTes) {
+            $query->selectRaw(
+                "COALESCE(SUM(CASE WHEN liquidations.program_id IN ($tesPlaceholders) THEN liquidation_financials.number_of_grantees ELSE 0 END), 0) as tes",
+                $tesIds,
+            );
+        } else {
+            $query->selectRaw('0 as tes');
+        }
+
+        if ($hasTdp) {
+            $query->selectRaw(
+                "COALESCE(SUM(CASE WHEN liquidations.program_id IN ($tdpPlaceholders) THEN liquidation_financials.number_of_grantees ELSE 0 END), 0) as tdp",
+                $tdpIds,
+            );
+        } else {
+            $query->selectRaw('0 as tdp');
+        }
+
+        if ($hasUnifast) {
+            $query->selectRaw(
+                "COALESCE(SUM(CASE WHEN liquidations.program_id NOT IN ($unifastPlaceholders) THEN liquidation_financials.number_of_grantees ELSE 0 END), 0) as stufaps",
+                $unifastIds,
+            );
+        } else {
+            $query->selectRaw('COALESCE(SUM(liquidation_financials.number_of_grantees), 0) as stufaps');
+        }
+
+        return $query->groupBy('date')
+            ->orderBy('date')
+            ->get()
+            ->map(fn ($r) => [
+                'date'    => (string) $r->date,
+                'tes'     => (int) $r->tes,
+                'tdp'     => (int) $r->tdp,
+                'stufaps' => (int) $r->stufaps,
+            ])
+            ->all();
+    }
+
+    /**
      * Get liquidation status distribution (using liquidation_statuses lookup table).
      */
-    private function getLiquidationStatusDistribution(?string $heiId = null, string|array|null $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false)
+    private function getLiquidationStatusDistribution(?string $heiId = null, string|array|null $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, bool $endorsedOnly = false, bool $coaEndorsedOnly = false, ?array $academicYearIds = null)
     {
         $regionIds = $this->normalizeToIdArray($regionId);
 
@@ -699,6 +814,10 @@ class DashboardController extends Controller
 
         if ($programIds) {
             $query->whereIn('liquidations.program_id', $programIds);
+        }
+
+        if ($academicYearIds) {
+            $query->whereIn('liquidations.academic_year_id', $academicYearIds);
         }
 
         if ($excludeSubPrograms) {
@@ -1137,7 +1256,7 @@ class DashboardController extends Controller
     /**
      * Get calendar due dates for the dashboard, scoped by role.
      */
-    private function getCalendarDueDates($user = null, ?string $userRole = null, string|array|null $adminRegionId = null, ?array $adminProgramIds = null): array
+    private function getCalendarDueDates($user = null, ?string $userRole = null, string|array|null $adminRegionId = null, ?array $adminProgramIds = null, ?array $adminAcademicYearIds = null): array
     {
         $adminRegionIds = $this->normalizeToIdArray($adminRegionId);
         $query = Liquidation::with([
@@ -1167,12 +1286,15 @@ class DashboardController extends Controller
                 $query->whereIn('program_id', $programIds);
             }
         } else {
-            // Admin/Super Admin: honour optional region + program filters.
+            // Admin/Super Admin: honour optional region + program + academic year filters.
             if ($adminRegionIds) {
                 $query->whereHas('hei', fn($q) => $q->whereIn('region_id', $adminRegionIds));
             }
             if ($adminProgramIds) {
                 $query->whereIn('program_id', $adminProgramIds);
+            }
+            if ($adminAcademicYearIds) {
+                $query->whereIn('academic_year_id', $adminAcademicYearIds);
             }
         }
 
