@@ -26,6 +26,7 @@ import { StatusDistributionChart, type StatusDistribution } from '@/components/d
 import { LiquidationProgressChart, type AYSummary } from '@/components/dashboard/liquidation-progress-chart';
 import { RecentLiquidationsTable, type RecentLiquidation } from '@/components/dashboard/recent-liquidations-table';
 import { OverviewStatsCard, type OverviewStats } from '@/components/dashboard/overview-stats-card';
+import { GranteesTrendChart, type GranteesTrendPoint } from '@/components/dashboard/grantees-trend-chart';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -119,6 +120,12 @@ interface RegionOption {
     code: string | null;
 }
 
+interface AcademicYearOption {
+    id: string;
+    name: string;
+    code: string | null;
+}
+
 interface DashboardProps {
     isAdmin?: boolean;
     summaryPerAY: AYSummary[];
@@ -136,11 +143,14 @@ interface DashboardProps {
         stufaps: FundSourceStats;
     };
     overviewStats?: OverviewStats;
+    granteesTrend?: GranteesTrendPoint[];
     regions?: RegionOption[];
     programs?: ProgramOption[];
+    academicYears?: AcademicYearOption[];
     filters?: {
         region_id: string[] | null;
         program_id: string[] | null;
+        academic_year_id: string[] | null;
     };
 }
 
@@ -168,8 +178,10 @@ export default function Dashboard({
     calendarDueDates = [],
     fundSourceData,
     overviewStats,
+    granteesTrend,
     regions = [],
     programs = [],
+    academicYears = [],
     filters,
 }: DashboardProps) {
     // Admin server-side filter selections — local state is the source of truth after mount.
@@ -181,6 +193,9 @@ export default function Dashboard({
     );
     const [selectedProgramIds, setSelectedProgramIds] = useState<string[]>(() =>
         Array.isArray(filters?.program_id) ? filters!.program_id! : [],
+    );
+    const [selectedAcademicYearIds, setSelectedAcademicYearIds] = useState<string[]>(() =>
+        Array.isArray(filters?.academic_year_id) ? filters!.academic_year_id! : [],
     );
 
     // Debounced server push so rapid checkbox toggles coalesce into one request.
@@ -195,6 +210,7 @@ export default function Dashboard({
             const params: Record<string, string[]> = {};
             if (selectedRegionIds.length > 0) params.region_id = selectedRegionIds;
             if (selectedProgramIds.length > 0) params.program_id = selectedProgramIds;
+            if (selectedAcademicYearIds.length > 0) params.academic_year_id = selectedAcademicYearIds;
             router.get('/dashboard', params, {
                 preserveState: true,
                 preserveScroll: true,
@@ -202,12 +218,17 @@ export default function Dashboard({
             });
         }, 350);
         return () => window.clearTimeout(handle);
-    }, [isAdmin, selectedRegionIds, selectedProgramIds]);
+    }, [isAdmin, selectedRegionIds, selectedProgramIds, selectedAcademicYearIds]);
 
     // Build flat FilterOption lists (with visual grouping) for the MultiSelectFilter.
     const regionOptions = useMemo<FilterOption[]>(
         () => regions.map(r => ({ value: r.id, label: r.code ? `${r.code} — ${r.name}` : r.name })),
         [regions],
+    );
+
+    const academicYearOptions = useMemo<FilterOption[]>(
+        () => academicYears.map(ay => ({ value: ay.id, label: ay.name })),
+        [academicYears],
     );
 
     const programOptions = useMemo<FilterOption[]>(() => {
@@ -397,6 +418,10 @@ export default function Dashboard({
             cards.push({ id: sc.id, title: sc.title, colSpan: statColSpan });
         }
 
+        if (isAdmin) {
+            cards.push({ id: 'grantees-trend', title: 'Grantee Counts Over Time', colSpan: 12 });
+        }
+
         if (showBarChart) {
             cards.push({ id: 'liquidation-progress', title: 'Liquidation Progress per Academic Year', colSpan: 8 });
         }
@@ -470,10 +495,12 @@ export default function Dashboard({
                 return <RecentLiquidationsTable data={chartsLoading ? undefined : recentLiquidations} />;
             case 'overview-stats':
                 return <OverviewStatsCard data={chartsLoading ? undefined : overviewStats} totalLiquidations={activeTotalStats.total_liquidations} />;
+            case 'grantees-trend':
+                return <GranteesTrendChart data={chartsLoading ? undefined : granteesTrend} />;
             default:
                 return null;
         }
-    }, [statCardDefs, chartsLoading, deferredStatusDistribution, deferredSummaryPerAY, recentLiquidations, overviewStats, activeTotalStats.total_liquidations, showFilter]);
+    }, [statCardDefs, chartsLoading, deferredStatusDistribution, deferredSummaryPerAY, recentLiquidations, overviewStats, granteesTrend, activeTotalStats.total_liquidations, showFilter]);
 
     // ---------- Render ----------
 
@@ -507,6 +534,15 @@ export default function Dashboard({
                                     options={programOptions}
                                     selected={selectedProgramIds}
                                     onChange={setSelectedProgramIds}
+                                    width="w-[200px]"
+                                />
+                            )}
+                            {isAdmin && academicYears.length > 0 && (
+                                <MultiSelectFilter
+                                    label="All Academic Years"
+                                    options={academicYearOptions}
+                                    selected={selectedAcademicYearIds}
+                                    onChange={setSelectedAcademicYearIds}
                                     width="w-[200px]"
                                 />
                             )}
