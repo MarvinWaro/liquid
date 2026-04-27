@@ -35,6 +35,7 @@ export interface NavigationAbilities {
     canViewSemesters: boolean;
     canViewAcademicYears: boolean;
     canViewDocumentRequirements: boolean;
+    canViewTemplates: boolean;
     canViewActivityLogs: boolean;
     canViewSummaryAY: boolean;
     canViewSummaryHEI: boolean;

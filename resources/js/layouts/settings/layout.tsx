@@ -8,7 +8,7 @@ import { show } from '@/routes/two-factor';
 import { edit as editPassword } from '@/routes/user-password';
 import { type NavItem, type NavigationAbilities, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Building2, Calendar, FileText, FolderOpen, GraduationCap, History, KeyRound, MapPin, Palette, Shield, ShieldCheck, User, Users } from 'lucide-react';
+import { Building2, Calendar, FileText, Files, FolderOpen, GraduationCap, History, KeyRound, MapPin, Palette, Shield, ShieldCheck, User, Users } from 'lucide-react';
 import { type PropsWithChildren, useMemo } from 'react';
 
 const sidebarNavItems: NavItem[] = [
@@ -91,6 +91,12 @@ const systemConfigNavItems: AdminNavItem[] = [
         ability: 'canViewDocumentRequirements',
     },
     {
+        title: 'Templates',
+        href: '/templates',
+        icon: Files,
+        ability: 'canViewTemplates',
+    },
+    {
         title: 'Activity Logs',
         href: '/activity-logs',
         icon: History,
@@ -117,6 +123,7 @@ export default function SettingsLayout({ children, wide = false }: SettingsLayou
         canViewSemesters: false,
         canViewAcademicYears: false,
         canViewDocumentRequirements: false,
+        canViewTemplates: false,
         canViewActivityLogs: false,
     };
 

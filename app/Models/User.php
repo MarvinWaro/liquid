@@ -264,6 +264,7 @@ class User extends Authenticatable
             'canViewSemesters' => $this->hasPermission('view_semesters'),
             'canViewAcademicYears' => $this->hasPermission('view_academic_years'),
             'canViewDocumentRequirements' => $this->hasPermission('view_document_requirements'),
+            'canViewTemplates' => $this->hasPermission('view_templates'),
             'canViewActivityLogs' => $this->hasPermission('view_activity_logs'),
             'canViewSummaryAY' => $this->hasPermission('view_summary_ay'),
             'canViewSummaryHEI' => $this->hasPermission('view_summary_hei'),

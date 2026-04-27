@@ -12,6 +12,7 @@ use App\Http\Controllers\LiquidationController;
 use App\Http\Controllers\ProgramController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\DocumentRequirementController;
+use App\Http\Controllers\TemplateController;
 use App\Http\Controllers\LiquidationCommentController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SemesterController;
@@ -102,6 +103,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('document-requirements', [DocumentRequirementController::class, 'store'])->name('document-requirements.store');
     Route::put('document-requirements/{requirement}', [DocumentRequirementController::class, 'update'])->name('document-requirements.update');
     Route::delete('document-requirements/{requirement}', [DocumentRequirementController::class, 'destroy'])->name('document-requirements.destroy');
+
+    // Form Template Management Routes
+    Route::get('templates', [TemplateController::class, 'index'])->name('templates.index');
+    Route::post('templates', [TemplateController::class, 'store'])->name('templates.store');
+    Route::put('templates/{template}', [TemplateController::class, 'update'])->name('templates.update');
+    Route::delete('templates/{template}', [TemplateController::class, 'destroy'])->name('templates.destroy');
+    Route::get('templates/{template}/download', [TemplateController::class, 'download'])->name('templates.download');
 
     // Activity Log Routes
     Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
