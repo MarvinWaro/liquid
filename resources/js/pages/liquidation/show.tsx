@@ -3,7 +3,7 @@ import AppLayout from '@/layouts/app-layout';
 import { Deferred, Head, router, usePage } from '@inertiajs/react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { type BreadcrumbItem, type SharedData } from '@/types';
-import { type ShowPageProps, type TrackingEntry, parseNames, joinNames } from '@/types/liquidation';
+import { type ShowPageProps, type TrackingEntry, type RunningDataEntry, parseNames, joinNames } from '@/types/liquidation';
 
 // Section components
 import LiquidationHeader from '@/components/liquidations/show/liquidation-header';
@@ -175,11 +175,11 @@ export default function Show({
         return liquidation.reviewed_by_name || null;
     }, [liquidation.reviewed_by_name, trackingEntries, regionalCoordinators, accountants]);
 
-    // ── Latest RC note (from tracking entries) ──
+    // ── Latest RC note (from tracking entries, with import fallback) ──
     const latestRcNote = useMemo(() => {
         const latest = trackingEntries[trackingEntries.length - 1];
-        return latest?.rc_note || null;
-    }, [trackingEntries]);
+        return latest?.rc_note || liquidation.rc_notes || null;
+    }, [trackingEntries, liquidation.rc_notes]);
 
     // ── Latest liquidation status (from tracking entries) ──
     const latestLiquidationStatus = useMemo(() => {
@@ -188,12 +188,40 @@ export default function Show({
     }, [trackingEntries]);
 
     // ── Running data total (for LiquidationDetailsCard) ──
+    // Falls back to stored financial.amount_liquidated when no per-row entries exist
+    // (e.g. Excel-imported records), so the show page matches the index page.
     const initialRunningTotal = useMemo(() => {
-        return (liquidation.running_data ?? []).reduce(
-            (sum, entry) => sum + Number(entry.amount_complete_docs ?? 0) + Number(entry.amount_refunded ?? 0), 0
-        );
-    }, [liquidation.running_data]);
+        const runningData = liquidation.running_data ?? [];
+        if (runningData.length > 0) {
+            return runningData.reduce(
+                (sum, entry) => sum + Number(entry.amount_complete_docs ?? 0) + Number(entry.amount_refunded ?? 0), 0
+            );
+        }
+        return Number(liquidation.amount_liquidated ?? 0);
+    }, [liquidation.running_data, liquidation.amount_liquidated]);
     const [runningDataTotalLiquidated, setRunningDataTotalLiquidated] = useState(initialRunningTotal);
+
+    // For imported records (running_data is empty but financial.amount_liquidated > 0),
+    // surface the imported amount as a single editable row so the table totals
+    // align with the details card. Saving normalizes it into running_data.
+    const runningDataInitial = useMemo<RunningDataEntry[]>(() => {
+        const data = liquidation.running_data ?? [];
+        if (data.length > 0) return data;
+
+        const importedAmount = Number(liquidation.amount_liquidated ?? 0);
+        if (importedAmount <= 0) return [];
+
+        const grantees = Number(liquidation.number_of_grantees ?? 0);
+        return [{
+            grantees_liquidated: grantees > 0 ? grantees : null,
+            amount_complete_docs: importedAmount,
+            amount_refunded: 0,
+            refund_or_no: '',
+            total_amount_liquidated: importedAmount,
+            transmittal_ref_no: '',
+            group_transmittal_ref_no: '',
+        }];
+    }, [liquidation.running_data, liquidation.amount_liquidated, liquidation.number_of_grantees]);
     const totalDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const debouncedSetTotalLiquidated = useCallback((total: number) => {
         if (totalDebounceRef.current) clearTimeout(totalDebounceRef.current);
@@ -330,7 +358,7 @@ export default function Show({
                 {/* Running Data Table */}
                 <RunningDataTable
                     liquidationId={liquidation.id}
-                    initialEntries={liquidation.running_data ?? []}
+                    initialEntries={runningDataInitial}
                     totalDisbursements={totalDisbursements}
                     totalGrantees={totalGrantees}
                     isHEIUser={isHEIUser}
