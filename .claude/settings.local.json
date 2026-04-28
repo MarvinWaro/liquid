@@ -65,7 +65,9 @@
       "Bash(npm run *)",
       "Bash(git checkout *)",
       "Bash(./node_modules/.bin/tsc --noEmit)",
-      "Bash(./node_modules/.bin/eslint resources/js/pages/liquidation/show.tsx resources/js/types/liquidation.ts)"
+      "Bash(./node_modules/.bin/eslint resources/js/pages/liquidation/show.tsx resources/js/types/liquidation.ts)",
+      "Bash(./node_modules/.bin/eslint resources/js/pages/report.tsx)",
+      "Bash(grep -E \"\\\\.tsx$\")"
     ]
   }
 }

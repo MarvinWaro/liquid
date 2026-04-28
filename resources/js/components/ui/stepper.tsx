@@ -33,8 +33,8 @@ export function Stepper({ steps, currentStep, isFullyCompleted = false, classNam
                   className={cn(
                     "w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm transition-all z-10 border-2",
                     isFullyCompleted && "bg-green-600 border-green-600 text-white",
-                    !isFullyCompleted && isCompleted && "bg-blue-600 border-blue-600 text-white",
-                    !isFullyCompleted && isCurrent && "bg-blue-600 border-blue-600 text-white ring-4 ring-blue-100",
+                    !isFullyCompleted && isCompleted && "bg-foreground border-foreground text-background",
+                    !isFullyCompleted && isCurrent && "bg-foreground border-foreground text-background ring-4 ring-foreground/15",
                     isUpcoming && "bg-background border-gray-300 text-gray-400"
                   )}
                 >
@@ -51,7 +51,7 @@ export function Stepper({ steps, currentStep, isFullyCompleted = false, classNam
                     className={cn(
                       "text-xs font-medium whitespace-normal",
                       isFullyCompleted && "text-green-900 dark:text-green-100",
-                      !isFullyCompleted && (isCompleted || isCurrent) && "text-blue-900 dark:text-blue-100",
+                      !isFullyCompleted && (isCompleted || isCurrent) && "text-foreground",
                       isUpcoming && "text-gray-400"
                     )}
                   >
@@ -71,7 +71,7 @@ export function Stepper({ steps, currentStep, isFullyCompleted = false, classNam
                   <div
                     className={cn(
                       "h-full transition-all",
-                      isFullyCompleted ? "bg-green-600" : (stepNumber < currentStep ? "bg-blue-600" : "bg-gray-300")
+                      isFullyCompleted ? "bg-green-600" : (stepNumber < currentStep ? "bg-foreground" : "bg-gray-300")
                     )}
                   />
                 </div>

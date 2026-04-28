@@ -77,6 +77,7 @@ class LiquidationController extends Controller
         'academic_year',
         'rc_note_status',
         'region',
+        'hei',
         'sort',
         'direction',
     ];
@@ -1919,6 +1920,8 @@ class LiquidationController extends Controller
             'rc_note_status.*' => ['string', 'max:64'],
             'region' => ['nullable', 'array'],
             'region.*' => ['string', 'max:64'],
+            'hei' => ['nullable', 'array'],
+            'hei.*' => ['string', 'max:64'],
         ]);
 
         $filters = $request->only(self::LISTING_FILTER_KEYS);
