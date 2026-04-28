@@ -72,6 +72,12 @@ class PermissionSeeder extends Seeder
                 ['name' => 'edit_document_requirements', 'description' => 'Edit existing document requirements'],
                 ['name' => 'delete_document_requirements', 'description' => 'Delete document requirements'],
             ],
+            'Templates' => [
+                ['name' => 'view_templates', 'description' => 'View form templates list'],
+                ['name' => 'create_templates', 'description' => 'Upload new form templates'],
+                ['name' => 'edit_templates', 'description' => 'Edit existing form templates'],
+                ['name' => 'delete_templates', 'description' => 'Delete form templates'],
+            ],
             'Reports' => [
                 ['name' => 'view_reports', 'description' => 'View reports'],
                 ['name' => 'export_reports', 'description' => 'Export reports to Excel'],
@@ -127,6 +133,7 @@ class PermissionSeeder extends Seeder
             'view_semesters', 'create_semesters', 'edit_semesters', 'delete_semesters',
             'view_academic_years', 'create_academic_years', 'edit_academic_years', 'delete_academic_years',
             'view_document_requirements', 'create_document_requirements', 'edit_document_requirements', 'delete_document_requirements',
+            'view_templates', 'create_templates', 'edit_templates', 'delete_templates',
             'view_reports', 'export_reports', 'view_fund_source_filter',
             'view_summary_ay', 'view_summary_hei',
             'view_activity_logs',
@@ -137,6 +144,7 @@ class PermissionSeeder extends Seeder
             'view_hei',
             'view_liquidation', 'create_liquidation', 'edit_liquidation', 'review_liquidation', 'endorse_liquidation',
             'view_document_requirements', 'create_document_requirements', 'edit_document_requirements', 'delete_document_requirements',
+            'view_templates', 'create_templates', 'edit_templates', 'delete_templates',
             'view_reports',
             'view_summary_ay', 'view_summary_hei',
         ]);
@@ -144,6 +152,7 @@ class PermissionSeeder extends Seeder
         $this->createExampleRole('Accountant', 'Reviews and endorses to COA', [
             'view_hei',
             'view_liquidation', 'review_liquidation', 'endorse_liquidation',
+            'view_templates',
             'view_reports', 'view_fund_source_filter',
             'view_summary_ay', 'view_summary_hei',
         ]);
@@ -151,18 +160,21 @@ class PermissionSeeder extends Seeder
         $this->createExampleRole('COA', 'Commission on Audit — view-only access to endorsed liquidations', [
             'view_hei',
             'view_liquidation', 'review_liquidation',
+            'view_templates',
             'view_reports', 'view_fund_source_filter',
             'view_summary_ay', 'view_summary_hei',
         ]);
 
         $this->createExampleRole('HEI', 'Higher Education Institution user', [
             'view_liquidation', 'edit_liquidation',
+            'view_templates',
             'view_summary_ay', 'view_fund_source_filter',
         ]);
 
         $this->createExampleRole('STUFAPS Focal', 'Program-scoped focal for STUFAPS sub-programs', [
             'view_liquidation', 'create_liquidation', 'edit_liquidation', 'review_liquidation', 'endorse_liquidation',
             'view_hei',
+            'view_templates',
             'view_reports',
             'view_summary_ay', 'view_summary_hei',
         ]);

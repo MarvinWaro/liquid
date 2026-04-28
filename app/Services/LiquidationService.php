@@ -400,6 +400,12 @@ class LiquidationService
             });
         }
 
+        // HEI filter — narrows by specific HEIs (used by /report stepper). Role scoping still applies.
+        $heis = $toArray($filters['hei'] ?? null);
+        if (!empty($heis)) {
+            $query->whereIn('hei_id', $heis);
+        }
+
         // RC note status filter
         $rcNotes = $toArray($filters['rc_note_status'] ?? null);
         if (!empty($rcNotes)) {

@@ -146,6 +146,7 @@ export interface Liquidation {
     fund_source?: string | null;
     number_of_grantees?: number | null;
     amount_liquidated?: number;
+    rc_notes?: string | null;
     lapsing_period?: number;
     document_status?: string;
     liquidation_status?: string;
