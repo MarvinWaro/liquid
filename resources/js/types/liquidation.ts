@@ -159,6 +159,17 @@ export interface Liquidation {
     updated_at?: string | null;
     created_by_name?: string | null;
     document_completeness?: DocumentCompleteness;
+    import_batch?: ImportBatchSummary | null;
+}
+
+export interface ImportBatchSummary {
+    id: string;
+    file_name: string;
+    file_size: number | null;
+    imported_by: string | null;
+    imported_at: string | null;
+    is_undone: boolean;
+    can_download: boolean;
 }
 
 export interface LiquidationUser {

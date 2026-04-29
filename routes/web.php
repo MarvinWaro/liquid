@@ -8,6 +8,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\HEIController;
 use App\Http\Controllers\RegionController;
 use App\Http\Controllers\AnnouncementController;
+use App\Http\Controllers\BulkEntryDraftController;
 use App\Http\Controllers\LiquidationController;
 use App\Http\Controllers\ProgramController;
 use App\Http\Controllers\ActivityLogController;
@@ -209,10 +210,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Liquidation Template Download
     Route::get('liquidation/template/download', [LiquidationController::class, 'downloadTemplate'])->name('liquidation.download-template');
 
-    // Print Report
-    Route::get('liquidation/print', [LiquidationController::class, 'printReport'])->name('liquidation.print-report');
-    Route::get('liquidation/export/excel', [LiquidationController::class, 'exportExcel'])->name('liquidation.export-excel');
-    Route::get('liquidation/export/csv', [LiquidationController::class, 'exportCsv'])->name('liquidation.export-csv');
+    // Async Report Pipeline — queue a Print/Excel/CSV job, then download via the
+    // notification that fires when it's ready. Survives page refresh; uses the
+    // existing notification dropdown to surface "report ready" to the user.
+    Route::post('reports/queue', [\App\Http\Controllers\ReportJobController::class, 'queue'])->name('reports.queue');
+    Route::get('reports/download/{notification}', [\App\Http\Controllers\ReportJobController::class, 'download'])->name('reports.download');
+    Route::post('reports/notifications/{notification}/claim-delivery', [\App\Http\Controllers\ReportJobController::class, 'claimDelivery'])->name('reports.claim-delivery');
 
     // RC Bulk Liquidation Routes
     Route::get('liquidation/rc-template/download', [LiquidationController::class, 'downloadRCTemplate'])->name('liquidation.download-rc-template');
@@ -223,7 +226,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('liquidation/import-progress', [LiquidationController::class, 'importProgress'])->name('liquidation.import-progress');
     Route::get('liquidation/import-batches', [LiquidationController::class, 'importBatches'])->name('liquidation.import-batches');
     Route::post('liquidation/import-batches/{batchId}/undo', [LiquidationController::class, 'undoImportBatch'])->name('liquidation.undo-import-batch');
+    Route::get('liquidation/import-batches/{batchId}/download', [LiquidationController::class, 'downloadImportBatchFile'])->name('liquidation.download-import-batch-file');
     Route::post('liquidation/bulk-store', [LiquidationController::class, 'bulkStore'])->name('liquidation.bulk-store');
+
+    // Server-side persistence for the bulk-entry modal draft (one draft per user).
+    Route::get('liquidation/bulk-entry/draft', [BulkEntryDraftController::class, 'show'])->name('liquidation.bulk-entry-draft.show');
+    Route::put('liquidation/bulk-entry/draft', [BulkEntryDraftController::class, 'update'])->name('liquidation.bulk-entry-draft.update');
+    Route::delete('liquidation/bulk-entry/draft', [BulkEntryDraftController::class, 'destroy'])->name('liquidation.bulk-entry-draft.destroy');
 
     // Liquidation Tracking Entry Routes
     Route::post('liquidation/{liquidation}/tracking-entries', [LiquidationController::class, 'saveTrackingEntries'])->name('liquidation.save-tracking-entries');

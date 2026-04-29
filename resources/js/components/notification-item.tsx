@@ -43,6 +43,8 @@ const actionColors: Record<string, string> = {
     commented_on_requirement: 'bg-sky-500',
     mentioned_in_announcement_comment: 'bg-pink-500',
     replied_to_announcement_thread: 'bg-violet-500',
+    report_ready: 'bg-emerald-500',
+    report_failed: 'bg-red-500',
     created: 'bg-green-500',
     updated: 'bg-blue-500',
     deleted: 'bg-red-500',
@@ -131,6 +133,19 @@ export function NotificationItem({ notification, onUpdate }: NotificationItemPro
         if (isUnread) {
             await axios.patch(`/notifications/${notification.id}/read`);
             onUpdate?.();
+        }
+
+        // Generated report — open the download endpoint in a new tab so print
+        // HTML can auto-fire its print dialog and downloads don't navigate away.
+        if (notification.action === 'report_ready') {
+            if (notification.metadata?.file_path) {
+                window.open(`/reports/download/${notification.id}`, '_blank');
+            }
+            return;
+        }
+
+        if (notification.action === 'report_failed') {
+            return; // No destination; user just sees the failure description.
         }
 
         const url = getSubjectUrl(notification.subject_type, notification.subject_id, notification.action, notification.metadata);

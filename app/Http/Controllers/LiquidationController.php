@@ -37,6 +37,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -84,11 +85,6 @@ class LiquidationController extends Controller
 
     /** Roles allowed to filter by region (others are implicitly scoped). */
     private const REGION_FILTER_ROLES = ['Super Admin', 'Admin'];
-
-    /** Safety ceiling for rows rendered in a single print/export run.
-     *  Real-world expected peak is ~18k; 50k gives comfortable headroom
-     *  while keeping memory bounded on small instances. */
-    private const PRINT_REPORT_ROW_CAP = 50000;
 
     /** Max liquidations a single user can pin at once. */
     private const PIN_LIMIT = 10;
@@ -834,6 +830,14 @@ class LiquidationController extends Controller
         $isLast    = (bool) $request->input('is_last', false);
         $batchId   = $request->input('batch_id');
 
+        // Validate the optional source_file upload (only present on the first chunk).
+        // Rejecting here is safer than silently uploading a malicious or oversized file to S3.
+        if ($request->hasFile('source_file')) {
+            $request->validate([
+                'source_file' => ['file', 'mimes:xlsx,xls', 'max:51200'], // 50 MB, matches BulkImportRequest
+            ]);
+        }
+
         // Slice the chunk to import
         $chunk = array_slice($allRows, $offset, $limit);
 
@@ -844,9 +848,43 @@ class LiquidationController extends Controller
                 abort(403, 'Invalid batch.');
             }
         } else {
+            // Persist the original Excel file to S3 for audit/traceability.
+            // Only attempted on the first chunk (when no batch_id is provided yet).
+            // Storage failure degrades gracefully — the import still succeeds without a source file.
+            $sourceFilePath = null;
+            $sourceFileSize = null;
+            if ($request->hasFile('source_file')) {
+                $stream = null;
+                try {
+                    $sourceFile    = $request->file('source_file');
+                    $timestamp     = now()->format('Ymd-His');
+                    $rand          = Str::lower(Str::random(8));
+                    $extension     = strtolower($sourceFile->getClientOriginalExtension() ?: 'xlsx');
+                    $candidatePath = "liquidation_imports/{$user->id}/{$timestamp}-{$rand}.{$extension}";
+                    $candidateSize = $sourceFile->getSize() ?: null;
+
+                    $stream = fopen($sourceFile->getRealPath(), 'rb');
+                    Storage::disk(config('filesystems.default'))->put($candidatePath, $stream, 'private');
+
+                    $sourceFilePath = $candidatePath;
+                    $sourceFileSize = $candidateSize;
+                } catch (\Throwable $e) {
+                    Log::warning('Bulk import source file upload failed; proceeding without persisted source.', [
+                        'user_id' => $user->id,
+                        'error'   => $e->getMessage(),
+                    ]);
+                } finally {
+                    if (is_resource($stream)) {
+                        fclose($stream);
+                    }
+                }
+            }
+
             $batch = ImportBatch::create([
                 'user_id'        => $user->id,
                 'file_name'      => $cached['file_name'] ?? 'unknown.xlsx',
+                'file_path'      => $sourceFilePath,
+                'file_size'      => $sourceFileSize,
                 'total_rows'     => $totalRows,
                 'imported_count' => 0,
                 'status'         => 'active',
@@ -1058,9 +1096,16 @@ class LiquidationController extends Controller
                 ->delete();
         }
 
+        // Remove the persisted source Excel from S3 — undo wipes the batch entirely
+        if ($batch->file_path) {
+            Storage::disk(config('filesystems.default'))->delete($batch->file_path);
+        }
+
         $batch->update([
-            'status'   => 'undone',
+            'status'    => 'undone',
             'undone_at' => now(),
+            'file_path' => null,
+            'file_size' => null,
         ]);
 
         ActivityLog::log(
@@ -1084,6 +1129,33 @@ class LiquidationController extends Controller
     }
 
     /**
+     * Stream the original Excel file for an import batch.
+     * Restricted to internal staff (HEI users never bulk-import, so they don't need source files).
+     */
+    public function downloadImportBatchFile(Request $request, string $batchId)
+    {
+        $user = $request->user();
+
+        // HEI users never bulk-import, so they have no business pulling source files
+        if ($user->hei_id !== null) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $batch = ImportBatch::findOrFail($batchId);
+
+        if (!$batch->file_path) {
+            abort(404, 'Source file is not available for this import batch.');
+        }
+
+        $disk = Storage::disk(config('filesystems.default'));
+        if (!$disk->exists($batch->file_path)) {
+            abort(404, 'Source file no longer exists.');
+        }
+
+        return $disk->download($batch->file_path, $batch->file_name);
+    }
+
+    /**
      * Display liquidation details page.
      */
     public function show(Request $request, Liquidation $liquidation): InertiaResponse
@@ -1103,6 +1175,7 @@ class LiquidationController extends Controller
             'transmittal.endorser', 'transmittal.location',
             'compliance.complianceStatus',
             'documentStatus', 'liquidationStatus', 'creator',
+            'importBatch.user',
         ]);
 
         $heiRegionId = $liquidation->hei?->region_id;
@@ -1881,212 +1954,6 @@ class LiquidationController extends Controller
         return response()->download($templatePath, 'BENEFICIARIES TEMPLATE.xlsx');
     }
 
-    /**
-     * Print liquidation report (Blade HTML for browser printing).
-     */
-    public function printReport(Request $request)
-    {
-        $data = $this->buildReportData($request);
-
-        return view('reports.liquidation-print', $data);
-    }
-
-    /**
-     * Build the full report dataset used by print, Excel and CSV exports.
-     */
-    private function buildReportData(Request $request): array
-    {
-        $user = $request->user();
-
-        if (!$user->hasPermission('view_liquidation')) {
-            abort(403, 'Unauthorized action.');
-        }
-
-        // Large exports can outrun default limits; raise only for this request.
-        @set_time_limit(0);
-        @ini_set('memory_limit', '512M');
-
-        $request->validate([
-            'search' => ['nullable', 'string', 'max:255'],
-            'program' => ['nullable', 'array'],
-            'program.*' => ['string', 'max:64'],
-            'document_status' => ['nullable', 'array'],
-            'document_status.*' => ['string', 'max:64'],
-            'liquidation_status' => ['nullable', 'array'],
-            'liquidation_status.*' => ['string', 'max:64'],
-            'academic_year' => ['nullable', 'array'],
-            'academic_year.*' => ['string', 'max:64'],
-            'rc_note_status' => ['nullable', 'array'],
-            'rc_note_status.*' => ['string', 'max:64'],
-            'region' => ['nullable', 'array'],
-            'region.*' => ['string', 'max:64'],
-            'hei' => ['nullable', 'array'],
-            'hei.*' => ['string', 'max:64'],
-        ]);
-
-        $filters = $request->only(self::LISTING_FILTER_KEYS);
-
-        // Only Admin/Super Admin can filter by region; strip for other roles.
-        if (!in_array($user->role->name, self::REGION_FILTER_ROLES)) {
-            unset($filters['region']);
-        }
-
-        // Get filtered records with a safety cap to prevent OOM on small instances
-        $query = Liquidation::with(['hei', 'program', 'financial', 'semester', 'academicYear', 'documentStatus', 'liquidationStatus', 'rcNoteStatus'])
-            ->orderBy('control_no', 'asc');
-
-        $this->liquidationService->applyRoleAndFilters($query, $user, $filters);
-
-        $totalMatching = (clone $query)->count();
-        $truncated = $totalMatching > self::PRINT_REPORT_ROW_CAP;
-
-        $liquidations = $query->limit(self::PRINT_REPORT_ROW_CAP)->get()->map(function ($liquidation, $index) {
-            $financial = $liquidation->financial;
-            $disbursements = (float) ($financial?->amount_received ?? 0);
-            $liquidated = (float) ($financial?->amount_liquidated ?? 0);
-            $unliquidated = $disbursements - $liquidated;
-
-            $forEndorsement = $liquidation->rcNoteStatus?->code === 'FOR_ENDORSEMENT'
-                ? $disbursements - $liquidated
-                : 0;
-            $percentage = $disbursements > 0
-                ? round((($liquidated + $forEndorsement) / $disbursements) * 100, 2)
-                : 0;
-
-            $documentStatusDisplay = match ($liquidation->documentStatus?->code) {
-                'COMPLETE' => 'Complete Submission',
-                'PARTIAL' => 'Partial Submission',
-                default => 'No Submission',
-            };
-
-            return [
-                'program_code' => $liquidation->program?->code ?? '',
-                'hei_name' => $liquidation->hei?->name ?? 'N/A',
-                'control_no' => $liquidation->control_no,
-                'academic_year' => $liquidation->academicYear?->name ?? '',
-                'semester' => $liquidation->semester?->name ?? '',
-                'batch_no' => $liquidation->batch_no ?? '',
-                'date_fund_released' => $financial?->date_fund_released?->format('M d, Y') ?? '',
-                'due_date' => $financial?->due_date?->format('M d, Y') ?? '',
-                'number_of_grantees' => $financial?->number_of_grantees ?? 0,
-                'total_disbursements' => number_format($disbursements, 2),
-                'amount_liquidated' => number_format($liquidated, 2),
-                'total_unliquidated' => number_format($unliquidated, 2),
-                'document_status' => $documentStatusDisplay,
-                'rc_notes' => $liquidation->rcNoteStatus?->name ?? '',
-                'liquidation_status' => $liquidation->liquidationStatus?->name ?? 'Unliquidated',
-                'percentage' => $percentage,
-                'lapsing' => $financial?->lapsing_period ?? 0,
-                '_raw_disbursements' => $disbursements,
-                '_raw_liquidated' => $liquidated,
-                '_raw_unliquidated' => $unliquidated,
-            ];
-        });
-
-        // Totals and per-program summary computed on the FULL filtered query
-        // (not the capped $liquidations collection) so numbers match the index card.
-        $aggregates = $this->liquidationService->getReportAggregates($user, $filters);
-        $totals = $aggregates['totals'];
-        $programSummary = $aggregates['programSummary'];
-
-        // Build active filter description
-        $activeFilters = $this->buildFilterDescription($filters);
-
-        // Region name for header
-        $regionName = $user->region?->name ?? 'Central Office';
-
-        return [
-            'liquidations' => $liquidations,
-            'totals' => $totals,
-            'programSummary' => $programSummary,
-            'activeFilters' => $activeFilters,
-            'regionName' => $regionName,
-            'printedBy' => $user->name,
-            'truncated' => $truncated,
-            'totalMatching' => $totalMatching,
-            'rowCap' => self::PRINT_REPORT_ROW_CAP,
-        ];
-    }
-
-    /**
-     * Export the filtered liquidation report as an XLSX file.
-     */
-    public function exportExcel(Request $request): \Symfony\Component\HttpFoundation\StreamedResponse
-    {
-        $data = $this->buildReportData($request);
-        $filename = 'liquidation-report-' . now()->format('Ymd-His') . '.xlsx';
-
-        return (new \App\Exports\LiquidationReportExporter())->stream($data, 'xlsx', $filename);
-    }
-
-    /**
-     * Export the filtered liquidation report as a CSV file.
-     */
-    public function exportCsv(Request $request): \Symfony\Component\HttpFoundation\StreamedResponse
-    {
-        $data = $this->buildReportData($request);
-        $filename = 'liquidation-report-' . now()->format('Ymd-His') . '.csv';
-
-        return (new \App\Exports\LiquidationReportExporter())->stream($data, 'csv', $filename);
-    }
-
-    /**
-     * Build a human-readable description of active filters.
-     */
-    private function buildFilterDescription(array $filters): string
-    {
-        $parts = [];
-
-        // Helper: normalize to array, stripping empties and 'all'
-        $toArray = function ($value): array {
-            if (empty($value)) return [];
-            $arr = is_array($value) ? $value : [$value];
-            return array_values(array_filter($arr, fn ($v) => $v !== '' && $v !== 'all'));
-        };
-
-        $programs = $toArray($filters['program'] ?? null);
-        if (!empty($programs)) {
-            $codes = \App\Models\Program::whereIn('id', $programs)->pluck('code', 'id');
-            $names = array_map(fn ($id) => $codes[$id] ?? $id, $programs);
-            $parts[] = 'Program: ' . implode(', ', $names);
-        }
-
-        $academicYears = $toArray($filters['academic_year'] ?? null);
-        if (!empty($academicYears)) {
-            $labels = \App\Models\AcademicYear::whereIn('id', $academicYears)->pluck('name', 'id');
-            $names = array_map(fn ($id) => $labels[$id] ?? $id, $academicYears);
-            $parts[] = 'AY: ' . implode(', ', $names);
-        }
-
-        $docStatuses = $toArray($filters['document_status'] ?? null);
-        if (!empty($docStatuses)) {
-            $labels = array_map(fn ($c) => str_replace('_', ' ', ucfirst(strtolower($c))), $docStatuses);
-            $parts[] = 'Doc Status: ' . implode(', ', $labels);
-        }
-
-        $liqStatuses = $toArray($filters['liquidation_status'] ?? null);
-        if (!empty($liqStatuses)) {
-            $labels = array_map(fn ($c) => str_replace('_', ' ', ucfirst(strtolower($c))), $liqStatuses);
-            $parts[] = 'Liq Status: ' . implode(', ', $labels);
-        }
-
-        $rcNotes = $toArray($filters['rc_note_status'] ?? null);
-        if (!empty($rcNotes)) {
-            $ids = array_filter($rcNotes, fn ($v) => $v !== 'none');
-            $names = RcNoteStatus::whereIn('id', $ids)->pluck('name', 'id');
-            $labels = array_map(
-                fn ($v) => $v === 'none' ? 'None' : ($names[$v] ?? $v),
-                $rcNotes
-            );
-            $parts[] = 'RC Notes: ' . implode(', ', $labels);
-        }
-
-        if (!empty($filters['search'])) {
-            $parts[] = 'Search: "' . $filters['search'] . '"';
-        }
-
-        return implode(' | ', $parts);
-    }
 
     /**
      * Download RC bulk liquidation template.
@@ -2361,6 +2228,15 @@ class LiquidationController extends Controller
             'accountant_endorsement_remarks' => $liquidation->getAccountantEndorsementRemarks(),
             'updated_at' => $liquidation->updated_at?->toIso8601String(),
             'created_by_name' => $liquidation->creator?->name,
+            'import_batch' => $liquidation->importBatch ? [
+                'id'             => $liquidation->importBatch->id,
+                'file_name'      => $liquidation->importBatch->file_name,
+                'file_size'      => $liquidation->importBatch->file_size,
+                'imported_by'    => $liquidation->importBatch->user?->name,
+                'imported_at'    => $liquidation->importBatch->created_at?->toIso8601String(),
+                'is_undone'      => $liquidation->importBatch->isUndone(),
+                'can_download'   => $liquidation->importBatch->file_path !== null && !$isHEIUser,
+            ] : null,
             'beneficiaries' => $liquidation->beneficiaries->map(fn ($b) => [
                 'id' => $b->id,
                 'student_no' => $b->student_no,

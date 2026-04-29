@@ -79,6 +79,25 @@ class LiquidationReportExporter
         ]);
     }
 
+    /**
+     * Render the report directly to a file at the given absolute path. Used by
+     * the async GenerateLiquidationReportJob — no HTTP response wrapping.
+     */
+    public function writeToFile(array $data, string $format, string $absolutePath): void
+    {
+        if ($format === 'csv') {
+            $writer = new CsvWriter();
+            $writer->openToFile($absolutePath);
+            $this->writeCsv($writer, $data);
+            $writer->close();
+        } else {
+            [$writer, $options] = $this->buildXlsxWriter();
+            $writer->openToFile($absolutePath);
+            $this->writeXlsx($writer, $options, $data);
+            $writer->close();
+        }
+    }
+
     // ── XLSX ───────────────────────────────────────────────────────────────
 
     /** @return array{0: XlsxWriter, 1: XlsxOptions} */

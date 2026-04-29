@@ -67,7 +67,15 @@
       "Bash(./node_modules/.bin/tsc --noEmit)",
       "Bash(./node_modules/.bin/eslint resources/js/pages/liquidation/show.tsx resources/js/types/liquidation.ts)",
       "Bash(./node_modules/.bin/eslint resources/js/pages/report.tsx)",
-      "Bash(grep -E \"\\\\.tsx$\")"
+      "Bash(grep -E \"\\\\.tsx$\")",
+      "Bash(./node_modules/.bin/eslint resources/js/pages/report.tsx resources/js/components/notification-item.tsx)",
+      "Bash(./node_modules/.bin/eslint resources/js/hooks/use-report-queue.ts)",
+      "Bash(./node_modules/.bin/eslint resources/js/pages/liquidation/index.tsx)",
+      "Bash(grep -n \"import-batches\\\\|undo-import\\\\|liquidation\\\\\\\\.bulk-import\" resources/js/ziggy.js)",
+      "Bash(grep -E \"import-preview|liquidation-details|liquidation\\\\\\\\.ts|LiquidationController\")",
+      "Bash(git stash *)",
+      "Bash(git restore *)",
+      "Bash(git add *)"
     ]
   }
 }

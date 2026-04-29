@@ -137,6 +137,157 @@ class LiquidationService
     }
 
     /**
+     * Row cap for print/export to keep memory bounded.
+     * Real-world peak is ~18k; 50k gives comfortable headroom.
+     */
+    public const REPORT_ROW_CAP = 50000;
+
+    /**
+     * Build the full report payload (rows + totals + program summary + filter description).
+     * Used by the async GenerateLiquidationReportJob — feeds the same array shape into
+     * the Blade print view and the OpenSpout exporter as the previous synchronous path.
+     */
+    public function buildReportPayload(User $user, array $filters): array
+    {
+        $query = Liquidation::with([
+            'hei', 'program', 'financial', 'semester', 'academicYear',
+            'documentStatus', 'liquidationStatus', 'rcNoteStatus',
+        ])->orderBy('control_no', 'asc');
+
+        $this->applyRoleAndFilters($query, $user, $filters);
+
+        $totalMatching = (clone $query)->count();
+        $rowCap = self::REPORT_ROW_CAP;
+        $truncated = $totalMatching > $rowCap;
+
+        // Stream rows from the DB cursor instead of materialising 50k Eloquent
+        // models at once — keeps peak memory bounded even on large result sets.
+        $liquidations = $query->lazy(500)
+            ->take($rowCap)
+            ->map(function (Liquidation $liquidation) {
+                $financial = $liquidation->financial;
+                $disbursements = (float) ($financial?->amount_received ?? 0);
+                $liquidated = (float) ($financial?->amount_liquidated ?? 0);
+                $unliquidated = $disbursements - $liquidated;
+
+                $forEndorsement = $liquidation->rcNoteStatus?->code === 'FOR_ENDORSEMENT'
+                    ? $disbursements - $liquidated
+                    : 0;
+                $percentage = $disbursements > 0
+                    ? round((($liquidated + $forEndorsement) / $disbursements) * 100, 2)
+                    : 0;
+
+                $documentStatusDisplay = match ($liquidation->documentStatus?->code) {
+                    'COMPLETE' => 'Complete Submission',
+                    'PARTIAL' => 'Partial Submission',
+                    default => 'No Submission',
+                };
+
+                return [
+                    'program_code' => $liquidation->program?->code ?? '',
+                    'hei_name' => $liquidation->hei?->name ?? 'N/A',
+                    'control_no' => $liquidation->control_no,
+                    'academic_year' => $liquidation->academicYear?->name ?? '',
+                    'semester' => $liquidation->semester?->name ?? '',
+                    'batch_no' => $liquidation->batch_no ?? '',
+                    'date_fund_released' => $financial?->date_fund_released?->format('M d, Y') ?? '',
+                    'due_date' => $financial?->due_date?->format('M d, Y') ?? '',
+                    'number_of_grantees' => $financial?->number_of_grantees ?? 0,
+                    'total_disbursements' => number_format($disbursements, 2),
+                    'amount_liquidated' => number_format($liquidated, 2),
+                    'total_unliquidated' => number_format($unliquidated, 2),
+                    'document_status' => $documentStatusDisplay,
+                    'rc_notes' => $liquidation->rcNoteStatus?->name ?? '',
+                    'liquidation_status' => $liquidation->liquidationStatus?->name ?? 'Unliquidated',
+                    'percentage' => $percentage,
+                    'lapsing' => $financial?->lapsing_period ?? 0,
+                    '_raw_disbursements' => $disbursements,
+                    '_raw_liquidated' => $liquidated,
+                    '_raw_unliquidated' => $unliquidated,
+                ];
+            })
+            ->collect();
+
+        $aggregates = $this->getReportAggregates($user, $filters);
+
+        return [
+            'liquidations' => $liquidations,
+            'totals' => $aggregates['totals'],
+            'programSummary' => $aggregates['programSummary'],
+            'activeFilters' => $this->buildFilterDescription($filters),
+            'regionName' => $user->region?->name ?? 'Central Office',
+            'printedBy' => $user->name,
+            'truncated' => $truncated,
+            'totalMatching' => $totalMatching,
+            'rowCap' => $rowCap,
+        ];
+    }
+
+    /**
+     * Build a human-readable description of active filters for the report header.
+     */
+    private function buildFilterDescription(array $filters): string
+    {
+        $parts = [];
+
+        $toArray = function ($value): array {
+            if (empty($value)) return [];
+            $arr = is_array($value) ? $value : [$value];
+            return array_values(array_filter($arr, fn ($v) => $v !== '' && $v !== 'all'));
+        };
+
+        $programs = $toArray($filters['program'] ?? null);
+        if (!empty($programs)) {
+            $codes = Program::whereIn('id', $programs)->pluck('code', 'id');
+            $names = array_map(fn ($id) => $codes[$id] ?? $id, $programs);
+            $parts[] = 'Program: ' . implode(', ', $names);
+        }
+
+        $academicYears = $toArray($filters['academic_year'] ?? null);
+        if (!empty($academicYears)) {
+            $labels = \App\Models\AcademicYear::whereIn('id', $academicYears)->pluck('name', 'id');
+            $names = array_map(fn ($id) => $labels[$id] ?? $id, $academicYears);
+            $parts[] = 'AY: ' . implode(', ', $names);
+        }
+
+        $docStatuses = $toArray($filters['document_status'] ?? null);
+        if (!empty($docStatuses)) {
+            $labels = array_map(fn ($c) => str_replace('_', ' ', ucfirst(strtolower($c))), $docStatuses);
+            $parts[] = 'Doc Status: ' . implode(', ', $labels);
+        }
+
+        $liqStatuses = $toArray($filters['liquidation_status'] ?? null);
+        if (!empty($liqStatuses)) {
+            $labels = array_map(fn ($c) => str_replace('_', ' ', ucfirst(strtolower($c))), $liqStatuses);
+            $parts[] = 'Liq Status: ' . implode(', ', $labels);
+        }
+
+        $rcNotes = $toArray($filters['rc_note_status'] ?? null);
+        if (!empty($rcNotes)) {
+            $ids = array_filter($rcNotes, fn ($v) => $v !== 'none');
+            $names = RcNoteStatus::whereIn('id', $ids)->pluck('name', 'id');
+            $labels = array_map(
+                fn ($v) => $v === 'none' ? 'None' : ($names[$v] ?? $v),
+                $rcNotes
+            );
+            $parts[] = 'RC Notes: ' . implode(', ', $labels);
+        }
+
+        $heis = $toArray($filters['hei'] ?? null);
+        if (!empty($heis)) {
+            $names = HEI::whereIn('id', $heis)->pluck('name', 'id');
+            $labels = array_map(fn ($id) => $names[$id] ?? $id, $heis);
+            $parts[] = 'HEI: ' . implode(', ', $labels);
+        }
+
+        if (!empty($filters['search'])) {
+            $parts[] = 'Search: "' . $filters['search'] . '"';
+        }
+
+        return implode(' | ', $parts);
+    }
+
+    /**
      * Get paginated liquidations based on user role.
      */
     public function getPaginatedLiquidations(User $user, array $filters = []): LengthAwarePaginator

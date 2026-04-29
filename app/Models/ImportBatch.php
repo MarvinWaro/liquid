@@ -16,6 +16,8 @@ class ImportBatch extends Model
     protected $fillable = [
         'user_id',
         'file_name',
+        'file_path',
+        'file_size',
         'total_rows',
         'imported_count',
         'status',
@@ -27,6 +29,7 @@ class ImportBatch extends Model
         return [
             'total_rows' => 'integer',
             'imported_count' => 'integer',
+            'file_size' => 'integer',
             'undone_at' => 'datetime',
         ];
     }
