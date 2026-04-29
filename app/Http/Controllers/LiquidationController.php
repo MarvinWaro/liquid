@@ -37,6 +37,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -829,6 +830,14 @@ class LiquidationController extends Controller
         $isLast    = (bool) $request->input('is_last', false);
         $batchId   = $request->input('batch_id');
 
+        // Validate the optional source_file upload (only present on the first chunk).
+        // Rejecting here is safer than silently uploading a malicious or oversized file to S3.
+        if ($request->hasFile('source_file')) {
+            $request->validate([
+                'source_file' => ['file', 'mimes:xlsx,xls', 'max:51200'], // 50 MB, matches BulkImportRequest
+            ]);
+        }
+
         // Slice the chunk to import
         $chunk = array_slice($allRows, $offset, $limit);
 
@@ -839,9 +848,43 @@ class LiquidationController extends Controller
                 abort(403, 'Invalid batch.');
             }
         } else {
+            // Persist the original Excel file to S3 for audit/traceability.
+            // Only attempted on the first chunk (when no batch_id is provided yet).
+            // Storage failure degrades gracefully — the import still succeeds without a source file.
+            $sourceFilePath = null;
+            $sourceFileSize = null;
+            if ($request->hasFile('source_file')) {
+                $stream = null;
+                try {
+                    $sourceFile    = $request->file('source_file');
+                    $timestamp     = now()->format('Ymd-His');
+                    $rand          = Str::lower(Str::random(8));
+                    $extension     = strtolower($sourceFile->getClientOriginalExtension() ?: 'xlsx');
+                    $candidatePath = "liquidation_imports/{$user->id}/{$timestamp}-{$rand}.{$extension}";
+                    $candidateSize = $sourceFile->getSize() ?: null;
+
+                    $stream = fopen($sourceFile->getRealPath(), 'rb');
+                    Storage::disk(config('filesystems.default'))->put($candidatePath, $stream, 'private');
+
+                    $sourceFilePath = $candidatePath;
+                    $sourceFileSize = $candidateSize;
+                } catch (\Throwable $e) {
+                    Log::warning('Bulk import source file upload failed; proceeding without persisted source.', [
+                        'user_id' => $user->id,
+                        'error'   => $e->getMessage(),
+                    ]);
+                } finally {
+                    if (is_resource($stream)) {
+                        fclose($stream);
+                    }
+                }
+            }
+
             $batch = ImportBatch::create([
                 'user_id'        => $user->id,
                 'file_name'      => $cached['file_name'] ?? 'unknown.xlsx',
+                'file_path'      => $sourceFilePath,
+                'file_size'      => $sourceFileSize,
                 'total_rows'     => $totalRows,
                 'imported_count' => 0,
                 'status'         => 'active',
@@ -1053,9 +1096,16 @@ class LiquidationController extends Controller
                 ->delete();
         }
 
+        // Remove the persisted source Excel from S3 — undo wipes the batch entirely
+        if ($batch->file_path) {
+            Storage::disk(config('filesystems.default'))->delete($batch->file_path);
+        }
+
         $batch->update([
-            'status'   => 'undone',
+            'status'    => 'undone',
             'undone_at' => now(),
+            'file_path' => null,
+            'file_size' => null,
         ]);
 
         ActivityLog::log(
@@ -1079,6 +1129,33 @@ class LiquidationController extends Controller
     }
 
     /**
+     * Stream the original Excel file for an import batch.
+     * Restricted to internal staff (HEI users never bulk-import, so they don't need source files).
+     */
+    public function downloadImportBatchFile(Request $request, string $batchId)
+    {
+        $user = $request->user();
+
+        // HEI users never bulk-import, so they have no business pulling source files
+        if ($user->hei_id !== null) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $batch = ImportBatch::findOrFail($batchId);
+
+        if (!$batch->file_path) {
+            abort(404, 'Source file is not available for this import batch.');
+        }
+
+        $disk = Storage::disk(config('filesystems.default'));
+        if (!$disk->exists($batch->file_path)) {
+            abort(404, 'Source file no longer exists.');
+        }
+
+        return $disk->download($batch->file_path, $batch->file_name);
+    }
+
+    /**
      * Display liquidation details page.
      */
     public function show(Request $request, Liquidation $liquidation): InertiaResponse
@@ -1098,6 +1175,7 @@ class LiquidationController extends Controller
             'transmittal.endorser', 'transmittal.location',
             'compliance.complianceStatus',
             'documentStatus', 'liquidationStatus', 'creator',
+            'importBatch.user',
         ]);
 
         $heiRegionId = $liquidation->hei?->region_id;
@@ -2150,6 +2228,15 @@ class LiquidationController extends Controller
             'accountant_endorsement_remarks' => $liquidation->getAccountantEndorsementRemarks(),
             'updated_at' => $liquidation->updated_at?->toIso8601String(),
             'created_by_name' => $liquidation->creator?->name,
+            'import_batch' => $liquidation->importBatch ? [
+                'id'             => $liquidation->importBatch->id,
+                'file_name'      => $liquidation->importBatch->file_name,
+                'file_size'      => $liquidation->importBatch->file_size,
+                'imported_by'    => $liquidation->importBatch->user?->name,
+                'imported_at'    => $liquidation->importBatch->created_at?->toIso8601String(),
+                'is_undone'      => $liquidation->importBatch->isUndone(),
+                'can_download'   => $liquidation->importBatch->file_path !== null && !$isHEIUser,
+            ] : null,
             'beneficiaries' => $liquidation->beneficiaries->map(fn ($b) => [
                 'id' => $b->id,
                 'student_no' => $b->student_no,

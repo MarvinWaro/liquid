@@ -13,7 +13,7 @@ import {
     ContextMenuSeparator,
     ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { Pencil, Save, RotateCcw } from 'lucide-react';
+import { Pencil, Save, RotateCcw, FileSpreadsheet, Download } from 'lucide-react';
 import AmountInput from './amount-input';
 import {
     type Liquidation,
@@ -49,6 +49,13 @@ function CurrencyValue({ amount, className = '' }: { amount: number; className?:
             ₱{amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
         </p>
     );
+}
+
+/** Human-readable byte size (KB / MB) */
+function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export default function LiquidationDetailsCard({
@@ -373,6 +380,62 @@ export default function LiquidationDetailsCard({
                                     </div>
                                 )}
                             </div>
+
+                            {/* Source Import File — shown only for liquidations created via bulk import */}
+                            {liquidation.import_batch && !isHEIUser && (
+                                <div className="border-t pt-5">
+                                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">Source Import File</p>
+                                    <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/20 px-4 py-3">
+                                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                                            <div className="shrink-0 flex items-center justify-center h-9 w-9 rounded-md bg-emerald-100 dark:bg-emerald-950">
+                                                <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-sm font-medium truncate" title={liquidation.import_batch.file_name}>
+                                                    {liquidation.import_batch.file_name}
+                                                </p>
+                                                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                                    {liquidation.import_batch.file_size != null && (
+                                                        <span>{formatFileSize(liquidation.import_batch.file_size)}</span>
+                                                    )}
+                                                    {liquidation.import_batch.imported_by && (
+                                                        <>
+                                                            <span>•</span>
+                                                            <span>by {liquidation.import_batch.imported_by}</span>
+                                                        </>
+                                                    )}
+                                                    {liquidation.import_batch.imported_at && (
+                                                        <>
+                                                            <span>•</span>
+                                                            <span>{new Date(liquidation.import_batch.imported_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {liquidation.import_batch.can_download ? (
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                asChild
+                                                className="shrink-0"
+                                            >
+                                                <a
+                                                    href={route('liquidation.download-import-batch-file', { batchId: liquidation.import_batch.id })}
+                                                    download
+                                                >
+                                                    <Download className="h-3.5 w-3.5 mr-1.5" />
+                                                    Download
+                                                </a>
+                                            </Button>
+                                        ) : (
+                                            <span className="shrink-0 text-[11px] text-muted-foreground italic">
+                                                {liquidation.import_batch.is_undone ? 'File removed (batch undone)' : 'Source file not retained'}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </ContextMenuTrigger>
                     <ContextMenuContent className="w-48">

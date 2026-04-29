@@ -265,16 +265,42 @@
         <span>{{ $liquidations->count() }} record(s) &mdash; Landscape, Long Bond Paper (Legal)</span>
     </div>
 
+    @php
+        // Embed logos as base64 so the report is self-contained — works regardless of
+        // where the rendered HTML is served from (S3, local disk, etc.) or whether
+        // APP_URL matches the request host.
+        $embedImage = function (string $relativePath): string {
+            $absolutePath = public_path($relativePath);
+            if (!is_file($absolutePath)) {
+                return '';
+            }
+            $mime = match (strtolower(pathinfo($absolutePath, PATHINFO_EXTENSION))) {
+                'png'  => 'image/png',
+                'jpg', 'jpeg' => 'image/jpeg',
+                'gif'  => 'image/gif',
+                'svg'  => 'image/svg+xml',
+                default => 'application/octet-stream',
+            };
+            return 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($absolutePath));
+        };
+        $chedLogoSrc = $embedImage('assets/img/ched-logo.png');
+        $bagongPilipinasLogoSrc = $embedImage('assets/img/bagong-pilipinas.png');
+    @endphp
+
     <div class="page-wrap">
         {{-- Report Header --}}
         <div class="report-header">
-            <img src="{{ asset('assets/img/ched-logo.png') }}" alt="CHED" class="logo-left">
+            @if($chedLogoSrc)
+                <img src="{{ $chedLogoSrc }}" alt="CHED" class="logo-left">
+            @endif
             <div class="header-text">
                 <p class="republic">Republic of the Philippines</p>
                 <p class="ched">Commission on Higher Education</p>
                 <p class="office">{{ $regionName }}</p>
             </div>
-            <img src="{{ asset('assets/img/bagong-pilipinas.png') }}" alt="Bagong Pilipinas" class="logo-right">
+            @if($bagongPilipinasLogoSrc)
+                <img src="{{ $bagongPilipinasLogoSrc }}" alt="Bagong Pilipinas" class="logo-right">
+            @endif
         </div>
 
         <div class="report-title">

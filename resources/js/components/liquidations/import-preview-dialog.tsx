@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
-import axios from 'axios';
+import axios, { type AxiosResponse } from 'axios';
 import ExcelJS from 'exceljs';
 
 // --- Types ----------------------------------------------------------------
@@ -430,13 +430,29 @@ export function ImportPreviewDialog({
             for (let offset = 0; offset < totalRows; offset += IMPORT_CHUNK_SIZE) {
                 const isLast = offset + IMPORT_CHUNK_SIZE >= totalRows;
 
-                const response = await axios.post(route('liquidation.bulk-import'), {
-                    import_token: token,
-                    batch_id: batchId,
-                    offset,
-                    limit: IMPORT_CHUNK_SIZE,
-                    is_last: isLast,
-                });
+                // First chunk attaches the original Excel as multipart so the backend
+                // can persist it to S3 and link it to the new ImportBatch.
+                const isFirstChunk: boolean = batchId === null;
+                let response: AxiosResponse<any>;
+                if (isFirstChunk && selectedFile) {
+                    const formData = new FormData();
+                    formData.append('import_token', token);
+                    formData.append('offset', String(offset));
+                    formData.append('limit', String(IMPORT_CHUNK_SIZE));
+                    formData.append('is_last', isLast ? '1' : '0');
+                    formData.append('source_file', selectedFile);
+                    response = await axios.post(route('liquidation.bulk-import'), formData, {
+                        headers: { 'Content-Type': 'multipart/form-data' },
+                    });
+                } else {
+                    response = await axios.post(route('liquidation.bulk-import'), {
+                        import_token: token,
+                        batch_id: batchId,
+                        offset,
+                        limit: IMPORT_CHUNK_SIZE,
+                        is_last: isLast,
+                    });
+                }
 
                 batchId = response.data.batch_id ?? batchId;
                 totalImported += response.data.imported ?? 0;
