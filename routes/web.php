@@ -8,6 +8,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\HEIController;
 use App\Http\Controllers\RegionController;
 use App\Http\Controllers\AnnouncementController;
+use App\Http\Controllers\BulkEntryDraftController;
 use App\Http\Controllers\LiquidationController;
 use App\Http\Controllers\ProgramController;
 use App\Http\Controllers\ActivityLogController;
@@ -227,6 +228,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('liquidation/import-batches/{batchId}/undo', [LiquidationController::class, 'undoImportBatch'])->name('liquidation.undo-import-batch');
     Route::get('liquidation/import-batches/{batchId}/download', [LiquidationController::class, 'downloadImportBatchFile'])->name('liquidation.download-import-batch-file');
     Route::post('liquidation/bulk-store', [LiquidationController::class, 'bulkStore'])->name('liquidation.bulk-store');
+
+    // Server-side persistence for the bulk-entry modal draft (one draft per user).
+    Route::get('liquidation/bulk-entry/draft', [BulkEntryDraftController::class, 'show'])->name('liquidation.bulk-entry-draft.show');
+    Route::put('liquidation/bulk-entry/draft', [BulkEntryDraftController::class, 'update'])->name('liquidation.bulk-entry-draft.update');
+    Route::delete('liquidation/bulk-entry/draft', [BulkEntryDraftController::class, 'destroy'])->name('liquidation.bulk-entry-draft.destroy');
 
     // Liquidation Tracking Entry Routes
     Route::post('liquidation/{liquidation}/tracking-entries', [LiquidationController::class, 'saveTrackingEntries'])->name('liquidation.save-tracking-entries');

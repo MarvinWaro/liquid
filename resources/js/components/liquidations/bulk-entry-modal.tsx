@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef, useLayoutEffect } from 'react';
 import {
     Drawer,
     DrawerContent,
@@ -53,51 +53,108 @@ import {
     type RcNoteStatusOption,
 } from './liquidation-constants';
 
-// --- Draft persistence (scoped per user) -------------------------------
+// --- Draft persistence (server-backed) ---------------------------------
+// Drafts live on the server (one per user) so they follow the user across
+// devices/browsers. The legacy localStorage helper below exists only to
+// migrate any draft saved by an older version of this component; once
+// uploaded to the server it's cleared from the browser and never used again.
 
-const DRAFT_KEY_PREFIX = 'liquidation_bulk_entry_draft';
+const LEGACY_DRAFT_KEY_PREFIX = 'liquidation_bulk_entry_draft';
 
+/**
+ * Hard ceiling on draft rows. Mirrors the server-side
+ * `StoreBulkEntryDraftRequest::MAX_DRAFT_ROWS`. Manual entry past this is
+ * a UX trap (slow modal, big payloads); large data should go through the
+ * Excel bulk-import flow instead.
+ */
+const MAX_DRAFT_ROWS = 100;
+
+/**
+ * Server-stored draft row. Fields can come back as `null` when the user
+ * hadn't typed in them yet (Laravel + JSON column preserves nullness),
+ * so all string fields are nullable here. Hydration normalises these
+ * back to '' before they reach the editable BulkEntryRow.
+ */
 interface DraftRow {
-    program_id: string;
-    uii: string;
-    date_fund_released: string;
-    due_date: string;
-    academic_year_id: string;
-    semester: string;
-    batch_no: string;
-    dv_control_no: string;
-    number_of_grantees: string;
-    total_disbursements: string;
-    total_amount_liquidated: string;
-    document_status: string;
-    rc_notes: string;
+    program_id: string | null;
+    uii: string | null;
+    date_fund_released: string | null;
+    due_date: string | null;
+    academic_year_id: string | null;
+    semester: string | null;
+    batch_no: string | null;
+    dv_control_no: string | null;
+    number_of_grantees: string | null;
+    total_disbursements: string | null;
+    total_amount_liquidated: string | null;
+    document_status: string | null;
+    rc_notes: string | null;
 }
 
-function getDraftKey(userId: number | string) {
-    return `${DRAFT_KEY_PREFIX}_${userId}`;
+/** Coerce a possibly-null value to a trimmed string. */
+const str = (v: string | null | undefined): string => (v ?? '').toString();
+
+interface DraftPayload {
+    rows: DraftRow[];
+    savedAt: string;
 }
 
-function saveDraftToStorage(userId: number | string, rows: BulkEntryRow[]) {
-    const draft: DraftRow[] = rows.map(({ program_id, uii, date_fund_released, due_date, academic_year_id, semester, batch_no, dv_control_no, number_of_grantees, total_disbursements, total_amount_liquidated, document_status, rc_notes }) => ({
+/** Project a BulkEntryRow down to the persistable DraftRow shape. */
+function toDraftRows(rows: BulkEntryRow[]): DraftRow[] {
+    return rows.map(({ program_id, uii, date_fund_released, due_date, academic_year_id, semester, batch_no, dv_control_no, number_of_grantees, total_disbursements, total_amount_liquidated, document_status, rc_notes }) => ({
         program_id, uii, date_fund_released, due_date, academic_year_id, semester,
         batch_no, dv_control_no, number_of_grantees, total_disbursements, total_amount_liquidated,
         document_status, rc_notes,
     }));
-    localStorage.setItem(getDraftKey(userId), JSON.stringify({ rows: draft, savedAt: new Date().toISOString() }));
 }
 
-function loadDraftFromStorage(userId: number | string): { rows: DraftRow[]; savedAt: string } | null {
+async function loadDraftFromServer(): Promise<DraftPayload | null> {
+    const { data } = await axios.get(route('liquidation.bulk-entry-draft.show'));
+    if (!data?.draft || !Array.isArray(data.draft.rows) || data.draft.rows.length === 0) return null;
+    return { rows: data.draft.rows, savedAt: data.draft.saved_at };
+}
+
+async function saveDraftToServer(rows: BulkEntryRow[]): Promise<DraftPayload> {
+    const { data } = await axios.put(route('liquidation.bulk-entry-draft.update'), {
+        rows: toDraftRows(rows),
+    });
+    return { rows: data.draft.rows, savedAt: data.draft.saved_at };
+}
+
+async function clearDraftFromServer(): Promise<void> {
+    await axios.delete(route('liquidation.bulk-entry-draft.destroy'));
+}
+
+/**
+ * One-time migration: if an older browser-cached draft exists for this user,
+ * upload it to the server and clear localStorage. After this runs once, the
+ * legacy key never has data again. If the upload fails we leave the legacy
+ * payload alone so a later attempt can retry.
+ */
+async function migrateLegacyLocalStorageDraft(userId: number | string): Promise<DraftPayload | null> {
+    const legacyKey = `${LEGACY_DRAFT_KEY_PREFIX}_${userId}`;
+    let parsed: { rows?: DraftRow[]; savedAt?: string } | null = null;
     try {
-        const raw = localStorage.getItem(getDraftKey(userId));
+        const raw = localStorage.getItem(legacyKey);
         if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed?.rows) && parsed.rows.length > 0) return parsed;
-    } catch { /* ignore corrupt data */ }
-    return null;
-}
-
-function clearDraftFromStorage(userId: number | string) {
-    localStorage.removeItem(getDraftKey(userId));
+        parsed = JSON.parse(raw);
+    } catch {
+        localStorage.removeItem(legacyKey);
+        return null;
+    }
+    if (!Array.isArray(parsed?.rows) || parsed.rows.length === 0) {
+        localStorage.removeItem(legacyKey);
+        return null;
+    }
+    try {
+        const { data } = await axios.put(route('liquidation.bulk-entry-draft.update'), {
+            rows: parsed.rows,
+        });
+        localStorage.removeItem(legacyKey);
+        return { rows: data.draft.rows, savedAt: data.draft.saved_at };
+    } catch {
+        return null;
+    }
 }
 
 // --- Types -------------------------------------------------------------
@@ -191,11 +248,24 @@ function rowHasData(r: BulkEntryRow): boolean {
 }
 
 function hydrateRow(draft: DraftRow, heiMap: Map<string, HEIOption>): BulkEntryRow {
-    const match = heiMap.get(draft.uii.trim().toLowerCase());
+    const uii = str(draft.uii).trim();
+    const match = heiMap.get(uii.toLowerCase());
     return {
-        ...draft,
         id: crypto.randomUUID(),
-        hei_name: match?.name || '',
+        program_id:              str(draft.program_id),
+        uii,
+        hei_name:                match?.name || '',
+        date_fund_released:      str(draft.date_fund_released),
+        due_date:                str(draft.due_date),
+        academic_year_id:        str(draft.academic_year_id),
+        semester:                str(draft.semester),
+        batch_no:                str(draft.batch_no),
+        dv_control_no:           str(draft.dv_control_no),
+        number_of_grantees:      str(draft.number_of_grantees),
+        total_disbursements:     str(draft.total_disbursements),
+        total_amount_liquidated: str(draft.total_amount_liquidated),
+        document_status:         str(draft.document_status),
+        rc_notes:                str(draft.rc_notes),
     };
 }
 
@@ -436,6 +506,13 @@ export function BulkEntryModal({
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [rowErrors, setRowErrors] = useState<Record<number, string>>({});
     const [hasDraft, setHasDraft] = useState(false);
+    const [isDraftLoading, setIsDraftLoading] = useState(false);
+
+    // Refs used to (1) scroll-to-bottom when adding/duplicating rows so the
+    // user gets immediate visual confirmation and (2) flash-highlight the
+    // newest row briefly on append.
+    const tableScrollRef = useRef<HTMLDivElement | null>(null);
+    const pendingScrollRef = useRef(false);
 
     const { auth } = usePage<SharedData>().props;
     const userId = auth.user.id;
@@ -446,22 +523,64 @@ export function BulkEntryModal({
         return map;
     }, [heis]);
 
-    // Load draft on open
+    // Load draft on open. Tries server first; if the server has nothing but a
+    // legacy localStorage payload exists, migrate it up and then load it.
     useEffect(() => {
-        if (isOpen) {
-            const draft = loadDraftFromStorage(userId);
-            if (draft) {
-                setRows(draft.rows.map(r => hydrateRow(r, heiMap)));
-                setHasDraft(true);
-                const saved = new Date(draft.savedAt);
-                toast.info(`Draft restored (saved ${saved.toLocaleDateString()} ${saved.toLocaleTimeString()})`);
-            } else {
+        if (!isOpen) return;
+
+        let cancelled = false;
+        setRowErrors({});
+        setIsDraftLoading(true);
+
+        (async () => {
+            let draft: DraftPayload | null = null;
+            try {
+                draft = await loadDraftFromServer();
+                if (!draft) {
+                    // Best-effort: upgrade any browser-cached draft from the prior version.
+                    draft = await migrateLegacyLocalStorageDraft(userId);
+                }
+            } catch {
+                // Network/server failure shouldn't block the user from entering data.
+                // Fall through with no draft — they can still type fresh rows.
+            }
+
+            if (cancelled) return;
+
+            try {
+                if (draft) {
+                    setRows(draft.rows.map(r => hydrateRow(r, heiMap)));
+                    setHasDraft(true);
+                    const saved = new Date(draft.savedAt);
+                    toast.info(`Draft restored (saved ${saved.toLocaleDateString()} ${saved.toLocaleTimeString()})`);
+                } else {
+                    setRows([createEmptyRow()]);
+                    setHasDraft(false);
+                }
+            } catch (e) {
+                // Hydration failure (corrupt draft shape) should never trap
+                // the user in a perpetual "Loading draft..." state.
+                console.error('Failed to hydrate draft rows:', e);
                 setRows([createEmptyRow()]);
                 setHasDraft(false);
+                toast.error('Saved draft was unreadable and has been skipped.');
+            } finally {
+                setIsDraftLoading(false);
             }
-            setRowErrors({});
-        }
+        })();
+
+        return () => { cancelled = true; };
     }, [isOpen, heiMap, userId]);
+
+    // After Add/Duplicate row, scroll the table to reveal the new row.
+    // useLayoutEffect runs after DOM mutation but before paint, so the user
+    // never sees a "flash of old position".
+    useLayoutEffect(() => {
+        if (!pendingScrollRef.current) return;
+        pendingScrollRef.current = false;
+        const el = tableScrollRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+    }, [rows.length]);
 
     const getProgramPrefix = (programId: string): string => {
         const program = programs.find(p => p.id === programId);
@@ -508,9 +627,28 @@ export function BulkEntryModal({
         }
     };
 
-    const addRow = () => setRows(prev => [...prev, createEmptyRow()]);
+    const isAtRowLimit = rows.length >= MAX_DRAFT_ROWS;
+
+    const addRow = () => {
+        if (isAtRowLimit) {
+            toast.warning(`Maximum ${MAX_DRAFT_ROWS} rows reached. For larger batches, use Excel bulk import.`);
+            return;
+        }
+        pendingScrollRef.current = true;
+        setRows(prev => [...prev, createEmptyRow()]);
+    };
 
     const duplicateRow = (index: number) => {
+        if (isAtRowLimit) {
+            toast.warning(`Maximum ${MAX_DRAFT_ROWS} rows reached. For larger batches, use Excel bulk import.`);
+            return;
+        }
+        // Only auto-scroll when the duplicate ends up below the visible viewport,
+        // i.e. we're inserting near the end. Scrolling on every duplicate would
+        // be jarring when the user is duplicating mid-table.
+        if (index >= rows.length - 1) {
+            pendingScrollRef.current = true;
+        }
         setRows(prev => {
             const copy: BulkEntryRow = { ...prev[index], id: crypto.randomUUID() };
             const updated = [...prev];
@@ -533,20 +671,30 @@ export function BulkEntryModal({
         });
     };
 
-    // Draft actions
-    const handleSaveDraft = () => {
-        saveDraftToStorage(userId, rows);
+    // Draft actions — optimistic UX: update the UI immediately and fire the
+    // network request in the background. Server-side persistence is still the
+    // source of truth across devices, but the user shouldn't have to wait for
+    // HTTP latency to see feedback. On failure we surface an error toast so
+    // the user can retry; both endpoints are idempotent (upsert + delete-where)
+    // so retrying cannot corrupt state.
+    const handleSaveDraft = useCallback(() => {
+        const snapshot = rows;
         setHasDraft(true);
         toast.success('Draft saved.');
-    };
+        saveDraftToServer(snapshot).catch(() => {
+            toast.error('Could not save draft to server. Please try again.');
+        });
+    }, [rows]);
 
-    const handleDiscardDraft = () => {
-        clearDraftFromStorage(userId);
+    const handleDiscardDraft = useCallback(() => {
         setRows([createEmptyRow()]);
         setRowErrors({});
         setHasDraft(false);
         toast.info('Draft discarded.');
-    };
+        clearDraftFromServer().catch(() => {
+            toast.warning('Server-side draft may not have been cleared.');
+        });
+    }, []);
 
     // Close confirmation
     const [showCloseConfirm, setShowCloseConfirm] = useState(false);
@@ -647,7 +795,10 @@ export function BulkEntryModal({
                     setRowErrors(backendErrors);
                     onSuccess();
                 } else {
-                    clearDraftFromStorage(userId);
+                    // Fire-and-forget: success path doesn't depend on the delete.
+                    // If it fails, the next open will simply load a stale draft
+                    // and the user can discard it.
+                    void clearDraftFromServer().catch(() => {});
                     onSuccess();
                     onClose();
                 }
@@ -705,7 +856,15 @@ export function BulkEntryModal({
                 </DrawerHeader>
 
                 {/* Table — scrollable both directions */}
-                <div className="flex-1 overflow-auto border rounded-md min-h-0">
+                <div ref={tableScrollRef} className="flex-1 overflow-auto border rounded-md min-h-0 relative">
+                    {isDraftLoading && (
+                        <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/70 backdrop-blur-[1px]">
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                Loading draft...
+                            </div>
+                        </div>
+                    )}
                     <table className="text-sm border-collapse min-w-[1500px] w-full">
                         <colgroup><col style={{ width: 36 }} /><col style={{ width: 80 }} /><col style={{ width: 140 }} /><col style={{ width: 200 }} /><col style={{ width: 110 }} /><col style={{ width: 140 }} /><col style={{ width: 140 }} /><col style={{ width: 120 }} /><col style={{ width: 60 }} /><col style={{ width: 150 }} /><col style={{ width: 80 }} /><col style={{ width: 120 }} /><col style={{ width: 120 }} /><col style={{ width: 130 }} /><col style={{ width: 130 }} /><col style={{ width: 56 }} /></colgroup>
                         <thead className="bg-muted/50 sticky top-0 z-10">
@@ -900,10 +1059,24 @@ export function BulkEntryModal({
                 {/* Footer */}
                 <div className="flex justify-between items-center pt-2 shrink-0">
                     <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={addRow}>
-                            <Plus className="h-4 w-4 mr-1" />
-                            Add Row
-                        </Button>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span className={cn(isAtRowLimit && 'cursor-not-allowed')}>
+                                    <Button variant="outline" size="sm" onClick={addRow} disabled={isAtRowLimit}>
+                                        <Plus className="h-4 w-4 mr-1" />
+                                        Add Row
+                                    </Button>
+                                </span>
+                            </TooltipTrigger>
+                            {isAtRowLimit && (
+                                <TooltipContent>
+                                    Maximum {MAX_DRAFT_ROWS} rows. Use Excel bulk import for larger batches.
+                                </TooltipContent>
+                            )}
+                        </Tooltip>
+                        <span className="text-[11px] text-muted-foreground tabular-nums">
+                            {rows.length} / {MAX_DRAFT_ROWS}
+                        </span>
                         {hasDraft && (
                             <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={handleDiscardDraft}>
                                 <Trash2 className="h-3.5 w-3.5 mr-1" />
