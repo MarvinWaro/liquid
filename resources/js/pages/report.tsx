@@ -1,7 +1,8 @@
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useReportQueue } from '@/hooks/use-report-queue';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -14,7 +15,6 @@ import {
 } from '@/components/ui/select';
 import { Stepper } from '@/components/ui/stepper';
 import { useInitials } from '@/hooks/use-initials';
-import { toast } from '@/lib/toast';
 import {
     ArrowLeft,
     ArrowRight,
@@ -129,9 +129,8 @@ export default function Report({
     const [regionFilter, setRegionFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState('all');
 
-    // Excel/CSV export progress
-    const [exportKind, setExportKind] = useState<'excel' | 'csv' | null>(null);
-    const exportAbortRef = useRef<AbortController | null>(null);
+    // Async report queue lifecycle (pre-open tab, poll, claim, deliver).
+    const { queueReport, pendingFormat: exportKind } = useReportQueue();
 
     const filteredHeis = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
@@ -163,113 +162,21 @@ export default function Report({
         setter(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
     };
 
-    const buildReportQueryString = () => {
-        const params = new URLSearchParams();
-        if (selectedHeiId) params.append('hei[]', selectedHeiId);
-        selectedPrograms.forEach((v) => params.append('program[]', v));
-        selectedAcademicYears.forEach((v) => params.append('academic_year[]', v));
-        selectedDocStatuses.forEach((v) => params.append('document_status[]', v));
-        selectedLiqStatuses.forEach((v) => params.append('liquidation_status[]', v));
-        selectedRcNotes.forEach((v) => params.append('rc_note_status[]', v));
-        return params.toString();
+    // Build the filter payload the backend's reports.queue endpoint validates.
+    const buildReportPayload = (): Record<string, string | string[]> => {
+        const payload: Record<string, string | string[]> = {};
+        if (selectedHeiId) payload.hei = [selectedHeiId];
+        if (selectedPrograms.length) payload.program = selectedPrograms;
+        if (selectedAcademicYears.length) payload.academic_year = selectedAcademicYears;
+        if (selectedDocStatuses.length) payload.document_status = selectedDocStatuses;
+        if (selectedLiqStatuses.length) payload.liquidation_status = selectedLiqStatuses;
+        if (selectedRcNotes.length) payload.rc_note_status = selectedRcNotes;
+        return payload;
     };
 
-    const handlePrint = () => {
-        const qs = buildReportQueryString();
-        const url = route('liquidation.print-report') + (qs ? `?${qs}` : '');
-        const newTab = window.open('', '_blank');
-        if (!newTab) {
-            window.open(url, '_blank');
-            return;
-        }
-        newTab.document.write(`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<title>Generating Liquidation Report…</title>
-<style>
-  html, body { height: 100%; margin: 0; }
-  body { display: flex; align-items: center; justify-content: center;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #f8fafc; color: #0f172a; }
-  .loader { text-align: center; max-width: 420px; padding: 32px; }
-  .spinner { width: 56px; height: 56px; margin: 0 auto 20px;
-    border: 5px solid #e2e8f0; border-top-color: #2563eb; border-radius: 50%;
-    animation: spin 0.9s linear infinite; }
-  h2 { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
-  p  { font-size: 13px; margin: 0; color: #475569; line-height: 1.5; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-</style>
-</head>
-<body>
-  <div class="loader">
-    <div class="spinner"></div>
-    <h2>Generating Liquidation Report</h2>
-    <p>Preparing the printable monitoring sheet. This may take a few seconds — please don't close this tab.</p>
-  </div>
-</body>
-</html>`);
-        newTab.document.close();
-        newTab.location.href = url;
-    };
-
-    const downloadReport = async (kind: 'excel' | 'csv') => {
-        if (exportKind) return;
-        const qs = buildReportQueryString();
-        const routeName = kind === 'excel' ? 'liquidation.export-excel' : 'liquidation.export-csv';
-        const url = route(routeName) + (qs ? `?${qs}` : '');
-        const fallbackName = `liquidation-report-${new Date().toISOString().slice(0, 10)}.${kind === 'excel' ? 'xlsx' : 'csv'}`;
-        const label = kind === 'excel' ? 'Excel' : 'CSV';
-
-        const controller = new AbortController();
-        exportAbortRef.current = controller;
-        setExportKind(kind);
-        const toastId = toast.loading(`Preparing ${label} export — this may take a while…`, {
-            duration: Infinity,
-            action: { label: 'Cancel', onClick: () => controller.abort() },
-        });
-
-        let blobUrl: string | null = null;
-        try {
-            const res = await fetch(url, {
-                credentials: 'same-origin',
-                headers: { Accept: '*/*' },
-                signal: controller.signal,
-            });
-            if (!res.ok) {
-                throw new Error(
-                    res.status === 403
-                        ? 'You are not allowed to export this report.'
-                        : `Export failed (${res.status}).`,
-                );
-            }
-            const disposition = res.headers.get('Content-Disposition') || '';
-            const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
-            const filename = match ? decodeURIComponent(match[1]) : fallbackName;
-            const blob = await res.blob();
-            blobUrl = URL.createObjectURL(blob);
-            const anchor = document.createElement('a');
-            anchor.href = blobUrl;
-            anchor.download = filename;
-            document.body.appendChild(anchor);
-            anchor.click();
-            anchor.remove();
-            toast.dismiss(toastId);
-            toast.success(`${label} downloaded`);
-        } catch (e: unknown) {
-            toast.dismiss(toastId);
-            const err = e as { name?: string; message?: string };
-            if (err?.name === 'AbortError') {
-                toast.info(`${label} export cancelled.`);
-            } else {
-                toast.error(err?.message || `${label} export failed.`);
-            }
-        } finally {
-            if (blobUrl) URL.revokeObjectURL(blobUrl);
-            if (exportAbortRef.current === controller) exportAbortRef.current = null;
-            setExportKind(null);
-        }
-    };
+    const handlePrint = () => queueReport('print', buildReportPayload());
+    const handleExportExcel = () => queueReport('excel', buildReportPayload());
+    const handleExportCsv = () => queueReport('csv', buildReportPayload());
 
     const stepKey = STEPS[currentStep - 1]?.key;
     const canAdvance = stepKey === 'hei' ? Boolean(selectedHeiId) : true;
@@ -403,27 +310,31 @@ export default function Report({
                             </Button>
                         ) : (
                             <div className="flex flex-wrap items-center gap-2">
-                                <Button onClick={handlePrint} className="gap-1.5">
+                                <Button
+                                    onClick={handlePrint}
+                                    disabled={exportKind !== null}
+                                    className="gap-1.5"
+                                >
                                     <Printer className="h-4 w-4" />
-                                    Print
+                                    {exportKind === 'print' ? 'Queuing…' : 'Print'}
                                 </Button>
                                 <Button
-                                    onClick={() => downloadReport('excel')}
+                                    onClick={handleExportExcel}
                                     disabled={exportKind !== null}
                                     variant="outline"
                                     className="gap-1.5"
                                 >
                                     <FileSpreadsheet className="h-4 w-4" />
-                                    {exportKind === 'excel' ? 'Preparing…' : 'Excel'}
+                                    {exportKind === 'excel' ? 'Queuing…' : 'Excel'}
                                 </Button>
                                 <Button
-                                    onClick={() => downloadReport('csv')}
+                                    onClick={handleExportCsv}
                                     disabled={exportKind !== null}
                                     variant="outline"
                                     className="gap-1.5"
                                 >
                                     <FileText className="h-4 w-4" />
-                                    {exportKind === 'csv' ? 'Preparing…' : 'CSV'}
+                                    {exportKind === 'csv' ? 'Queuing…' : 'CSV'}
                                 </Button>
                             </div>
                         )}

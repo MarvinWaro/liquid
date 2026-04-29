@@ -296,11 +296,16 @@
 
         @php
             $cols = [1.5, 3, 10, 6.5, 4, 2.5, 2, 5, 5, 3, 8.5, 8.5, 8.5, 6, 6, 6.5, 4, 3.5];
-            // Smart currency format: drop .00 but keep real cents (e.g. 756,490.50)
-            function printMoney(float $val): string {
-                return fmod($val, 1) == 0
-                    ? number_format($val, 0)
-                    : number_format($val, 2);
+            // Smart currency format: drop .00 but keep real cents (e.g. 756,490.50).
+            // Guarded so the long-running queue worker can render this view repeatedly
+            // without "Cannot redeclare function" — function_exists() makes the @php
+            // block idempotent across multiple invocations in the same PHP process.
+            if (!function_exists('printMoney')) {
+                function printMoney(float $val): string {
+                    return fmod($val, 1) == 0
+                        ? number_format($val, 0)
+                        : number_format($val, 2);
+                }
             }
         @endphp
 

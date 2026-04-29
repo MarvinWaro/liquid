@@ -34,6 +34,7 @@ import { toast } from '@/lib/toast';
 import { type BreadcrumbItem } from '@/types';
 
 import type { Liquidation, Program, HEIOption, AcademicYearOption, RcNoteStatusOption } from '@/components/liquidations/index/types';
+import { useReportQueue } from '@/hooks/use-report-queue';
 
 interface RegionOption {
     id: string;
@@ -154,8 +155,8 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const [isEndorseModalOpen, setIsEndorseModalOpen] = useState(false);
     const [endorseTarget, setEndorseTarget] = useState<Liquidation | null>(null);
     const [isEndorsing, setIsEndorsing] = useState(false);
-    const [exportKind, setExportKind] = useState<null | 'excel' | 'csv'>(null);
-    const exportAbortRef = useRef<AbortController | null>(null);
+    const { queueReport, pendingFormat } = useReportQueue();
+    const isQueueingReport = pendingFormat !== null;
 
     const isRC = userRole === 'Regional Coordinator';
     const isHEI = userRole === 'HEI';
@@ -276,131 +277,23 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
         window.location.href = route('liquidation.download-rc-template');
     };
 
-    const buildReportQueryString = () => {
-        const params = new URLSearchParams();
-        if (searchQuery) params.set('search', searchQuery);
-        programFilter.forEach(v => params.append('program[]', v));
-        documentStatusFilter.forEach(v => params.append('document_status[]', v));
-        liquidationStatusFilter.forEach(v => params.append('liquidation_status[]', v));
-        academicYearFilter.forEach(v => params.append('academic_year[]', v));
-        rcNoteStatusFilter.forEach(v => params.append('rc_note_status[]', v));
-        if (canFilterByRegion) {
-            regionFilter.forEach(v => params.append('region[]', v));
-        }
-        return params.toString();
+    // Build the filter payload the backend's reports.queue endpoint validates.
+    // Region is only included when the user is allowed to filter by it (Admin/Super Admin).
+    const buildReportPayload = (): Record<string, string | string[]> => {
+        const payload: Record<string, string | string[]> = {};
+        if (searchQuery) payload.search = searchQuery;
+        if (programFilter.length) payload.program = programFilter;
+        if (documentStatusFilter.length) payload.document_status = documentStatusFilter;
+        if (liquidationStatusFilter.length) payload.liquidation_status = liquidationStatusFilter;
+        if (academicYearFilter.length) payload.academic_year = academicYearFilter;
+        if (rcNoteStatusFilter.length) payload.rc_note_status = rcNoteStatusFilter;
+        if (canFilterByRegion && regionFilter.length) payload.region = regionFilter;
+        return payload;
     };
 
-    const handlePrintReport = () => {
-        const qs = buildReportQueryString();
-        const url = route('liquidation.print-report') + (qs ? `?${qs}` : '');
-        const newTab = window.open('', '_blank');
-        if (!newTab) {
-            window.open(url, '_blank');
-            return;
-        }
-        newTab.document.write(`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<title>Generating Liquidation Report…</title>
-<style>
-  html, body { height: 100%; margin: 0; }
-  body {
-    display: flex; align-items: center; justify-content: center;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    background: #f8fafc; color: #0f172a;
-  }
-  .loader { text-align: center; max-width: 420px; padding: 32px; }
-  .spinner {
-    width: 56px; height: 56px; margin: 0 auto 20px;
-    border: 5px solid #e2e8f0; border-top-color: #2563eb; border-radius: 50%;
-    animation: spin 0.9s linear infinite;
-  }
-  h2 { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
-  p  { font-size: 13px; margin: 0; color: #475569; line-height: 1.5; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-</style>
-</head>
-<body>
-  <div class="loader">
-    <div class="spinner"></div>
-    <h2>Generating Liquidation Report</h2>
-    <p>Preparing the printable monitoring sheet. This may take a few seconds for large datasets — please don't close this tab.</p>
-  </div>
-</body>
-</html>`);
-        newTab.document.close();
-        newTab.location.href = url;
-    };
-
-    const downloadReport = async (kind: 'excel' | 'csv') => {
-        if (exportKind) return; // one at a time
-
-        const qs = buildReportQueryString();
-        const routeName = kind === 'excel' ? 'liquidation.export-excel' : 'liquidation.export-csv';
-        const url = route(routeName) + (qs ? `?${qs}` : '');
-        const fallbackName = `liquidation-report-${new Date().toISOString().slice(0, 10)}.${kind === 'excel' ? 'xlsx' : 'csv'}`;
-        const label = kind === 'excel' ? 'Excel' : 'CSV';
-
-        const controller = new AbortController();
-        exportAbortRef.current = controller;
-        setExportKind(kind);
-        const toastId = toast.loading(`Preparing ${label} export — this may take a while for large datasets…`, {
-            duration: Infinity,
-            action: {
-                label: 'Cancel',
-                onClick: () => controller.abort(),
-            },
-        });
-
-        let blobUrl: string | null = null;
-        try {
-            const res = await fetch(url, {
-                credentials: 'same-origin',
-                headers: { Accept: '*/*' },
-                signal: controller.signal,
-            });
-            if (!res.ok) {
-                throw new Error(res.status === 403 ? 'You are not allowed to export this report.' : `Export failed (${res.status}).`);
-            }
-
-            const disposition = res.headers.get('Content-Disposition') || '';
-            const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
-            const filename = match ? decodeURIComponent(match[1]) : fallbackName;
-
-            const blob = await res.blob();
-            blobUrl = URL.createObjectURL(blob);
-
-            const anchor = document.createElement('a');
-            anchor.href = blobUrl;
-            anchor.download = filename;
-            document.body.appendChild(anchor);
-            anchor.click();
-            anchor.remove();
-
-            toast.dismiss(toastId);
-            toast.success(`${label} downloaded`);
-        } catch (e: any) {
-            toast.dismiss(toastId);
-            if (e?.name === 'AbortError') {
-                toast.info(`${label} export cancelled.`);
-            } else {
-                toast.error(e?.message || `${label} export failed.`);
-            }
-        } finally {
-            if (blobUrl) URL.revokeObjectURL(blobUrl);
-            if (exportAbortRef.current === controller) exportAbortRef.current = null;
-            setExportKind(null);
-        }
-    };
-
-    const handleExportExcel = () => { downloadReport('excel'); };
-    const handleExportCsv = () => { downloadReport('csv'); };
-
-    // Cancel any in-flight export on unmount so we don't leak a request.
-    useEffect(() => {
-        return () => { exportAbortRef.current?.abort(); };
-    }, []);
+    const handlePrintReport = () => queueReport('print', buildReportPayload());
+    const handleExportExcel = () => queueReport('excel', buildReportPayload());
+    const handleExportCsv = () => queueReport('csv', buildReportPayload());
 
     const handleImportComplete = (result: { imported: number; errors: any[] }) => {
         if (result.errors.length > 0) {
@@ -547,31 +440,31 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                         <div className="flex gap-2">
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                    <Button variant="outline" disabled={exportKind !== null}>
-                                        {exportKind ? (
+                                    <Button variant="outline" disabled={isQueueingReport}>
+                                        {isQueueingReport ? (
                                             <>
                                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                                Preparing {exportKind === 'excel' ? 'Excel' : 'CSV'}…
+                                                Queuing…
                                             </>
                                         ) : (
                                             <>
                                                 <Printer className="h-4 w-4 mr-2" />
-                                                Print Report
+                                                Generate Report
                                                 <ChevronDown className="h-3.5 w-3.5 ml-1.5 opacity-60" />
                                             </>
                                         )}
                                     </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="w-48">
-                                    <DropdownMenuItem onClick={handlePrintReport} disabled={exportKind !== null}>
+                                    <DropdownMenuItem onClick={handlePrintReport} disabled={isQueueingReport}>
                                         <Printer className="h-4 w-4 mr-2" />
                                         Print
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={handleExportExcel} disabled={exportKind !== null}>
+                                    <DropdownMenuItem onClick={handleExportExcel} disabled={isQueueingReport}>
                                         <FileSpreadsheet className="h-4 w-4 mr-2" />
                                         Export to Excel
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={handleExportCsv} disabled={exportKind !== null}>
+                                    <DropdownMenuItem onClick={handleExportCsv} disabled={isQueueingReport}>
                                         <FileText className="h-4 w-4 mr-2" />
                                         Export to CSV
                                     </DropdownMenuItem>

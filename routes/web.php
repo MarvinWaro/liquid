@@ -209,10 +209,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Liquidation Template Download
     Route::get('liquidation/template/download', [LiquidationController::class, 'downloadTemplate'])->name('liquidation.download-template');
 
-    // Print Report
-    Route::get('liquidation/print', [LiquidationController::class, 'printReport'])->name('liquidation.print-report');
-    Route::get('liquidation/export/excel', [LiquidationController::class, 'exportExcel'])->name('liquidation.export-excel');
-    Route::get('liquidation/export/csv', [LiquidationController::class, 'exportCsv'])->name('liquidation.export-csv');
+    // Async Report Pipeline — queue a Print/Excel/CSV job, then download via the
+    // notification that fires when it's ready. Survives page refresh; uses the
+    // existing notification dropdown to surface "report ready" to the user.
+    Route::post('reports/queue', [\App\Http\Controllers\ReportJobController::class, 'queue'])->name('reports.queue');
+    Route::get('reports/download/{notification}', [\App\Http\Controllers\ReportJobController::class, 'download'])->name('reports.download');
+    Route::post('reports/notifications/{notification}/claim-delivery', [\App\Http\Controllers\ReportJobController::class, 'claimDelivery'])->name('reports.claim-delivery');
 
     // RC Bulk Liquidation Routes
     Route::get('liquidation/rc-template/download', [LiquidationController::class, 'downloadRCTemplate'])->name('liquidation.download-rc-template');
