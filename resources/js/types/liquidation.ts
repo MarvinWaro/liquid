@@ -160,6 +160,17 @@ export interface Liquidation {
     created_by_name?: string | null;
     document_completeness?: DocumentCompleteness;
     import_batch?: ImportBatchSummary | null;
+    /**
+     * Per-ledger grantee breakdown for legacy STUFAPS multi-ledger imports.
+     * Null/undefined for the common single-ledger case — UI should fall back
+     * to the plain `number_of_grantees` value.
+     */
+    ledger_breakdown?: LedgerBreakdownEntry[] | null;
+}
+
+export interface LedgerBreakdownEntry {
+    ledger: string;
+    grantees: number;
 }
 
 export interface ImportBatchSummary {

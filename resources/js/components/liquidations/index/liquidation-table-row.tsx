@@ -122,7 +122,7 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
                 {liquidation.batch_no || <span className="text-muted-foreground">-</span>}
             </TableCell>
             <TableCell className={`font-medium text-sm py-3 ${liquidation.is_voided ? 'line-through' : ''}`}>
-                {liquidation.dv_control_no}
+                <ControlNoCell value={liquidation.dv_control_no} />
             </TableCell>
             <TableCell className="text-right py-3">
                 {liquidation.number_of_grantees ?? <span className="text-muted-foreground">-</span>}
@@ -326,3 +326,35 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
         </TableRow>
     );
 });
+
+/**
+ * Control / Ledger No. cell — multi-ledger values (joined with " / ") are
+ * truncated to the first ledger plus a "+N" badge, with the full list shown
+ * on hover via tooltip. Single-ledger values render unchanged.
+ */
+function ControlNoCell({ value }: { value: string }) {
+    if (!value) return <>-</>;
+
+    const parts = value.split(' / ').filter(Boolean);
+    if (parts.length <= 1) return <>{value}</>;
+
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <span className="inline-flex items-center gap-1.5 cursor-help">
+                    <span className="truncate max-w-[140px]">{parts[0]}</span>
+                    <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                        +{parts.length - 1}
+                    </span>
+                </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[320px]">
+                <div className="space-y-0.5 font-mono text-[11px]">
+                    {parts.map((p, i) => (
+                        <div key={`${p}-${i}`}>{p}</div>
+                    ))}
+                </div>
+            </TooltipContent>
+        </Tooltip>
+    );
+}

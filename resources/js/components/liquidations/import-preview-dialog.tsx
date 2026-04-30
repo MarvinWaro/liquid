@@ -57,11 +57,18 @@ export interface ValidatedRow {
     batch_no: string;
     control_no: string;
     grantees: number | null;
+    /** Populated when the source row had multiple ledgers paired with grantee counts. */
+    ledger_breakdown: LedgerBreakdownEntry[] | null;
     disbursements: number;
     amount_liquidated: number;
     doc_status: string;
     rc_notes: string;
     liquidation_status: string | null;
+}
+
+export interface LedgerBreakdownEntry {
+    ledger: string;
+    grantees: number;
 }
 
 interface ImportBatchRecord {
@@ -919,7 +926,22 @@ export function ImportPreviewDialog({
                                                     <td className="px-3 py-2 text-xs font-mono">{row.program || '-'}</td>
                                                     <td className="px-3 py-2 text-xs font-mono">{row.uii || '-'}</td>
                                                     <td className="px-3 py-2 text-xs truncate max-w-[160px]">{row.hei_name || '-'}</td>
-                                                    <td className="px-3 py-2 text-xs font-mono">{row.control_no || <span className="text-muted-foreground italic">auto</span>}</td>
+                                                    <td className="px-3 py-2 text-xs font-mono">
+                                                        {row.control_no
+                                                            ? (() => {
+                                                                const parts = row.control_no.split(' / ');
+                                                                if (parts.length <= 1) return row.control_no;
+                                                                return (
+                                                                    <span className="inline-flex items-center gap-1.5">
+                                                                        <span className="truncate max-w-[120px]">{parts[0]}</span>
+                                                                        <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                                                            +{parts.length - 1}
+                                                                        </span>
+                                                                    </span>
+                                                                );
+                                                            })()
+                                                            : <span className="text-muted-foreground italic">auto</span>}
+                                                    </td>
                                                     {!detailOpen && (
                                                         <td className="px-3 py-2 text-xs text-red-600 dark:text-red-400 truncate max-w-[200px]">
                                                             {row.errors[0] || ''}
@@ -1041,8 +1063,8 @@ export function ImportPreviewDialog({
                                                     <DetailField label="Date Fund Released" value={selectedRow.date_fund_released} />
                                                     <DetailField label="Due Date" value={selectedRow.due_date} />
                                                     <DetailField label="Batch No." value={selectedRow.batch_no} />
-                                                    <DetailField label="Control / Ledger No." value={selectedRow.control_no || 'Auto-generated'} mono />
                                                 </div>
+                                                <LedgerNoField value={selectedRow.control_no} className="mt-2.5" />
                                             </DetailSection>
 
                                             {/* Financial */}
@@ -1062,6 +1084,13 @@ export function ImportPreviewDialog({
                                                         value={selectedRow.amount_liquidated ? `₱${selectedRow.amount_liquidated.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-'}
                                                     />
                                                 </div>
+                                                {selectedRow.ledger_breakdown && selectedRow.ledger_breakdown.length > 1 && (
+                                                    <LedgerBreakdownTable
+                                                        breakdown={selectedRow.ledger_breakdown}
+                                                        total={selectedRow.grantees ?? 0}
+                                                        className="mt-3"
+                                                    />
+                                                )}
                                             </DetailSection>
 
                                             {/* Status */}
@@ -1186,6 +1215,85 @@ function DetailField({
             <p className={cn('text-xs leading-snug', mono && 'font-mono', !value && 'text-muted-foreground italic')}>
                 {value || '-'}
             </p>
+        </div>
+    );
+}
+
+/** Renders Control / Ledger No. — single value as mono text, multiple as a wrapping badge list. */
+function LedgerNoField({ value, className }: { value: string; className?: string }) {
+    const tokens = value ? value.split(' / ').filter(Boolean) : [];
+    if (tokens.length === 0) {
+        return (
+            <div className={className}>
+                <p className="text-[10px] text-muted-foreground mb-0.5">Control / Ledger No.</p>
+                <p className="text-xs font-mono text-muted-foreground italic">Auto-generated</p>
+            </div>
+        );
+    }
+    if (tokens.length === 1) {
+        return (
+            <div className={className}>
+                <p className="text-[10px] text-muted-foreground mb-0.5">Control / Ledger No.</p>
+                <p className="text-xs font-mono leading-snug">{tokens[0]}</p>
+            </div>
+        );
+    }
+    return (
+        <div className={className}>
+            <p className="text-[10px] text-muted-foreground mb-1">
+                Control / Ledger Nos. <span className="text-muted-foreground/70">({tokens.length})</span>
+            </p>
+            <div className="flex flex-wrap gap-1">
+                {tokens.map((tok, i) => (
+                    <span
+                        key={`${tok}-${i}`}
+                        className="text-[11px] font-mono px-1.5 py-0.5 rounded border bg-muted/40"
+                    >
+                        {tok}
+                    </span>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+/** Per-ledger grantee breakdown — renders a compact ledger → grantees table with a total row. */
+function LedgerBreakdownTable({
+    breakdown,
+    total,
+    className,
+}: {
+    breakdown: LedgerBreakdownEntry[];
+    total: number;
+    className?: string;
+}) {
+    return (
+        <div className={cn('rounded-md border overflow-hidden', className)}>
+            <div className="px-3 py-1.5 bg-muted/30 border-b">
+                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    Per-Ledger Breakdown
+                </p>
+            </div>
+            <table className="w-full text-xs">
+                <thead className="bg-muted/20 border-b">
+                    <tr>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-muted-foreground">Ledger</th>
+                        <th className="px-3 py-1.5 text-right text-[10px] font-medium text-muted-foreground">Grantees</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y">
+                    {breakdown.map((entry, i) => (
+                        <tr key={`${entry.ledger}-${i}`}>
+                            <td className="px-3 py-1.5 font-mono">{entry.ledger}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums">{entry.grantees.toLocaleString()}</td>
+                        </tr>
+                    ))}
+                    <tr className="bg-muted/30 border-t-2">
+                        <td className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Total</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums font-semibold">{total.toLocaleString()}</td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
     );
 }

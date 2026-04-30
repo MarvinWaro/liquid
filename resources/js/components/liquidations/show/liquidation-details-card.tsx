@@ -58,6 +58,81 @@ function formatFileSize(bytes: number): string {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * Control / Ledger No. display — single value as plain mono text, multiple
+ * values (joined with " / ") as a wrapping list of badges. Persisted form
+ * comes from the import parser which always uses " / " as separator.
+ */
+function ControlNoDisplay({ value }: { value: string }) {
+    const parts = value ? value.split(' / ').filter(Boolean) : [];
+    if (parts.length === 0) {
+        return <DisplayValue className="font-mono-nums">N/A</DisplayValue>;
+    }
+    if (parts.length === 1) {
+        return <DisplayValue className="font-mono-nums">{parts[0]}</DisplayValue>;
+    }
+    return (
+        <div className="flex flex-wrap gap-1.5">
+            {parts.map((p, i) => (
+                <span
+                    key={`${p}-${i}`}
+                    className="text-xs font-mono px-2 py-0.5 rounded border bg-muted/40 text-foreground"
+                >
+                    {p}
+                </span>
+            ))}
+        </div>
+    );
+}
+
+/**
+ * Per-ledger grantee breakdown — small ledger → grantees table with a total
+ * footer. Rendered only when the source import row had multiple ledgers
+ * paired with grantee counts.
+ */
+function LedgerBreakdownPanel({
+    breakdown,
+    total,
+    className = '',
+}: {
+    breakdown: Array<{ ledger: string; grantees: number }>;
+    total: number;
+    className?: string;
+}) {
+    return (
+        <div className={`rounded-md border overflow-hidden ${className}`}>
+            <div className="px-3 py-2 bg-muted/30 border-b">
+                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Per-Ledger Grantee Breakdown
+                </p>
+                <p className="text-[11px] text-muted-foreground/80 mt-0.5">
+                    Original cohort sizes from the source Excel import.
+                </p>
+            </div>
+            <table className="w-full text-sm">
+                <thead className="bg-muted/20 border-b">
+                    <tr>
+                        <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground">Ledger</th>
+                        <th className="px-3 py-2 text-right text-[11px] font-medium text-muted-foreground">Grantees</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y">
+                    {breakdown.map((entry, i) => (
+                        <tr key={`${entry.ledger}-${i}`}>
+                            <td className="px-3 py-2 font-mono text-xs">{entry.ledger}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-xs">{entry.grantees.toLocaleString()}</td>
+                        </tr>
+                    ))}
+                    <tr className="bg-muted/30 border-t-2">
+                        <td className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-sm font-semibold">{total.toLocaleString()}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
 export default function LiquidationDetailsCard({
     liquidation,
     canEditDetails,
@@ -208,8 +283,8 @@ export default function LiquidationDetailsCard({
                                         <DisplayValue>{liquidation.batch_no || 'N/A'}</DisplayValue>
                                     )}
                                 </FieldBlock>
-                                <FieldBlock label="Control / Ledger No.">
-                                    <DisplayValue className="font-mono-nums">{liquidation.dv_control_no}</DisplayValue>
+                                <FieldBlock label={(liquidation.dv_control_no?.split(' / ').filter(Boolean).length ?? 0) > 1 ? 'Control / Ledger Nos.' : 'Control / Ledger No.'}>
+                                    <ControlNoDisplay value={liquidation.dv_control_no || ''} />
                                 </FieldBlock>
                                 <FieldBlock label="Date of Fund Release">
                                     {isEditing ? (
@@ -298,6 +373,16 @@ export default function LiquidationDetailsCard({
                                         )}
                                     </FieldBlock>
                                 </div>
+
+                                {/* Per-ledger grantee breakdown — only shown for legacy multi-ledger imports.
+                                    Single-ledger records have no breakdown and skip this entire block. */}
+                                {!isEditing && liquidation.ledger_breakdown && liquidation.ledger_breakdown.length > 1 && (
+                                    <LedgerBreakdownPanel
+                                        breakdown={liquidation.ledger_breakdown}
+                                        total={liquidation.number_of_grantees ?? 0}
+                                        className="mt-4"
+                                    />
+                                )}
                             </div>
 
                             {/* Status & Notes */}
