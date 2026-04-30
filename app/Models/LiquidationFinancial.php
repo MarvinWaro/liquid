@@ -87,6 +87,7 @@ class LiquidationFinancial extends Model
         'amount_refunded',
         'disbursement_date',
         'number_of_grantees',
+        'ledger_breakdown',
         'or_number',
         'purpose',
     ];
@@ -107,6 +108,7 @@ class LiquidationFinancial extends Model
             'amount_liquidated' => 'decimal:2',
             'amount_refunded' => 'decimal:2',
             'number_of_grantees' => 'integer',
+            'ledger_breakdown' => 'array',
         ];
     }
 

@@ -511,7 +511,15 @@ class LiquidationController extends Controller
         $this->cacheService->getPrograms();
 
         // Pre-load all existing control numbers for fast duplicate checks
-        $existingControlNos = Liquidation::pluck('control_no')->filter()->flip()->all();
+        // Flatten to individual ledger tokens so multi-ledger control_no strings
+        // (e.g. "TDP-200910699 / TDP-200910700") collide with single-ledger
+        // re-imports of the same numbers. Splitting on the same separators the
+        // import parser uses keeps the lookup symmetric.
+        $existingControlNos = Liquidation::pluck('control_no')
+            ->filter()
+            ->flatMap(fn ($s) => preg_split(self::TOKEN_SEPARATORS, (string) $s, -1, PREG_SPLIT_NO_EMPTY) ?: [])
+            ->flip()
+            ->all();
 
         // Pre-load academic years keyed by code for in-memory lookup
         $academicYearsMap = \App\Models\AcademicYear::all()->keyBy(fn ($ay) => trim($ay->code));
@@ -570,15 +578,24 @@ class LiquidationController extends Controller
             $parsed['row'] = $index + 1;
             $parsed['seq'] = $seq;
 
-            // Within-file duplicate control_no detection (DB check only catches existing records,
-            // not duplicates within the same uploaded file)
+            // Within-file duplicate control_no detection — checked per-token so
+            // multi-ledger rows can't smuggle a duplicate ledger past validation.
+            // (DB check only catches existing records, not duplicates within the
+            // same uploaded file.)
             $controlNoInFile = $parsed['control_no'] ?? '';
             if (!empty($controlNoInFile)) {
-                if (isset($seenControlNos[$controlNoInFile])) {
-                    $parsed['valid'] = false;
-                    $parsed['errors'][] = "Control / Ledger No '{$controlNoInFile}' (col J) appears more than once in this file (first seen at row {$seenControlNos[$controlNoInFile]}).";
-                } else {
-                    $seenControlNos[$controlNoInFile] = $parsed['row'];
+                $tokensInRow = preg_split(self::TOKEN_SEPARATORS, $controlNoInFile, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+                foreach ($tokensInRow as $token) {
+                    if (isset($seenControlNos[$token])) {
+                        $parsed['valid'] = false;
+                        $parsed['errors'][] = "Control / Ledger No '{$token}' (col J) appears more than once in this file (first seen at row {$seenControlNos[$token]}).";
+                        break;
+                    }
+                }
+                if ($parsed['valid']) {
+                    foreach ($tokensInRow as $token) {
+                        $seenControlNos[$token] = $parsed['row'];
+                    }
                 }
             }
 
@@ -667,7 +684,15 @@ class LiquidationController extends Controller
         $this->cacheService->getPrograms();
 
         $heiMap             = HEI::all()->keyBy(fn ($h) => strtolower(trim($h->uii)));
-        $existingControlNos = Liquidation::pluck('control_no')->filter()->flip()->all();
+        // Flatten to individual ledger tokens so multi-ledger control_no strings
+        // (e.g. "TDP-200910699 / TDP-200910700") collide with single-ledger
+        // re-imports of the same numbers. Splitting on the same separators the
+        // import parser uses keeps the lookup symmetric.
+        $existingControlNos = Liquidation::pluck('control_no')
+            ->filter()
+            ->flatMap(fn ($s) => preg_split(self::TOKEN_SEPARATORS, (string) $s, -1, PREG_SPLIT_NO_EMPTY) ?: [])
+            ->flip()
+            ->all();
         $academicYearsMap   = \App\Models\AcademicYear::all()->keyBy(fn ($ay) => trim($ay->code));
 
         $existingFingerprints = DB::table('liquidations')
@@ -699,14 +724,23 @@ class LiquidationController extends Controller
             $parsed['row'] = (int) ($parsedRow['row'] ?? 0);
             $parsed['seq'] = (string) ($parsedRow['seq'] ?? '');
 
-            // Cross-chunk duplicate control_no detection
+            // Cross-chunk duplicate control_no detection — per-token so a
+            // ledger inside a multi-ledger row collides with the same ledger
+            // appearing as a single value (or in another multi-ledger row).
             $controlNoInFile = $parsed['control_no'] ?? '';
             if (!empty($controlNoInFile)) {
-                if (isset($seenControlNos[$controlNoInFile])) {
-                    $parsed['valid']    = false;
-                    $parsed['errors'][] = "Control / Ledger No '{$controlNoInFile}' (col J) appears more than once in this file (first seen at row {$seenControlNos[$controlNoInFile]}).";
-                } else {
-                    $seenControlNos[$controlNoInFile] = $parsed['row'];
+                $tokensInRow = preg_split(self::TOKEN_SEPARATORS, $controlNoInFile, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+                foreach ($tokensInRow as $token) {
+                    if (isset($seenControlNos[$token])) {
+                        $parsed['valid']    = false;
+                        $parsed['errors'][] = "Control / Ledger No '{$token}' (col J) appears more than once in this file (first seen at row {$seenControlNos[$token]}).";
+                        break;
+                    }
+                }
+                if ($parsed['valid']) {
+                    foreach ($tokensInRow as $token) {
+                        $seenControlNos[$token] = $parsed['row'];
+                    }
                 }
             }
 
@@ -2216,6 +2250,7 @@ class LiquidationController extends Controller
             'due_date' => $financial?->due_date?->format('Y-m-d'),
             'fund_source' => $financial?->fund_source,
             'number_of_grantees' => $financial?->number_of_grantees,
+            'ledger_breakdown' => $financial?->ledger_breakdown,
             'amount_liquidated' => $financial?->amount_liquidated ?? 0,
             'lapsing_period' => $financial?->lapsing_period ?? 0,
             'document_status' => $liquidation->documentStatus?->name ?? 'N/A',
@@ -2350,7 +2385,12 @@ class LiquidationController extends Controller
         $dvControlNo      = trim($row[self::COL_CONTROL_NO] ?? '');
         $docStatusRaw     = trim((string) ($row[self::COL_DOC_STATUS] ?? ''));
         $rcNotesRaw       = trim($row[self::COL_RC_NOTES] ?? '');
-        $grantees         = $this->parseInteger($row[self::COL_GRANTEES] ?? null);
+
+        // Grantees may be multi-line in legacy STUFAPS rows (one count per ledger).
+        // Capture the per-token list AND the sum so we can build a breakdown later.
+        $granteesTokens   = $this->parseGranteesTokens($row[self::COL_GRANTEES] ?? null);
+        $grantees         = !empty($granteesTokens) ? array_sum($granteesTokens) : null;
+
         $totalDisbursements = $this->parseAmount($row[self::COL_DISBURSEMENTS] ?? null);
         $totalLiquidated  = $this->parseAmount($row[self::COL_AMOUNT_LIQUIDATED] ?? 0);
         $dateFundReleasedRaw = trim((string) ($row[self::COL_DATE_FUND_RELEASED] ?? ''));
@@ -2426,23 +2466,22 @@ class LiquidationController extends Controller
             $errors[] = "Academic Year '{$academicYearCode}' (col G) not found.";
         }
 
-        // ── Control number ────────────────────────────────────────────────────
-        if (!empty($dvControlNo)) {
-            // Normalise: if the value doesn't already start with the program
-            // code, auto-prepend it. This handles both UniFAST-style partial
-            // numbers ("2026-0001" → "TES-2026-0001") and STUFAPS-style plain
-            // ledger numbers ("24094765" → "CMSP-24094765").
-            if ($program) {
-                $prefix = strtoupper($program->code) . '-';
-                if (!str_starts_with(strtoupper($dvControlNo), $prefix)) {
-                    $dvControlNo = $prefix . $dvControlNo;
-                }
-            }
+        // ── Control / Ledger No. — supports multi-ledger rows ─────────────────
+        // Split the cell on newlines/slashes/whitespace, prefix each token with
+        // the program code where missing (handles UniFAST-style partials AND
+        // STUFAPS-style plain ledger numbers), then re-join with " / " for the
+        // canonical persisted form. Single-ledger rows produce a single-token
+        // list and behave identically to before.
+        $ledgerTokens = $this->splitLedgerTokens($dvControlNo, $program);
+        $dvControlNo  = implode(' / ', $ledgerTokens);
 
-            // Validate: only check uniqueness — format is flexible since
-            // different offices use different numbering conventions.
-            if (isset($existingControlNos[$dvControlNo])) {
-                $errors[] = "Control / Ledger No '{$dvControlNo}' (col J) already exists.";
+        // Per-token uniqueness — multi-ledger strings can't be checked as a
+        // whole (the joined form rarely repeats). Check each individual ledger
+        // against the flat token map and surface the first collision.
+        foreach ($ledgerTokens as $token) {
+            if (isset($existingControlNos[$token])) {
+                $errors[] = "Control / Ledger No '{$token}' (col J) already exists.";
+                break;
             }
         }
 
@@ -2491,6 +2530,22 @@ class LiquidationController extends Controller
             $dueDate = \Carbon\Carbon::instance($dateFundReleased)->copy()->addDays($days);
         }
 
+        // ── Per-ledger grantee breakdown ──────────────────────────────────────
+        // When the source row had multiple ledgers AND the grantee column has
+        // a matching token count, persist the original {ledger -> grantees}
+        // pairs so the UI can show the breakdown. Single-ledger rows produce
+        // NULL here and behave exactly as before.
+        $ledgerBreakdown = null;
+        if (count($ledgerTokens) > 1 && count($granteesTokens) === count($ledgerTokens)) {
+            $ledgerBreakdown = [];
+            foreach ($ledgerTokens as $i => $ledger) {
+                $ledgerBreakdown[] = [
+                    'ledger'   => $ledger,
+                    'grantees' => $granteesTokens[$i],
+                ];
+            }
+        }
+
         $valid = empty($errors);
 
         $importable = null;
@@ -2516,13 +2571,14 @@ class LiquidationController extends Controller
                     : null,
                 'due_date'              => $dueDate ? \Carbon\Carbon::instance($dueDate)->format('Y-m-d') : null,
                 'number_of_grantees'    => $grantees,
+                'ledger_breakdown'      => $ledgerBreakdown,
                 'amount_received'       => $totalDisbursements,
                 'amount_disbursed'      => $totalDisbursements,
                 'amount_liquidated'     => $totalLiquidated,
             ];
         }
 
-        return $this->buildRowResult($errors, $programCode, $uii, $heiName, $dvControlNo, $dateFundReleased, $dueDate, $academicYearCode, $semesterRaw, $batchNo, $grantees, $totalDisbursements, $totalLiquidated, $docStatusRaw, $rcNotesRaw, $liquidationStatusLabel, $importable);
+        return $this->buildRowResult($errors, $programCode, $uii, $heiName, $dvControlNo, $dateFundReleased, $dueDate, $academicYearCode, $semesterRaw, $batchNo, $grantees, $totalDisbursements, $totalLiquidated, $docStatusRaw, $rcNotesRaw, $liquidationStatusLabel, $importable, $ledgerBreakdown);
     }
 
     /**
@@ -2547,7 +2603,8 @@ class LiquidationController extends Controller
         string $docStatusRaw,
         string $rcNotesRaw,
         ?string $liquidationStatus,
-        ?array $importable
+        ?array $importable,
+        ?array $ledgerBreakdown = null
     ): array {
         return [
             'valid'               => empty($errors),
@@ -2566,6 +2623,7 @@ class LiquidationController extends Controller
             'batch_no'            => $batchNo,
             'control_no'          => $dvControlNo,
             'grantees'            => $grantees,
+            'ledger_breakdown'    => $ledgerBreakdown,
             'disbursements'       => $totalDisbursements,
             'amount_liquidated'   => $totalLiquidated,
             'doc_status'          => $docStatusRaw,
@@ -2616,6 +2674,7 @@ class LiquidationController extends Controller
             'date_fund_released' => $data['date_fund_released'],
             'due_date'           => $data['due_date'],
             'number_of_grantees' => $data['number_of_grantees'],
+            'ledger_breakdown'   => $data['ledger_breakdown'] ?? null,
             'amount_received'    => $data['amount_received'],
             'amount_disbursed'   => $data['amount_disbursed'],
             'amount_liquidated'  => $data['amount_liquidated'],
@@ -2714,15 +2773,38 @@ class LiquidationController extends Controller
         }
     }
 
+    /**
+     * Separator pattern for splitting multi-token cells: whitespace (incl. newlines),
+     * slashes, and semicolons. NOT commas — those are valid thousands separators
+     * inside a single number ("1,514"). Used by parseAmount/parseInteger and the
+     * ledger/grantees helpers so all multi-line cells parse consistently.
+     */
+    private const TOKEN_SEPARATORS = '/[\s\/;]+/';
+
     private function parseAmount($value): float
     {
         if (empty($value)) {
             return 0;
         }
 
-        $cleaned = preg_replace('/[^0-9.\-]/', '', (string) $value);
+        $str = (string) $value;
 
-        return (float) ($cleaned ?: 0);
+        // Single-value fast path — preserves current behaviour for the common case
+        // (e.g. "₱22,710,000.00" → 22710000.00). Multi-line/slashed input falls
+        // through to the token-sum path below.
+        if (!preg_match(self::TOKEN_SEPARATORS, trim($str))) {
+            $cleaned = preg_replace('/[^0-9.\-]/', '', $str);
+            return (float) ($cleaned ?: 0);
+        }
+
+        $total = 0.0;
+        foreach (preg_split(self::TOKEN_SEPARATORS, $str, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $tok) {
+            $cleaned = preg_replace('/[^0-9.\-]/', '', $tok);
+            if ($cleaned !== '' && $cleaned !== '-' && $cleaned !== '.') {
+                $total += (float) $cleaned;
+            }
+        }
+        return $total;
     }
 
     private function parseInteger($value): ?int
@@ -2731,9 +2813,88 @@ class LiquidationController extends Controller
             return null;
         }
 
-        $cleaned = preg_replace('/[^0-9\-]/', '', (string) $value);
+        $str = (string) $value;
 
-        return $cleaned !== '' ? (int) $cleaned : null;
+        // Single-value fast path: "1,514" → 1514. Avoids treating thousands
+        // commas as token separators.
+        if (!preg_match(self::TOKEN_SEPARATORS, trim($str))) {
+            $cleaned = preg_replace('/[^0-9\-]/', '', $str);
+            return $cleaned !== '' ? (int) $cleaned : null;
+        }
+
+        // Multi-token path: split on newlines/slashes/whitespace, sum the parts.
+        // Fixes the legacy STUFAPS multi-ledger bug where "592\n103\n61" used to
+        // become the integer 59210361.
+        $total  = 0;
+        $hadAny = false;
+        foreach (preg_split(self::TOKEN_SEPARATORS, $str, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $tok) {
+            $cleaned = preg_replace('/[^0-9\-]/', '', $tok);
+            if ($cleaned !== '' && $cleaned !== '-') {
+                $total += (int) $cleaned;
+                $hadAny = true;
+            }
+        }
+        return $hadAny ? $total : null;
+    }
+
+    /**
+     * Split a CONTROL/LEDGER NO. cell into individual normalised ledger tokens.
+     * Returns the tokens with the program prefix prepended where missing.
+     *
+     * Examples (with TDP program):
+     *   "201211082/201211083"                  → ["TDP-201211082", "TDP-201211083"]
+     *   "201211456 / 201211455 / 201211448"    → ["TDP-201211456", "TDP-201211455", "TDP-201211448"]
+     *   "200910699\n200910700\n200910701"      → ["TDP-200910699", "TDP-200910700", "TDP-200910701"]
+     *   "TDP-2025-0001"                        → ["TDP-2025-0001"] (already prefixed)
+     *
+     * @return array<int, string>
+     */
+    private function splitLedgerTokens(string $raw, ?\App\Models\Program $program): array
+    {
+        if ($raw === '') {
+            return [];
+        }
+
+        $prefix = $program ? strtoupper($program->code) . '-' : '';
+        $tokens = preg_split(self::TOKEN_SEPARATORS, $raw, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        $normalised = [];
+        foreach ($tokens as $tok) {
+            $tok = trim($tok);
+            if ($tok === '') {
+                continue;
+            }
+            if ($prefix !== '' && !str_starts_with(strtoupper($tok), $prefix)) {
+                $tok = $prefix . $tok;
+            }
+            $normalised[] = $tok;
+        }
+        return $normalised;
+    }
+
+    /**
+     * Split a NUMBER OF GRANTEES cell into integer tokens, preserving order.
+     * Returns one int per token — used to pair with ledger tokens for the
+     * per-ledger breakdown stored in liquidation_financials.ledger_breakdown.
+     *
+     * @return array<int, int>
+     */
+    private function parseGranteesTokens($value): array
+    {
+        if ($value === null || $value === '') {
+            return [];
+        }
+
+        $tokens = preg_split(self::TOKEN_SEPARATORS, (string) $value, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        $result = [];
+        foreach ($tokens as $tok) {
+            $cleaned = preg_replace('/[^0-9\-]/', '', $tok);
+            if ($cleaned !== '' && $cleaned !== '-') {
+                $result[] = (int) $cleaned;
+            }
+        }
+        return $result;
     }
 
     /**
