@@ -13,7 +13,7 @@ import {
     ContextMenuSeparator,
     ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { Pencil, Save, RotateCcw, FileSpreadsheet, Download } from 'lucide-react';
+import { Pencil, Save, RotateCcw, FileSpreadsheet, Download, ChevronDown } from 'lucide-react';
 import AmountInput from './amount-input';
 import {
     type Liquidation,
@@ -60,35 +60,58 @@ function formatFileSize(bytes: number): string {
 
 /**
  * Control / Ledger No. display — single value as plain mono text, multiple
- * values (joined with " / ") as a wrapping list of badges. Persisted form
- * comes from the import parser which always uses " / " as separator.
+ * values (joined with " / ") as a collapsible badge list. Collapsed by default
+ * to save vertical space; shows first ledger + "+N more" pill to expand.
  */
 function ControlNoDisplay({ value }: { value: string }) {
+    const [expanded, setExpanded] = useState(false);
     const parts = value ? value.split(' / ').filter(Boolean) : [];
+
     if (parts.length === 0) {
         return <DisplayValue className="font-mono-nums">N/A</DisplayValue>;
     }
     if (parts.length === 1) {
         return <DisplayValue className="font-mono-nums">{parts[0]}</DisplayValue>;
     }
+
     return (
-        <div className="flex flex-wrap gap-1.5">
-            {parts.map((p, i) => (
-                <span
-                    key={`${p}-${i}`}
-                    className="text-xs font-mono px-2 py-0.5 rounded border bg-muted/40 text-foreground"
+        <div className="space-y-1.5">
+            <div className="flex flex-wrap gap-1.5">
+                {(expanded ? parts : parts.slice(0, 1)).map((p, i) => (
+                    <span
+                        key={`${p}-${i}`}
+                        className="text-xs font-mono px-2 py-0.5 rounded border bg-muted/40 text-foreground"
+                    >
+                        {p}
+                    </span>
+                ))}
+                {!expanded && (
+                    <button
+                        type="button"
+                        onClick={() => setExpanded(true)}
+                        className="text-xs px-2 py-0.5 rounded border bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors cursor-pointer"
+                    >
+                        +{parts.length - 1} more
+                    </button>
+                )}
+            </div>
+            {expanded && (
+                <button
+                    type="button"
+                    onClick={() => setExpanded(false)}
+                    className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                 >
-                    {p}
-                </span>
-            ))}
+                    Show less
+                </button>
+            )}
         </div>
     );
 }
 
 /**
- * Per-ledger grantee breakdown — small ledger → grantees table with a total
- * footer. Rendered only when the source import row had multiple ledgers
- * paired with grantee counts.
+ * Per-ledger grantee breakdown — collapsible panel showing a ledger → grantees
+ * table with a total footer. Collapsed by default to save vertical space.
+ * The header row acts as a toggle and shows a summary when collapsed.
  */
 function LedgerBreakdownPanel({
     breakdown,
@@ -99,36 +122,52 @@ function LedgerBreakdownPanel({
     total: number;
     className?: string;
 }) {
+    const [expanded, setExpanded] = useState(false);
+
     return (
         <div className={`rounded-md border overflow-hidden ${className}`}>
-            <div className="px-3 py-2 bg-muted/30 border-b">
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    Per-Ledger Grantee Breakdown
-                </p>
-                <p className="text-[11px] text-muted-foreground/80 mt-0.5">
-                    Original cohort sizes from the source Excel import.
-                </p>
-            </div>
-            <table className="w-full text-sm">
-                <thead className="bg-muted/20 border-b">
-                    <tr>
-                        <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground">Ledger</th>
-                        <th className="px-3 py-2 text-right text-[11px] font-medium text-muted-foreground">Grantees</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y">
-                    {breakdown.map((entry, i) => (
-                        <tr key={`${entry.ledger}-${i}`}>
-                            <td className="px-3 py-2 font-mono text-xs">{entry.ledger}</td>
-                            <td className="px-3 py-2 text-right tabular-nums text-xs">{entry.grantees.toLocaleString()}</td>
+            <button
+                type="button"
+                className="w-full px-3 py-2 bg-muted/30 flex items-center justify-between hover:bg-muted/50 transition-colors text-left"
+                onClick={() => setExpanded(prev => !prev)}
+                aria-expanded={expanded}
+            >
+                <div>
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        Per-Ledger Grantee Breakdown
+                    </p>
+                    {!expanded && (
+                        <p className="text-[11px] text-muted-foreground/80 mt-0.5">
+                            {breakdown.length} ledgers · {total.toLocaleString()} total grantees — click to expand
+                        </p>
+                    )}
+                </div>
+                <ChevronDown
+                    className={`h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+                />
+            </button>
+            {expanded && (
+                <table className="w-full text-sm border-t">
+                    <thead className="bg-muted/20 border-b">
+                        <tr>
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground">Ledger</th>
+                            <th className="px-3 py-2 text-right text-[11px] font-medium text-muted-foreground">Grantees</th>
                         </tr>
-                    ))}
-                    <tr className="bg-muted/30 border-t-2">
-                        <td className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-sm font-semibold">{total.toLocaleString()}</td>
-                    </tr>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody className="divide-y">
+                        {breakdown.map((entry, i) => (
+                            <tr key={`${entry.ledger}-${i}`}>
+                                <td className="px-3 py-2 font-mono text-xs">{entry.ledger}</td>
+                                <td className="px-3 py-2 text-right tabular-nums text-xs">{entry.grantees.toLocaleString()}</td>
+                            </tr>
+                        ))}
+                        <tr className="bg-muted/30 border-t-2">
+                            <td className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-sm font-semibold">{total.toLocaleString()}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            )}
         </div>
     );
 }
