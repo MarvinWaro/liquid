@@ -13,9 +13,18 @@ export default function AppSidebarLayout({
     return (
         <AppShell variant="sidebar">
             <AppSidebar />
-            <AppContent variant="sidebar">
+            {/*
+                h-svh caps SidebarInset at exactly viewport height. Without
+                this, its default min-h-svh lets it grow with content, which
+                cancels out the wrapper's overflow-y-auto (a flex child needs
+                a height-constrained parent for its overflow to actually
+                scroll). With h-svh + overflow-y-auto + min-h-0 below, the
+                wrapper becomes a real scroll container and sticky children
+                inside any page bind to it correctly.
+            */}
+            <AppContent variant="sidebar" className="h-svh">
                 <AppSidebarHeader breadcrumbs={breadcrumbs} />
-                <div className="flex-1 min-w-0 px-4 md:px-6 py-3">
+                <div className="flex-1 min-h-0 min-w-0 overflow-y-auto px-4 md:px-6 py-3">
                     {children}
                 </div>
                 <AppFooter />
