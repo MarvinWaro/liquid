@@ -17,7 +17,9 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { UserModal } from '@/components/users/user-modal';
+import { formatLastSeen, useUserPresence, type PresenceStatus } from '@/hooks/use-user-presence';
 import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
@@ -32,7 +34,7 @@ import {
     User as UserIcon,
     UserRoundPlus,
 } from 'lucide-react';
-import { useState } from 'react';
+import { memo, useState } from 'react';
 
 interface Role {
     id: number;
@@ -114,6 +116,10 @@ export default function Index({
     const [roleFilter, setRoleFilter] = useState<string>('all');
     const [regionFilter, setRegionFilter] = useState<string>('all');
     const [statusFilter, setStatusFilter] = useState<string>('all');
+    const [presenceFilter, setPresenceFilter] = useState<string>('all');
+
+    // Live presence map keyed by user id. Smart-polled (paused on hidden tab / idle).
+    const presences = useUserPresence();
 
     // Format region label for display
     const getRegionLabel = (region?: Region | null) => {
@@ -124,6 +130,13 @@ export default function Index({
     // Get user's effective region (direct or via HEI)
     const getUserRegionId = (user: User): string | null => {
         return user.region_id || user.hei?.region_id || null;
+    };
+
+    // Resolve a user's effective presence status — self user is always online,
+    // others fall back to the polled map (or 'offline' if not yet known).
+    const getPresenceStatus = (userId: number): PresenceStatus => {
+        if (userId === auth.user.id) return 'online';
+        return presences[userId]?.status ?? 'offline';
     };
 
     // Filter users based on search and filters
@@ -151,7 +164,11 @@ export default function Index({
         const matchesStatus =
             statusFilter === 'all' || user.status === statusFilter;
 
-        return matchesSearch && matchesRole && matchesRegion && matchesStatus;
+        // Presence (online status) filter
+        const matchesPresence =
+            presenceFilter === 'all' || getPresenceStatus(user.id) === presenceFilter;
+
+        return matchesSearch && matchesRole && matchesRegion && matchesStatus && matchesPresence;
     });
 
     const handleDelete = (userId: number) => {
@@ -300,6 +317,37 @@ export default function Index({
                                     </SelectItem>
                                 </SelectContent>
                             </Select>
+                            <Select
+                                value={presenceFilter}
+                                onValueChange={setPresenceFilter}
+                            >
+                                <SelectTrigger className="w-[160px]">
+                                    <SelectValue placeholder="All Presence" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">
+                                        All Presence
+                                    </SelectItem>
+                                    <SelectItem value="online">
+                                        <span className="flex items-center gap-2">
+                                            <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
+                                            Online
+                                        </span>
+                                    </SelectItem>
+                                    <SelectItem value="recently_active">
+                                        <span className="flex items-center gap-2">
+                                            <span className="h-2 w-2 rounded-full bg-amber-400"></span>
+                                            Recently Active
+                                        </span>
+                                    </SelectItem>
+                                    <SelectItem value="offline">
+                                        <span className="flex items-center gap-2">
+                                            <span className="h-2 w-2 rounded-full bg-muted-foreground/40"></span>
+                                            Offline
+                                        </span>
+                                    </SelectItem>
+                                </SelectContent>
+                            </Select>
                         </div>
                     </div>
                     <div className="overflow-x-auto rounded-lg border">
@@ -313,6 +361,7 @@ export default function Index({
                                 <TableHead className="h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">Region</TableHead>
                                 <TableHead className="h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">Institution</TableHead>
                                 <TableHead className="h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</TableHead>
+                                <TableHead className="h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">Online</TableHead>
                                 <TableHead className="h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">Joined Date</TableHead>
                                 <TableHead className="pr-6 text-right h-9 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                                     Actions
@@ -323,7 +372,7 @@ export default function Index({
                             {filteredUsers.length === 0 ? (
                                 <TableRow>
                                     <TableCell
-                                        colSpan={7}
+                                        colSpan={8}
                                         className="py-12 text-center text-muted-foreground"
                                     >
                                         <div className="flex flex-col items-center gap-2">
@@ -432,6 +481,12 @@ export default function Index({
                                                     : 'Inactive'}
                                             </Badge>
                                         </TableCell>
+                                        <TableCell className="py-2">
+                                            <PresenceCell
+                                                presence={presences[user.id]}
+                                                isSelf={user.id === auth.user.id}
+                                            />
+                                        </TableCell>
                                         <TableCell className="py-2 text-sm text-muted-foreground">
                                             {new Date(
                                                 user.created_at,
@@ -529,3 +584,56 @@ export default function Index({
         </AppLayout>
     );
 }
+
+/**
+ * Online-status indicator for a single user row.
+ * The viewing user is always shown as "Online" — they just made the request.
+ * Server-derived statuses: online (<2m), recently_active (<15m), offline.
+ *
+ * Memoized so a poll that flips one user's status doesn't re-render the
+ * other 200 rows. Pairs with reference-stable updates in useUserPresence.
+ */
+const PresenceCell = memo(function PresenceCell({
+    presence,
+    isSelf,
+}: {
+    presence: { status: PresenceStatus; last_active_at: string | null } | undefined;
+    isSelf: boolean;
+}) {
+    const status: PresenceStatus = isSelf ? 'online' : presence?.status ?? 'offline';
+    const lastActiveAt = isSelf ? null : presence?.last_active_at ?? null;
+
+    const dotClass =
+        status === 'online'
+            ? 'bg-emerald-500'
+            : status === 'recently_active'
+              ? 'bg-amber-400'
+              : 'bg-muted-foreground/40';
+
+    const label =
+        status === 'online'
+            ? 'Online'
+            : status === 'recently_active'
+              ? `Active ${formatLastSeen(lastActiveAt)}`
+              : lastActiveAt
+                ? formatLastSeen(lastActiveAt)
+                : 'Offline';
+
+    const tooltip = isSelf
+        ? 'You are online'
+        : lastActiveAt
+          ? `Last active ${formatLastSeen(lastActiveAt)}`
+          : 'No activity recorded yet';
+
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <span className="inline-flex items-center gap-2 text-xs text-muted-foreground cursor-default">
+                    <span className={`h-2 w-2 rounded-full ${dotClass}`} />
+                    <span className="text-foreground/80">{label}</span>
+                </span>
+            </TooltipTrigger>
+            <TooltipContent side="top">{tooltip}</TooltipContent>
+        </Tooltip>
+    );
+});

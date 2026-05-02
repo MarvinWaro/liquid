@@ -9,6 +9,7 @@ use App\Models\HEI;
 use App\Models\Program;
 use App\Models\ActivityLog;
 use App\Services\NotificationService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -18,6 +19,49 @@ use Illuminate\Validation\Rule;
 
 class UserController extends Controller
 {
+    /** Presence thresholds (minutes) for the user-management online indicator. */
+    private const PRESENCE_ONLINE_MINUTES = 2;
+    private const PRESENCE_RECENT_MINUTES = 15;
+
+    /**
+     * Lightweight polling endpoint for online status of all users.
+     * Returns one row per user with a derived status bucket so the client
+     * does not need to know the threshold rules.
+     */
+    public function onlineStatus(): JsonResponse
+    {
+        if (! auth()->user()->hasPermission('view_users')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $now = now();
+        $onlineCutoff = $now->copy()->subMinutes(self::PRESENCE_ONLINE_MINUTES);
+        $recentCutoff = $now->copy()->subMinutes(self::PRESENCE_RECENT_MINUTES);
+
+        $rows = User::query()
+            ->select('id', 'last_active_at')
+            ->get()
+            ->map(function (User $user) use ($onlineCutoff, $recentCutoff): array {
+                $status = 'offline';
+                if ($user->last_active_at) {
+                    if ($user->last_active_at->gte($onlineCutoff)) {
+                        $status = 'online';
+                    } elseif ($user->last_active_at->gte($recentCutoff)) {
+                        $status = 'recently_active';
+                    }
+                }
+
+                return [
+                    'id' => $user->id,
+                    'status' => $status,
+                    'last_active_at' => optional($user->last_active_at)->toIso8601String(),
+                ];
+            })
+            ->values();
+
+        return response()->json(['users' => $rows]);
+    }
+
     public function index(): Response
     {
         if (!auth()->user()->hasPermission('view_users')) {

@@ -93,7 +93,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
             'userRole' => $roleName,
         ]);
     })->name('report');
-    Route::get('fiscal-year', fn () => Inertia::render('fiscal-year'))->name('fiscal-year');
     Route::get('summary/academic-year', [DashboardController::class, 'summaryPerAY'])->name('summary.academic-year');
     Route::get('summary/hei', [DashboardController::class, 'summaryPerHEI'])->name('summary.hei');
 
@@ -107,6 +106,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // User Management Routes
     Route::get('users', [UserController::class, 'index'])->name('users.index');
+    Route::get('users/online-status', [UserController::class, 'onlineStatus'])
+        ->middleware('throttle:120,1')
+        ->name('users.online-status');
     Route::get('users/create', [UserController::class, 'create'])->name('users.create');
     Route::post('users', [UserController::class, 'store'])->name('users.store');
     Route::get('users/{user}/edit', [UserController::class, 'edit'])->name('users.edit');

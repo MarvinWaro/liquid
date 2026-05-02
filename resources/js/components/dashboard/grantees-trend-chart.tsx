@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useMemo } from 'react';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import {
     ChartConfig,
@@ -8,13 +8,6 @@ import {
     ChartTooltip,
     ChartTooltipContent,
 } from '@/components/ui/chart';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export interface GranteesTrendPoint {
@@ -42,54 +35,22 @@ const chartConfig = {
     },
 } satisfies ChartConfig;
 
-type TimeRange = '1y' | '3y' | 'all';
-
-const RANGE_LABELS: Record<TimeRange, string> = {
-    '1y': 'Last 12 months',
-    '3y': 'Last 3 years',
-    'all': 'All time',
-};
-
-const RANGE_MONTHS: Record<TimeRange, number | null> = {
-    '1y': 12,
-    '3y': 36,
-    'all': null,
-};
-
 interface Props {
     data: GranteesTrendPoint[] | undefined;
 }
 
 export const GranteesTrendChart = memo(function GranteesTrendChart({ data }: Props) {
-    const [timeRange, setTimeRange] = useState<TimeRange>('all');
-
-    const filteredData = useMemo(() => {
-        if (!data) return [];
-        const months = RANGE_MONTHS[timeRange];
-        if (months === null) return data;
-        const cutoff = new Date();
-        cutoff.setMonth(cutoff.getMonth() - months);
-        const cutoffMs = cutoff.getTime();
-        return data.filter(point => {
-            const t = new Date(point.date).getTime();
-            return !Number.isNaN(t) && t >= cutoffMs;
-        });
-    }, [data, timeRange]);
-
     const totalGrantees = useMemo(
-        () => filteredData.reduce((sum, p) => sum + p.tes + p.tdp + p.stufaps, 0),
-        [filteredData],
+        () => (data ?? []).reduce((sum, p) => sum + p.tes + p.tdp + p.stufaps, 0),
+        [data],
     );
 
     if (!data) {
         return (
             <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                    <div className="space-y-2">
-                        <Skeleton className="h-4 w-40" />
-                        <Skeleton className="h-3 w-56" />
-                    </div>
-                    <Skeleton className="h-8 w-[160px]" />
+                <div className="space-y-2">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-7 w-32" />
                 </div>
                 <Skeleton className="h-[250px] w-full" />
             </div>
@@ -98,32 +59,20 @@ export const GranteesTrendChart = memo(function GranteesTrendChart({ data }: Pro
 
     return (
         <div className="space-y-4" style={{ contain: 'layout paint' }}>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                    <p className="text-xs text-muted-foreground">Total Grantees ({RANGE_LABELS[timeRange]})</p>
-                    <p className="text-2xl font-semibold tabular-nums">
-                        {totalGrantees.toLocaleString('en-US')}
-                    </p>
-                </div>
-                <Select value={timeRange} onValueChange={(v: TimeRange) => setTimeRange(v)}>
-                    <SelectTrigger className="w-[160px] h-8 text-xs" aria-label="Select time range">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all" className="text-xs">All time</SelectItem>
-                        <SelectItem value="3y" className="text-xs">Last 3 years</SelectItem>
-                        <SelectItem value="1y" className="text-xs">Last 12 months</SelectItem>
-                    </SelectContent>
-                </Select>
+            <div>
+                <p className="text-xs text-muted-foreground">Total Grantees</p>
+                <p className="text-2xl font-semibold tabular-nums">
+                    {totalGrantees.toLocaleString('en-US')}
+                </p>
             </div>
 
-            {filteredData.length === 0 ? (
+            {data.length === 0 ? (
                 <div className="flex h-[250px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-                    No grantee data in this range.
+                    No grantee data available.
                 </div>
             ) : (
                 <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full">
-                    <AreaChart data={filteredData}>
+                    <AreaChart data={data}>
                         <defs>
                             <linearGradient id="fillTes" x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="5%" stopColor="var(--color-tes)" stopOpacity={0.8} />
@@ -171,29 +120,40 @@ export const GranteesTrendChart = memo(function GranteesTrendChart({ data }: Pro
                                 />
                             }
                         />
+                        {/* Render largest typical series first (back) so smaller
+                            ones remain visible on top. Non-stacked so each starts
+                            at zero — otherwise tiny series disappear under TES. */}
                         <Area
-                            dataKey="stufaps"
+                            dataKey="tes"
                             type="natural"
-                            fill="url(#fillStufaps)"
-                            stroke="var(--color-stufaps)"
-                            stackId="a"
-                            isAnimationActive={false}
+                            fill="url(#fillTes)"
+                            stroke="var(--color-tes)"
+                            strokeWidth={2}
+                            fillOpacity={0.35}
+                            animationDuration={900}
+                            animationEasing="ease-out"
                         />
                         <Area
                             dataKey="tdp"
                             type="natural"
                             fill="url(#fillTdp)"
                             stroke="var(--color-tdp)"
-                            stackId="a"
-                            isAnimationActive={false}
+                            strokeWidth={2}
+                            fillOpacity={0.45}
+                            animationDuration={900}
+                            animationEasing="ease-out"
+                            animationBegin={120}
                         />
                         <Area
-                            dataKey="tes"
+                            dataKey="stufaps"
                             type="natural"
-                            fill="url(#fillTes)"
-                            stroke="var(--color-tes)"
-                            stackId="a"
-                            isAnimationActive={false}
+                            fill="url(#fillStufaps)"
+                            stroke="var(--color-stufaps)"
+                            strokeWidth={2}
+                            fillOpacity={0.5}
+                            animationDuration={900}
+                            animationEasing="ease-out"
+                            animationBegin={240}
                         />
                         <ChartLegend content={<ChartLegendContent />} />
                     </AreaChart>
