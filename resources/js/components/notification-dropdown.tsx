@@ -69,6 +69,23 @@ export function NotificationDropdown() {
         }
     }, [open, fetchNotifications]);
 
+    // Background poll — keep badge count fresh without opening the dropdown.
+    // Pauses when the tab is hidden to avoid wasted requests.
+    useEffect(() => {
+        if (open) return;
+        const poll = async () => {
+            if (document.hidden) return;
+            try {
+                const { data } = await axios.get('/notifications/recent');
+                setUnreadCount(data.unread_count);
+            } catch {
+                // swallow — badge stays stale rather than erroring
+            }
+        };
+        const id = setInterval(poll, 30_000);
+        return () => clearInterval(id);
+    }, [open]);
+
     // Intersection Observer for infinite scroll
     useEffect(() => {
         if (!open || !sentinelRef.current) return;
