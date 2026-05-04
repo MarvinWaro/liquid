@@ -75,7 +75,8 @@
       "Bash(grep -E \"import-preview|liquidation-details|liquidation\\\\\\\\.ts|LiquidationController\")",
       "Bash(git stash *)",
       "Bash(git restore *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(grep -nB1 -A3 \"warning\" storage/logs/laravel.log)"
     ]
   }
 }

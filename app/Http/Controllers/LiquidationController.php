@@ -864,6 +864,11 @@ class LiquidationController extends Controller
         $isLast    = (bool) $request->input('is_last', false);
         $batchId   = $request->input('batch_id');
 
+        // Frontend signals on the first chunk that it intends to send the source
+        // Excel. Used to detect when PHP silently drops the file due to upload
+        // size limits (post_max_size / upload_max_filesize).
+        $expectsSourceFile = $request->boolean('expects_source_file');
+
         // Validate the optional source_file upload (only present on the first chunk).
         // Rejecting here is safer than silently uploading a malicious or oversized file to S3.
         if ($request->hasFile('source_file')) {
@@ -874,6 +879,10 @@ class LiquidationController extends Controller
 
         // Slice the chunk to import
         $chunk = array_slice($allRows, $offset, $limit);
+
+        // Tracks why the source file wasn't persisted, for surfacing back to the
+        // client. Stays null on success or when no upload was attempted.
+        $sourceFileWarning = null;
 
         // Create or retrieve the import batch
         if ($batchId) {
@@ -888,30 +897,46 @@ class LiquidationController extends Controller
             $sourceFilePath = null;
             $sourceFileSize = null;
             if ($request->hasFile('source_file')) {
-                $stream = null;
                 try {
-                    $sourceFile    = $request->file('source_file');
-                    $timestamp     = now()->format('Ymd-His');
-                    $rand          = Str::lower(Str::random(8));
-                    $extension     = strtolower($sourceFile->getClientOriginalExtension() ?: 'xlsx');
-                    $candidatePath = "liquidation_imports/{$user->id}/{$timestamp}-{$rand}.{$extension}";
-                    $candidateSize = $sourceFile->getSize() ?: null;
+                    $sourceFile = $request->file('source_file');
+                    $timestamp  = now()->format('Ymd-His');
+                    $rand       = Str::lower(Str::random(8));
+                    $extension  = strtolower($sourceFile->getClientOriginalExtension() ?: 'xlsx');
+                    $filename   = "{$timestamp}-{$rand}.{$extension}";
+                    $directory  = "liquidation_imports/{$user->id}";
 
-                    $stream = fopen($sourceFile->getRealPath(), 'rb');
-                    Storage::disk(config('filesystems.default'))->put($candidatePath, $stream, 'private');
+                    // storeAs handles streams + cleanup automatically and returns
+                    // the stored path or false on failure.
+                    $stored = $sourceFile->storeAs(
+                        $directory,
+                        $filename,
+                        ['disk' => config('filesystems.default'), 'visibility' => 'private']
+                    );
 
-                    $sourceFilePath = $candidatePath;
-                    $sourceFileSize = $candidateSize;
+                    if ($stored === false) {
+                        throw new \RuntimeException('Storage driver returned false for putFileAs.');
+                    }
+
+                    $sourceFilePath = $stored;
+                    $sourceFileSize = $sourceFile->getSize() ?: null;
                 } catch (\Throwable $e) {
                     Log::warning('Bulk import source file upload failed; proceeding without persisted source.', [
                         'user_id' => $user->id,
+                        'disk'    => config('filesystems.default'),
                         'error'   => $e->getMessage(),
                     ]);
-                } finally {
-                    if (is_resource($stream)) {
-                        fclose($stream);
-                    }
+                    $sourceFileWarning = 'The original Excel file could not be saved to storage. The import succeeded but the source file is not available for download.';
                 }
+            } elseif ($expectsSourceFile) {
+                // Client tried to send a file but PHP didn't receive it — usually
+                // due to upload_max_filesize / post_max_size being smaller than the
+                // file. Surface this clearly so the operator knows to raise limits.
+                Log::warning('Bulk import source file expected but missing; check PHP upload limits.', [
+                    'user_id'              => $user->id,
+                    'upload_max_filesize'  => ini_get('upload_max_filesize'),
+                    'post_max_size'        => ini_get('post_max_size'),
+                ]);
+                $sourceFileWarning = 'The original Excel file could not be uploaded (it may exceed the server upload size limit). The import succeeded but the source file is not available for download.';
             }
 
             $batch = ImportBatch::create([
@@ -980,12 +1005,13 @@ class LiquidationController extends Controller
 
         $errorCount = count($errors);
         return response()->json([
-            'success'    => true,
-            'batch_id'   => $batch->id,
-            'imported'   => $imported,
-            'errors'     => $errors,
-            'total_rows' => $totalRows,
-            'message'    => $isLast
+            'success'             => true,
+            'batch_id'            => $batch->id,
+            'imported'            => $imported,
+            'errors'              => $errors,
+            'total_rows'          => $totalRows,
+            'source_file_warning' => $sourceFileWarning,
+            'message'             => $isLast
                 ? "Imported {$batch->fresh()->imported_count} liquidation(s)."
                 : null,
         ]);
@@ -1049,12 +1075,16 @@ class LiquidationController extends Controller
             ->map(fn (ImportBatch $b) => [
                 'id'             => $b->id,
                 'file_name'      => $b->file_name,
+                'file_size'      => $b->file_size,
                 'total_rows'     => $b->total_rows,
                 'imported_count' => $b->imported_count,
                 'status'         => $b->status,
                 'created_at'     => $b->created_at->format('M d, Y h:i A'),
                 'undone_at'      => $b->undone_at?->format('M d, Y h:i A'),
                 'imported_by'    => $b->user?->name ?? 'Unknown',
+                // Source file is removed from S3 when a batch is undone, so
+                // restrict downloads to active batches with a stored path.
+                'can_download'   => $b->file_path !== null && $b->isActive(),
             ]);
 
         return response()->json(['batches' => $batches]);

@@ -56,6 +56,10 @@ return [
             'url' => env('AWS_URL'),
             'endpoint' => env('AWS_ENDPOINT'),
             'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
+            // Optional path prefix transparently applied to every S3 operation.
+            // Used to isolate non-production environments from production data
+            // when sharing a single bucket. Empty (production) = no prefix.
+            'root' => env('AWS_PATH_PREFIX', ''),
             'throw' => true,
             'report' => false,
         ],
