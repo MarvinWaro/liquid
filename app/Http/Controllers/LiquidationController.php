@@ -24,6 +24,7 @@ use App\Models\LiquidationDocument;
 use App\Models\LiquidationReview;
 use App\Models\LiquidationRunningData;
 use App\Models\LiquidationStatus;
+use App\Models\ReviewType;
 use App\Models\RcNoteStatus;
 use App\Models\LiquidationTrackingEntry;
 use App\Models\ProgramDueDateRule;
@@ -275,26 +276,123 @@ class LiquidationController extends Controller
             $ids = $validated['liquidation_ids'];
         }
 
-        $data = collect($validated)->except('liquidation_ids')->toArray();
-        $succeeded = 0;
-        $errors = [];
+        if (empty($ids)) {
+            return redirect()->route('liquidation.index')
+                ->with('success', '0 liquidation(s) endorsed to Accounting successfully.');
+        }
 
-        foreach ($ids as $id) {
-            try {
-                $liquidation = Liquidation::findOrFail($id);
-                $this->liquidationService->endorseToAccounting($liquidation, $user, $data);
-                $succeeded++;
-            } catch (\Exception $e) {
-                $errors[] = $id;
+        $now = now();
+        $reviewRemarks = $validated['review_remarks'] ?? null;
+
+        $succeeded = DB::transaction(function () use ($ids, $user, $now, $reviewRemarks) {
+            // Load all with financials in one query, re-verify eligibility inside transaction
+            $liquidations = Liquidation::with('financial')
+                ->whereIn('id', $ids)
+                ->whereNull('reviewed_at')
+                ->get();
+
+            if ($liquidations->isEmpty()) {
+                return 0;
             }
-        }
 
-        $message = "{$succeeded} liquidation(s) endorsed to Accounting successfully.";
-        if (!empty($errors)) {
-            $message .= ' ' . count($errors) . ' failed.';
-        }
+            $allIds = $liquidations->pluck('id')->toArray();
 
-        return redirect()->route('liquidation.index')->with('success', $message);
+            // Auto-set date_submitted for any that are still null
+            DB::table('liquidations')
+                ->whereIn('id', $allIds)
+                ->whereNull('date_submitted')
+                ->update(['date_submitted' => $now]);
+
+            // Group by resulting liquidation status
+            $fullyLiquidatedId    = LiquidationStatus::fullyLiquidated()?->id;
+            $partiallyLiquidatedId = LiquidationStatus::partiallyLiquidated()?->id;
+
+            $fullyIds   = [];
+            $partialIds = [];
+
+            foreach ($liquidations as $liq) {
+                $financial  = $liq->financial;
+                $disbursed  = (float) ($financial?->amount_disbursed ?? 0);
+                $liquidated = (float) ($financial?->amount_liquidated ?? 0);
+                $pct        = $disbursed > 0 ? ($liquidated / $disbursed) * 100 : 0;
+                if ($pct >= 100) {
+                    $fullyIds[] = $liq->id;
+                } else {
+                    $partialIds[] = $liq->id;
+                }
+            }
+
+            // Bulk update reviewed status
+            if (!empty($fullyIds)) {
+                DB::table('liquidations')->whereIn('id', $fullyIds)->update([
+                    'liquidation_status_id' => $fullyLiquidatedId,
+                    'reviewed_by'           => $user->id,
+                    'reviewed_at'           => $now,
+                ]);
+            }
+            if (!empty($partialIds)) {
+                DB::table('liquidations')->whereIn('id', $partialIds)->update([
+                    'liquidation_status_id' => $partiallyLiquidatedId,
+                    'reviewed_by'           => $user->id,
+                    'reviewed_at'           => $now,
+                ]);
+            }
+
+            // Bulk insert review remarks if provided
+            if ($reviewRemarks) {
+                $reviewTypeId = ReviewType::findByCode(LiquidationReview::TYPE_RC_ENDORSEMENT)?->id;
+                DB::table('liquidation_reviews')->insert(
+                    $liquidations->map(fn ($liq) => [
+                        'id'                => Str::uuid()->toString(),
+                        'liquidation_id'    => $liq->id,
+                        'review_type_id'    => $reviewTypeId,
+                        'performed_by'      => $user->id,
+                        'performed_by_name' => $user->name,
+                        'remarks'           => $reviewRemarks,
+                        'performed_at'      => $now,
+                        'created_at'        => $now,
+                        'updated_at'        => $now,
+                    ])->toArray()
+                );
+            }
+
+            // Single summary log for the bulk operation
+            ActivityLog::log(
+                'endorsed_to_accounting',
+                'Bulk endorsed ' . $liquidations->count() . ' liquidation(s) to Accounting',
+                null,
+                'Liquidation'
+            );
+
+            // Notify accountants and admins with one summary notification.
+            // Per-record notifications are intentionally skipped for bulk to avoid spam.
+            $description = $user->name . ' bulk endorsed ' . $liquidations->count() . ' liquidation(s) to Accounting.';
+            $recipients  = User::whereHas('role', fn ($q) => $q->whereIn('name', ['Accountant', 'Admin', 'Super Admin']))
+                ->where('status', 'active')
+                ->where('id', '!=', $user->id)
+                ->get();
+
+            if ($recipients->isNotEmpty()) {
+                Notification::insert(
+                    $recipients->map(fn ($recipient) => [
+                        'id'          => Str::uuid()->toString(),
+                        'user_id'     => $recipient->id,
+                        'actor_id'    => $user->id,
+                        'actor_name'  => $user->name,
+                        'action'      => 'endorsed_to_accounting',
+                        'description' => $description,
+                        'module'      => 'Liquidation',
+                        'created_at'  => $now,
+                        'updated_at'  => $now,
+                    ])->toArray()
+                );
+            }
+
+            return $liquidations->count();
+        });
+
+        return redirect()->route('liquidation.index')
+            ->with('success', "{$succeeded} liquidation(s) endorsed to Accounting successfully.");
     }
 
     /**
