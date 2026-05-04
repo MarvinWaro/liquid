@@ -21,6 +21,7 @@ use App\Models\ImportBatch;
 use App\Models\Liquidation;
 use App\Models\Notification;
 use App\Models\LiquidationDocument;
+use App\Models\LiquidationFinancial;
 use App\Models\LiquidationReview;
 use App\Models\LiquidationRunningData;
 use App\Models\LiquidationStatus;
@@ -1092,12 +1093,30 @@ class LiquidationController extends Controller
             if ($totalImported > 0) {
                 ActivityLog::log('bulk_imported', "Bulk imported {$totalImported} liquidation(s) (batch: {$batch->id})", null, 'Liquidation');
 
-                NotificationService::dispatch(
-                    'bulk_imported',
-                    "Bulk imported {$totalImported} liquidation record(s) from {$batch->file_name}",
-                    null,
-                    'Liquidation'
-                );
+                $description = "{$user->name} bulk imported {$totalImported} liquidation record(s) from {$batch->file_name}";
+                $now = now();
+
+                $recipients = User::whereHas('role', fn ($q) => $q->whereIn('name', ['Admin', 'Super Admin']))
+                    ->where('status', 'active')
+                    ->where('id', '!=', $user->id)
+                    ->get();
+
+                if ($recipients->isNotEmpty()) {
+                    Notification::insert($recipients->map(fn ($recipient) => [
+                        'id'           => Str::uuid()->toString(),
+                        'user_id'      => $recipient->id,
+                        'actor_id'     => $user->id,
+                        'actor_name'   => $user->name,
+                        'action'       => 'bulk_imported',
+                        'description'  => $description,
+                        'subject_type' => null,
+                        'subject_id'   => null,
+                        'subject_label' => null,
+                        'module'       => 'Liquidation',
+                        'created_at'   => $now,
+                        'updated_at'   => $now,
+                    ])->toArray());
+                }
             }
         }
 
