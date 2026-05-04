@@ -34,6 +34,7 @@ import {
     History,
     Undo2,
     FileX2,
+    Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
@@ -74,12 +75,14 @@ export interface LedgerBreakdownEntry {
 interface ImportBatchRecord {
     id: string;
     file_name: string;
+    file_size: number | null;
     total_rows: number;
     imported_count: number;
     status: 'active' | 'undone';
     created_at: string;
     undone_at: string | null;
     imported_by?: string;
+    can_download: boolean;
 }
 
 interface ImportPreviewDialogProps {
@@ -432,6 +435,7 @@ export function ImportPreviewDialog({
         let totalImported = 0;
         let allErrors: any[] = [];
         let totalRows = total;
+        let sourceFileWarning: string | null = null;
 
         try {
             for (let offset = 0; offset < totalRows; offset += IMPORT_CHUNK_SIZE) {
@@ -447,6 +451,9 @@ export function ImportPreviewDialog({
                     formData.append('offset', String(offset));
                     formData.append('limit', String(IMPORT_CHUNK_SIZE));
                     formData.append('is_last', isLast ? '1' : '0');
+                    // Tell the backend a file is being sent so it can detect and warn
+                    // when PHP silently drops the file (post_max_size / upload_max_filesize).
+                    formData.append('expects_source_file', '1');
                     formData.append('source_file', selectedFile);
                     response = await axios.post(route('liquidation.bulk-import'), formData, {
                         headers: { 'Content-Type': 'multipart/form-data' },
@@ -467,6 +474,10 @@ export function ImportPreviewDialog({
                 if (response.data.errors?.length) {
                     allErrors.push(...response.data.errors);
                 }
+                // Captured only on the first chunk where the file upload is attempted.
+                if (isFirstChunk && response.data.source_file_warning) {
+                    sourceFileWarning = response.data.source_file_warning;
+                }
 
                 // Real progress — updates after each chunk returns
                 const processed = Math.min(offset + IMPORT_CHUNK_SIZE, totalRows);
@@ -484,6 +495,12 @@ export function ImportPreviewDialog({
 
             if (totalImported > 0 && allErrors.length === 0) {
                 toast.success(`Imported ${totalImported} liquidation(s).`);
+            }
+            // Distinct warning toast — the import worked, but the source Excel
+            // wasn't persisted (e.g. PHP upload limits). Operator-visible signal
+            // to fix server config rather than a silent failure.
+            if (sourceFileWarning) {
+                toast.warning(sourceFileWarning, { duration: 8000 });
             }
 
             onImportComplete({ imported: totalImported, errors: allErrors });
@@ -652,51 +669,75 @@ export function ImportPreviewDialog({
                                                     )}
                                                 </div>
                                             </div>
-                                            {batch.status === 'active' && (
-                                                <div className="ml-4 shrink-0">
-                                                    {confirmUndoId === batch.id ? (
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-xs text-destructive font-medium">Are you sure?</span>
-                                                            <Button
-                                                                variant="destructive"
-                                                                size="sm"
-                                                                disabled={undoingBatchId === batch.id}
-                                                                onClick={() => handleUndoBatch(batch.id)}
-                                                            >
-                                                                {undoingBatchId === batch.id ? (
-                                                                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                                                                ) : (
-                                                                    <Undo2 className="h-3.5 w-3.5 mr-1" />
-                                                                )}
-                                                                Yes, Undo
-                                                            </Button>
-                                                            <Button
-                                                                variant="outline"
-                                                                size="sm"
-                                                                onClick={() => setConfirmUndoId(null)}
-                                                            >
-                                                                Cancel
-                                                            </Button>
-                                                        </div>
-                                                    ) : (
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() => setConfirmUndoId(batch.id)}
-                                                                >
-                                                                    <Undo2 className="h-3.5 w-3.5 mr-1.5" />
-                                                                    Undo
-                                                                </Button>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent>
-                                                                Delete all un-submitted records from this import
-                                                            </TooltipContent>
-                                                        </Tooltip>
-                                                    )}
-                                                </div>
-                                            )}
+                                            <div className="ml-4 shrink-0">
+                                                {confirmUndoId === batch.id ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-xs text-destructive font-medium">Are you sure?</span>
+                                                        <Button
+                                                            variant="destructive"
+                                                            size="sm"
+                                                            disabled={undoingBatchId === batch.id}
+                                                            onClick={() => handleUndoBatch(batch.id)}
+                                                        >
+                                                            {undoingBatchId === batch.id ? (
+                                                                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                                                            ) : (
+                                                                <Undo2 className="h-3.5 w-3.5 mr-1" />
+                                                            )}
+                                                            Yes, Undo
+                                                        </Button>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => setConfirmUndoId(null)}
+                                                        >
+                                                            Cancel
+                                                        </Button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-2">
+                                                        {batch.can_download && (
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        asChild
+                                                                    >
+                                                                        <a
+                                                                            href={route('liquidation.download-import-batch-file', { batchId: batch.id })}
+                                                                            download
+                                                                        >
+                                                                            <Download className="h-3.5 w-3.5 mr-1.5" />
+                                                                            Download
+                                                                        </a>
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>
+                                                                    Download the original Excel file
+                                                                </TooltipContent>
+                                                            </Tooltip>
+                                                        )}
+                                                        {batch.status === 'active' && (
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => setConfirmUndoId(batch.id)}
+                                                                    >
+                                                                        <Undo2 className="h-3.5 w-3.5 mr-1.5" />
+                                                                        Undo
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>
+                                                                    Delete all un-submitted records from this import
+                                                                </TooltipContent>
+                                                            </Tooltip>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>

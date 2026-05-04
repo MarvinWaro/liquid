@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\DocumentRequirement;
+use App\Models\ImportBatch;
 use App\Models\LiquidationDocument;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
@@ -81,6 +82,37 @@ class CleanOrphanedStorage extends Command
 
         if (!$dryRun) {
             $this->pruneEmptyDirs('document_requirements');
+        }
+
+        // --- 3. Bulk-import source Excel files ---
+        // Files land here from LiquidationController@bulkImportLiquidations.
+        // They become orphans when an ImportBatch row is hard-deleted via raw
+        // SQL or factory tearDown (the model observer handles ordinary deletes).
+        $this->info('');
+        $this->info('Scanning liquidation_imports/...');
+
+        $knownImportPaths = ImportBatch::whereNotNull('file_path')
+            ->pluck('file_path')
+            ->flip();
+
+        $importFiles = Storage::disk('s3')->allFiles('liquidation_imports');
+
+        foreach ($importFiles as $file) {
+            if (!$knownImportPaths->has($file)) {
+                $size = Storage::disk('s3')->size($file);
+                $totalSize += $size;
+                $totalDeleted++;
+
+                $this->line("  <fg=red>orphan:</> {$file} (" . $this->formatBytes($size) . ')');
+
+                if (!$dryRun) {
+                    Storage::disk('s3')->delete($file);
+                }
+            }
+        }
+
+        if (!$dryRun) {
+            $this->pruneEmptyDirs('liquidation_imports');
         }
 
         // --- Summary ---
