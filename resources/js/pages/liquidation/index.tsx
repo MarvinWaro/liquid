@@ -150,6 +150,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const [lastImportCount, setLastImportCount] = useState<number | null>(null);
 
     // Selection state for bulk endorsement (ids are UUIDs at runtime)
+    const MAX_SELECTION = 100;
     const [selectedIds, setSelectedIds] = useState<Set<number | string>>(new Set());
     const [allPagesSelected, setAllPagesSelected] = useState(false);
     const [isEndorseModalOpen, setIsEndorseModalOpen] = useState(false);
@@ -335,22 +336,37 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const handleSelect = useCallback((id: number, checked: boolean) => {
         setAllPagesSelected(false);
         setSelectedIds(prev => {
+            if (checked && prev.size >= MAX_SELECTION) {
+                toast.warning(`You can select up to ${MAX_SELECTION} records at a time.`);
+                return prev;
+            }
             const next = new Set(prev);
             checked ? next.add(id) : next.delete(id);
             return next;
         });
-    }, []);
+    }, [MAX_SELECTION]);
 
     const handleSelectAll = useCallback((checked: boolean) => {
         if (!liquidations?.data) return;
         if (checked) {
-            const ids = liquidations.data.filter(l => !l.is_voided && !l.is_endorsed).map(l => l.id);
-            setSelectedIds(new Set(ids));
+            const eligible = liquidations.data
+                .filter(l => !l.is_voided && !l.is_endorsed)
+                .map(l => l.id);
+            setSelectedIds(prev => {
+                const next = new Set(prev);
+                let hitLimit = false;
+                for (const id of eligible) {
+                    if (next.size >= MAX_SELECTION) { hitLimit = true; break; }
+                    next.add(id);
+                }
+                if (hitLimit) toast.warning(`Selection limited to ${MAX_SELECTION} records.`);
+                return next;
+            });
         } else {
             setAllPagesSelected(false);
             setSelectedIds(new Set());
         }
-    }, [liquidations?.data]);
+    }, [liquidations?.data, MAX_SELECTION]);
 
     const handleEndorseSingle = useCallback((liquidation: Liquidation) => {
         setEndorseTarget(liquidation);
@@ -630,32 +646,12 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                         {selectedIds.size > 0 && (
                             <div className="flex flex-wrap items-center gap-3 px-4 py-3 mb-4 rounded-lg border bg-muted/50 animate-in fade-in-0 slide-in-from-top-2">
                                 <span className="text-sm font-medium">
-                                    {allPagesSelected
-                                        ? `All ${tableSummary?.total_records?.toLocaleString() ?? ''} records selected`
-                                        : `${selectedIds.size} selected`}
+                                    {selectedIds.size} / {MAX_SELECTION} selected
                                 </span>
 
-                                {/* Gmail-style: offer to select across all pages when current page is fully selected */}
-                                {!allPagesSelected && tableSummary && selectedIds.size > 0 && tableSummary.total_records > selectedIds.size && (
-                                    <span className="text-xs text-muted-foreground">
-                                        |{' '}
-                                        <button
-                                            className="text-primary underline-offset-2 hover:underline font-medium"
-                                            onClick={() => setAllPagesSelected(true)}
-                                        >
-                                            Select all {tableSummary.total_records.toLocaleString()} records
-                                        </button>
-                                    </span>
-                                )}
-                                {allPagesSelected && (
-                                    <span className="text-xs text-muted-foreground">
-                                        |{' '}
-                                        <button
-                                            className="text-primary underline-offset-2 hover:underline font-medium"
-                                            onClick={() => { setAllPagesSelected(false); setSelectedIds(new Set()); }}
-                                        >
-                                            Clear selection
-                                        </button>
+                                {selectedIds.size >= MAX_SELECTION && (
+                                    <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                                        Limit reached
                                     </span>
                                 )}
 
@@ -863,9 +859,11 @@ const LiquidationTable = React.memo(function LiquidationTable({
             </TableHead>
         );
     };
-    const selectableCount = liquidations.data.filter(l => !l.is_voided).length;
-    const allSelected = selectableCount > 0 && selectedIds.size >= selectableCount;
-    const someSelected = selectedIds.size > 0 && !allSelected;
+    const pageSelectableIds = liquidations.data
+        .filter(l => !l.is_voided && !l.is_endorsed)
+        .map(l => l.id);
+    const allSelected = pageSelectableIds.length > 0 && pageSelectableIds.every(id => selectedIds.has(id));
+    const someSelected = !allSelected && pageSelectableIds.some(id => selectedIds.has(id));
 
     const isFirstPage = (liquidations.meta?.current_page ?? 1) === 1;
     const pinnedCount = pinnedLiquidations?.length ?? 0;
