@@ -1052,35 +1052,49 @@ class LiquidationController extends Controller
         $imported = 0;
         $errors   = [];
 
-        DB::transaction(function () use ($chunk, $user, $batch, &$imported, &$errors) {
-            foreach ($chunk as $rowData) {
-                try {
-                    $this->insertImportRow($rowData, $user, $batch->id);
-                    $imported++;
-                } catch (\Illuminate\Database\QueryException $e) {
-                    $isDuplicate = ($e->errorInfo[1] ?? null) === 1062;
-                    $errors[] = [
-                        'row'      => $rowData['row_no'] ?? null,
-                        'seq'      => $rowData['seq'] ?? null,
-                        'program'  => $rowData['program_code'] ?? null,
-                        'uii'      => $rowData['uii'] ?? null,
-                        'hei_name' => $rowData['hei_name'] ?? '',
-                        'error'    => $isDuplicate
-                            ? 'Already exists — this record was likely imported in a previous batch.'
-                            : 'Database error — the record could not be saved.',
-                    ];
-                } catch (\Exception $e) {
-                    $errors[] = [
-                        'row'      => $rowData['row_no'] ?? null,
-                        'seq'      => $rowData['seq'] ?? null,
-                        'program'  => $rowData['program_code'] ?? null,
-                        'uii'      => $rowData['uii'] ?? null,
-                        'hei_name' => $rowData['hei_name'] ?? '',
-                        'error'    => $e->getMessage(),
-                    ];
+        // Bulk imports are audited through ImportBatch plus one summary
+        // activity log. Suppress per-row model logs to avoid flooding the
+        // activity timeline with duplicate Liquidation/Financial "created" rows.
+        $previousLiquidationLogging = Liquidation::$loggingEnabled;
+        $previousFinancialLogging   = LiquidationFinancial::$loggingEnabled;
+
+        Liquidation::$loggingEnabled          = false;
+        LiquidationFinancial::$loggingEnabled = false;
+
+        try {
+            DB::transaction(function () use ($chunk, $user, $batch, &$imported, &$errors) {
+                foreach ($chunk as $rowData) {
+                    try {
+                        $this->insertImportRow($rowData, $user, $batch->id);
+                        $imported++;
+                    } catch (\Illuminate\Database\QueryException $e) {
+                        $isDuplicate = ($e->errorInfo[1] ?? null) === 1062;
+                        $errors[] = [
+                            'row'      => $rowData['row_no'] ?? null,
+                            'seq'      => $rowData['seq'] ?? null,
+                            'program'  => $rowData['program_code'] ?? null,
+                            'uii'      => $rowData['uii'] ?? null,
+                            'hei_name' => $rowData['hei_name'] ?? '',
+                            'error'    => $isDuplicate
+                                ? 'Already exists — this record was likely imported in a previous batch.'
+                                : 'Database error — the record could not be saved.',
+                        ];
+                    } catch (\Exception $e) {
+                        $errors[] = [
+                            'row'      => $rowData['row_no'] ?? null,
+                            'seq'      => $rowData['seq'] ?? null,
+                            'program'  => $rowData['program_code'] ?? null,
+                            'uii'      => $rowData['uii'] ?? null,
+                            'hei_name' => $rowData['hei_name'] ?? '',
+                            'error'    => $e->getMessage(),
+                        ];
+                    }
                 }
-            }
-        });
+            });
+        } finally {
+            Liquidation::$loggingEnabled          = $previousLiquidationLogging;
+            LiquidationFinancial::$loggingEnabled = $previousFinancialLogging;
+        }
 
         // Update batch count
         $batch->increment('imported_count', $imported);
@@ -1091,7 +1105,7 @@ class LiquidationController extends Controller
 
             $totalImported = $batch->fresh()->imported_count;
             if ($totalImported > 0) {
-                ActivityLog::log('bulk_imported', "Bulk imported {$totalImported} liquidation(s) (batch: {$batch->id})", null, 'Liquidation');
+                ActivityLog::log('bulk_imported', "Bulk imported {$totalImported} liquidation(s) (batch: {$batch->id})", $batch, 'Liquidation');
 
                 $description = "{$user->name} bulk imported {$totalImported} liquidation record(s) from {$batch->file_name}";
                 $now = now();
@@ -1182,13 +1196,35 @@ class LiquidationController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
+        $focusedBatchId = $request->input('batch_id');
+
         // Admin/Super Admin see all batches; others see only their own
-        $query = ImportBatch::orderByDesc('created_at')->limit(20);
-        if (!$user->isSuperAdmin() && $user->role?->name !== 'Admin') {
-            $query->where('user_id', $user->id);
+        $scopeToUser = function ($query) use ($user) {
+            if (!$user->isSuperAdmin() && $user->role?->name !== 'Admin') {
+                $query->where('user_id', $user->id);
+            }
+        };
+
+        $query = ImportBatch::with('user')->orderByDesc('created_at')->limit(20);
+        $scopeToUser($query);
+
+        $batches = $query->get();
+
+        // When opened from an activity log, include the focused batch even if
+        // it is older than the recent-history limit.
+        if ($focusedBatchId && !$batches->contains('id', $focusedBatchId)) {
+            $focusedQuery = ImportBatch::with('user')->where('id', $focusedBatchId);
+            $scopeToUser($focusedQuery);
+            $focusedBatch = $focusedQuery->first();
+
+            if ($focusedBatch) {
+                $batches->prepend($focusedBatch);
+            }
         }
 
-        $batches = $query->get()
+        $batches = $batches
+            ->unique('id')
+            ->values()
             ->map(fn (ImportBatch $b) => [
                 'id'             => $b->id,
                 'file_name'      => $b->file_name,

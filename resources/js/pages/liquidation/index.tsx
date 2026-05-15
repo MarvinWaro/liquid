@@ -141,6 +141,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const [importFile, setImportFile] = useState<File | null>(null);
     const [isUploadPopoverOpen, setIsUploadPopoverOpen] = useState(false);
     const [openImportHistory, setOpenImportHistory] = useState(false);
+    const [highlightImportBatchId, setHighlightImportBatchId] = useState<string | null>(null);
     const bulkActionsRef = React.useRef<HTMLButtonElement>(null);
     const bulkUploadRef = React.useRef<HTMLInputElement>(null);
     const [importResult, setImportResult] = useState<{
@@ -171,6 +172,17 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const cachedPinned = useStaleWhileRevalidate(pinnedLiquidations);
     const cachedSummary = useStaleWhileRevalidate(tableSummary);
     const isRevalidating = !!cachedLiquidations && !liquidations;
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const importBatchId = params.get('import_batch');
+
+        if (params.get('import_history') === '1' || importBatchId) {
+            setHighlightImportBatchId(importBatchId);
+            setOpenImportHistory(true);
+            setIsImportPreviewOpen(true);
+        }
+    }, []);
 
     const getFilterParams = (overrides: Record<string, any> = {}) => {
         const raw: Record<string, any> = {
@@ -436,10 +448,11 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
             {/* Import Preview Dialog */}
             <ImportPreviewDialog
                 isOpen={isImportPreviewOpen}
-                onClose={() => { setIsImportPreviewOpen(false); setImportFile(null); setOpenImportHistory(false); }}
+                onClose={() => { setIsImportPreviewOpen(false); setImportFile(null); setOpenImportHistory(false); setHighlightImportBatchId(null); }}
                 onImportComplete={handleImportComplete}
                 initialFile={importFile}
                 initialShowHistory={openImportHistory}
+                highlightBatchId={highlightImportBatchId}
             />
 
             <div className="py-8 w-full min-w-0 overflow-hidden">

@@ -85,12 +85,24 @@ interface ImportBatchRecord {
     can_download: boolean;
 }
 
+interface ImportValidationResponse {
+    success: boolean;
+    token: string | null;
+    seen_control_nos?: Record<string, number>;
+    rows: ValidatedRow[];
+    summary: {
+        valid: number;
+        errors: number;
+    };
+}
+
 interface ImportPreviewDialogProps {
     isOpen: boolean;
     onClose: () => void;
     onImportComplete: (result: { imported: number; errors: any[] }) => void;
     initialFile?: File | null;
     initialShowHistory?: boolean;
+    highlightBatchId?: string | null;
 }
 
 // --- Component ------------------------------------------------------------
@@ -101,6 +113,7 @@ export function ImportPreviewDialog({
     onImportComplete,
     initialFile,
     initialShowHistory,
+    highlightBatchId,
 }: ImportPreviewDialogProps) {
     const ROWS_PER_PAGE = 100;
 
@@ -185,7 +198,7 @@ export function ImportPreviewDialog({
             setShowHistory(true);
             fetchBatches();
         }
-    }, [isOpen, initialShowHistory]);
+    }, [isOpen, initialShowHistory, highlightBatchId]);
 
     const reset = useCallback(() => {
         stopPolling();
@@ -270,7 +283,7 @@ export function ImportPreviewDialog({
 
         try {
             for (let i = 0; i < chunks.length; i++) {
-                const response = await axios.post(route('liquidation.validate-parsed-import'), {
+                const response: AxiosResponse<ImportValidationResponse> = await axios.post(route('liquidation.validate-parsed-import'), {
                     rows: chunks[i],
                     file_name: file.name,
                     import_token: importToken,
@@ -526,7 +539,9 @@ export function ImportPreviewDialog({
     const fetchBatches = async () => {
         setLoadingBatches(true);
         try {
-            const res = await axios.get(route('liquidation.import-batches'));
+            const res = await axios.get(route('liquidation.import-batches'), {
+                params: highlightBatchId ? { batch_id: highlightBatchId } : {},
+            });
             setBatches(res.data.batches ?? []);
         } catch {
             toast.error('Failed to load import history.');
@@ -643,12 +658,19 @@ export function ImportPreviewDialog({
                                                 batch.status === 'undone'
                                                     ? 'bg-muted/40 opacity-60'
                                                     : 'bg-card',
+                                                highlightBatchId === batch.id &&
+                                                    'border-blue-400 bg-blue-50/70 opacity-100 ring-2 ring-blue-500/30 dark:bg-blue-950/20',
                                             )}
                                         >
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <FileSpreadsheet className="h-4 w-4 text-emerald-600 shrink-0" />
                                                     <p className="text-sm font-medium truncate">{batch.file_name}</p>
+                                                    {highlightBatchId === batch.id && (
+                                                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
+                                                            Selected
+                                                        </span>
+                                                    )}
                                                     <span className={cn(
                                                         'text-[10px] font-medium px-2 py-0.5 rounded-full border',
                                                         batch.status === 'active'
