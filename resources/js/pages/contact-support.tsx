@@ -26,8 +26,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { useInitials } from '@/hooks/use-initials';
 import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
-import { type BreadcrumbItem } from '@/types';
-import { Head, Link, router, useForm } from '@inertiajs/react';
+import { type BreadcrumbItem, type SharedData } from '@/types';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import {
     CheckCircle2,
     CircleDot,
@@ -92,6 +92,7 @@ interface TicketMessage {
     user_name: string;
     user_avatar_url: string | null;
     is_staff: boolean;
+    role: string | null;
     created_at: string;
     time_ago: string;
 }
@@ -178,6 +179,7 @@ export default function ContactSupport({
     categories,
     priorities,
 }: Props) {
+    const { can } = usePage<SharedData>().props;
     const [createOpen, setCreateOpen] = useState(false);
     const [search, setSearch] = useState(filters.search ?? '');
     const getInitials = useInitials();
@@ -233,10 +235,12 @@ export default function ContactSupport({
                             Track liquidation questions, upload concerns, status follow-ups, and resolved support cases.
                         </p>
                     </div>
-                    <Button onClick={() => setCreateOpen(true)} className="self-start">
-                        <Plus className="mr-2 h-4 w-4" />
-                        New Ticket
-                    </Button>
+                    {can.canCreateTicket && (
+                        <Button onClick={() => setCreateOpen(true)} className="self-start">
+                            <Plus className="mr-2 h-4 w-4" />
+                            New Ticket
+                        </Button>
+                    )}
                 </div>
 
                 <div className="mb-4 grid gap-3 sm:grid-cols-3">
@@ -245,9 +249,9 @@ export default function ContactSupport({
                     <StatTile label="Total Tickets" value={stats.all} icon={MessageSquare} />
                 </div>
 
-                <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)] xl:items-start">
-                    <section className="rounded-lg border bg-card">
-                        <div className="border-b p-3">
+                <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)] xl:items-start xl:min-h-screen">
+                    <section className="rounded-lg border bg-card xl:sticky xl:top-36 xl:flex xl:flex-col xl:max-h-[calc(100vh-10rem)] xl:overflow-hidden">
+                        <div className="border-b p-3 xl:shrink-0">
                             <form onSubmit={handleSearch} className="flex gap-2">
                                 <div className="relative flex-1">
                                     <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -291,7 +295,7 @@ export default function ContactSupport({
                             </div>
                         </div>
 
-                        <div className="p-2">
+                        <div className="p-2 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
                             {tickets.data.length === 0 ? (
                                 <div className="flex min-h-[280px] flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground">
                                     <Inbox className="h-10 w-10 opacity-40" />
@@ -316,7 +320,7 @@ export default function ContactSupport({
                         </div>
 
                         {tickets.last_page > 1 && (
-                            <div className="flex flex-wrap items-center justify-center gap-1 border-t p-3">
+                            <div className="flex flex-wrap items-center justify-center gap-1 border-t p-3 xl:shrink-0">
                                 {tickets.links.map((link, index) => (
                                     <Button
                                         key={`${link.label}-${index}`}
@@ -333,7 +337,7 @@ export default function ContactSupport({
                         )}
                     </section>
 
-                    <section className="min-w-0 rounded-lg border bg-card">
+                    <section className="min-w-0 rounded-lg border bg-card xl:sticky xl:top-36 xl:flex xl:flex-col xl:max-h-[calc(100vh-10rem)] xl:overflow-hidden">
                         {selectedTicket ? (
                             <TicketDetail
                                 ticket={selectedTicket}
@@ -526,8 +530,8 @@ function TicketDetail({
     };
 
     return (
-        <div className="relative">
-            <div className="border-b bg-card p-5">
+        <div className="relative xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
+            <div className="border-b bg-card p-5 xl:shrink-0">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
@@ -606,7 +610,7 @@ function TicketDetail({
                 )}
             </div>
 
-            <div className="p-5">
+            <div className="p-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
                 <div className="space-y-4">
                     {ticket.messages.map((message) => (
                         <div key={message.id} className="flex gap-3">
@@ -617,9 +621,9 @@ function TicketDetail({
                             <div className="min-w-0 flex-1 rounded-md border bg-background p-3">
                                 <div className="mb-1 flex flex-wrap items-center gap-2">
                                     <span className="text-sm font-semibold">{message.user_name}</span>
-                                    {message.is_staff && (
+                                    {message.is_staff && message.role && (
                                         <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-                                            Support
+                                            {message.role}
                                         </Badge>
                                     )}
                                     <span className="text-xs text-muted-foreground">{message.time_ago}</span>
@@ -631,7 +635,7 @@ function TicketDetail({
                 </div>
             </div>
 
-            <form onSubmit={submitReply} className="sticky bottom-0 z-20 border-t bg-card p-4 shadow-[0_-8px_20px_rgba(15,23,42,0.06)]">
+            <form onSubmit={submitReply} className="sticky bottom-0 z-20 border-t bg-card p-4 shadow-[0_-8px_20px_rgba(15,23,42,0.06)] xl:shrink-0">
                 <Label htmlFor="reply">Reply</Label>
                 <Textarea
                     id="reply"
@@ -654,7 +658,7 @@ function TicketDetail({
             </form>
 
             {canManageTickets && !ticket.can_manage && (
-                <p className="border-t px-4 py-2 text-xs text-muted-foreground">
+                <p className="border-t px-4 py-2 text-xs text-muted-foreground xl:shrink-0">
                     You can view this ticket as a support manager.
                 </p>
             )}

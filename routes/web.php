@@ -47,7 +47,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('contact-support/tickets/{supportTicket}/messages', [SupportTicketController::class, 'reply'])
         ->middleware('throttle:10,1')
         ->name('support-tickets.reply');
-    Route::patch('contact-support/tickets/{supportTicket}/status', [SupportTicketController::class, 'updateStatus'])->name('support-tickets.update-status');
+    Route::patch('contact-support/tickets/{supportTicket}/status', [SupportTicketController::class, 'updateStatus'])
+        ->middleware('throttle:10,1')
+        ->name('support-tickets.update-status');
     Route::get('report', function () {
         $user = auth()->user();
         $roleName = $user->role?->name;

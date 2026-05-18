@@ -272,6 +272,7 @@ class User extends Authenticatable
             'canCreateAnnouncements' => $this->hasPermission('create_announcements'),
             'canEditAnnouncements' => $this->hasPermission('edit_announcements'),
             'canDeleteAnnouncements' => $this->hasPermission('delete_announcements'),
+            'canCreateTicket' => $this->hasPermission('create_ticket'),
         ];
     }
 

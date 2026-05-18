@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import AppLayout from '@/layouts/app-layout';
-import { Head, router } from '@inertiajs/react';
+import { Head, router, usePage } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import {
     CreateSupportTicketDialog,
@@ -35,7 +35,7 @@ import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
 import { ImportPreviewDialog } from '@/components/liquidations/import-preview-dialog';
 import { EndorseToAccountingModal } from '@/components/liquidations/endorsement-modals';
 import { toast } from '@/lib/toast';
-import { type BreadcrumbItem } from '@/types';
+import { type BreadcrumbItem, type SharedData } from '@/types';
 
 import type { Liquidation, Program, HEIOption, AcademicYearOption, RcNoteStatusOption } from '@/components/liquidations/index/types';
 import { useReportQueue } from '@/hooks/use-report-queue';
@@ -176,6 +176,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const { queueReport, pendingFormat } = useReportQueue();
     const isQueueingReport = pendingFormat !== null;
 
+    const { can } = usePage<SharedData>().props;
     const isRC = userRole === 'Regional Coordinator';
     const isHEI = userRole === 'HEI';
     const canCreate = (permissions.create || isRC) && !isHEI;
@@ -817,7 +818,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                                         onVoid={handleVoid}
                                         onRestore={handleRestore}
                                         onEndorse={handleEndorseSingle}
-                                        onCreateSupportTicket={handleCreateSupportTicket}
+                                        onCreateSupportTicket={can.canCreateTicket ? handleCreateSupportTicket : undefined}
                                         onTogglePin={handleTogglePin}
                                         lastImportCount={lastImportCount}
                                         onDismissImport={() => setLastImportCount(null)}

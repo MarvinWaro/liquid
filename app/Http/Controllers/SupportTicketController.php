@@ -241,7 +241,8 @@ class SupportTicketController extends Controller
                 'liquidation.documentStatus:id,name,code',
                 'liquidation.rcNoteStatus:id,name,code',
                 'liquidation.liquidationStatus:id,name,code',
-                'messages.user:id,name,avatar',
+                'messages.user:id,name,avatar,role_id',
+                'messages.user.role:id,name',
             ]);
 
         if ($ticketId) {
@@ -411,11 +412,14 @@ class SupportTicketController extends Controller
 
     private function ticketDetail(SupportTicket $ticket, User $viewer): array
     {
+        $viewerCanManage = $this->canManageTicket($viewer, $ticket);
+        $messageStaffByUserId = $this->messageStaffByUserId($ticket);
+
         return [
             ...$this->ticketSummary($ticket),
             'description' => $ticket->description,
-            'can_manage' => $this->canManageTicket($viewer, $ticket),
-            'can_update_status' => $this->canManageTicket($viewer, $ticket) || $ticket->requester_id === $viewer->id,
+            'can_manage' => $viewerCanManage,
+            'can_update_status' => $viewerCanManage || $ticket->requester_id === $viewer->id,
             'assignee_name' => $ticket->assignee?->name,
             'resolved_by_name' => $ticket->resolver?->name,
             'resolved_at' => $ticket->resolved_at?->timezone('Asia/Manila')->format('M d, Y H:i'),
@@ -433,11 +437,41 @@ class SupportTicketController extends Controller
                 'body' => $message->body,
                 'user_name' => $message->user?->name ?? 'System',
                 'user_avatar_url' => $message->user?->avatar_url,
-                'is_staff' => $this->canManageTicket($message->user ?? $viewer, $ticket),
+                'is_staff' => $message->user_id
+                    ? ($messageStaffByUserId[$message->user_id] ?? false)
+                    : true,
+                'role' => $message->user?->role?->name,
                 'created_at' => $message->created_at->timezone('Asia/Manila')->format('M d, Y H:i'),
                 'time_ago' => $message->created_at->diffForHumans(),
             ])->all(),
         ];
+    }
+
+    private function messageStaffByUserId(SupportTicket $ticket): array
+    {
+        return $ticket->messages
+            ->pluck('user')
+            ->filter()
+            ->unique('id')
+            ->mapWithKeys(fn (User $user) => [
+                $user->id => $this->messageAuthorIsStaff($user, $ticket),
+            ])
+            ->all();
+    }
+
+    private function messageAuthorIsStaff(User $user, SupportTicket $ticket): bool
+    {
+        if ($this->isSupportManager($user) || $ticket->assigned_to === $user->id) {
+            return true;
+        }
+
+        if ($ticket->requester_id === $user->id) {
+            return false;
+        }
+
+        return $ticket->liquidation_id
+            && $this->canHandleScopedLiquidationTickets($user)
+            && $this->canAccessLiquidation($user, $ticket->liquidation);
     }
 
     private function supportRecipientsForTicket(SupportTicket $ticket): Collection

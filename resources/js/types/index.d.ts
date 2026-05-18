@@ -42,6 +42,7 @@ export interface NavigationAbilities {
     canCreateAnnouncements: boolean;
     canEditAnnouncements: boolean;
     canDeleteAnnouncements: boolean;
+    canCreateTicket: boolean;
 }
 
 export interface AppNotification {
