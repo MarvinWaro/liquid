@@ -90,7 +90,7 @@ class ActivityLog extends Model
      */
     private static function resolveSubjectLabel(Model $subject): ?string
     {
-        foreach (['control_no', 'name', 'email', 'uii', 'code', 'file_name'] as $attr) {
+        foreach (['ticket_number', 'control_no', 'name', 'email', 'uii', 'code', 'file_name'] as $attr) {
             if (! empty($subject->$attr)) {
                 return (string) $subject->$attr;
             }

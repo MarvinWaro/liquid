@@ -76,7 +76,8 @@
       "Bash(git stash *)",
       "Bash(git restore *)",
       "Bash(git add *)",
-      "Bash(grep -nB1 -A3 \"warning\" storage/logs/laravel.log)"
+      "Bash(grep -nB1 -A3 \"warning\" storage/logs/laravel.log)",
+      "Bash(Find \"c:\\\\Users\\\\MARVIN\\\\projects\\\\liquid\\\\resources\\\\js\\\\hooks\" -name \"*initials*\")"
     ]
   }
 }

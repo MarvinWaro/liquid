@@ -12,7 +12,7 @@ import {
     PopoverTrigger,
 } from '@/components/ui/popover';
 import { Label } from '@/components/ui/label';
-import { Eye, Ban, RotateCcw, Send, Pin } from 'lucide-react';
+import { Eye, Ban, RotateCcw, Send, Pin, Contact } from 'lucide-react';
 import type { Liquidation } from './types';
 import { getDocumentStatusColor, getLiquidationStatusColor } from './types';
 
@@ -27,6 +27,7 @@ interface LiquidationTableRowProps {
     onVoid: (liquidation: Liquidation) => void;
     onRestore: (liquidation: Liquidation) => void;
     onEndorse: (liquidation: Liquidation) => void;
+    onCreateSupportTicket?: (liquidation: Liquidation) => void;
     onTogglePin?: (liquidation: Liquidation) => void;
     pinDisabled?: boolean;
 }
@@ -41,6 +42,7 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
     onVoid,
     onRestore,
     onEndorse,
+    onCreateSupportTicket,
     onTogglePin,
     pinDisabled = false,
 }: LiquidationTableRowProps) {
@@ -189,6 +191,23 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
                         </TooltipTrigger>
                         <TooltipContent>View details</TooltipContent>
                     </Tooltip>
+                    {onCreateSupportTicket && (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                    onClick={() => onCreateSupportTicket(liquidation)}
+                                    aria-label="Create support ticket"
+                                >
+                                    <Contact className="h-4 w-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Create support ticket</TooltipContent>
+                        </Tooltip>
+                    )}
                     {canReview && !liquidation.is_voided && !liquidation.is_endorsed && (
                         <Tooltip>
                             <TooltipTrigger asChild>

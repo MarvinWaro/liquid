@@ -121,6 +121,7 @@ const actionLeftBorder: Record<string, string> = {
 const subjectRouteMap: Record<string, (id: string) => string | null> = {
     Liquidation: (id) => `/liquidation/${id}`,
     ImportBatch: (id) => `/liquidation?import_history=1&import_batch=${id}`,
+    SupportTicket: (id) => `/contact-support?ticket=${id}`,
     LiquidationFinancial: () => `/liquidation`,
     LiquidationBeneficiary: () => `/liquidation`,
     LiquidationDocument: () => `/liquidation`,
