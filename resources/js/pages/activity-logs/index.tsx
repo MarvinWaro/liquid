@@ -120,6 +120,7 @@ const actionLeftBorder: Record<string, string> = {
 // so we link to the liquidation index instead.
 const subjectRouteMap: Record<string, (id: string) => string | null> = {
     Liquidation: (id) => `/liquidation/${id}`,
+    ImportBatch: (id) => `/liquidation?import_history=1&import_batch=${id}`,
     LiquidationFinancial: () => `/liquidation`,
     LiquidationBeneficiary: () => `/liquidation`,
     LiquidationDocument: () => `/liquidation`,
@@ -137,6 +138,17 @@ const subjectRouteMap: Record<string, (id: string) => string | null> = {
 };
 
 function getViewUrl(log: ActivityLog): string | null {
+    if (log.action === 'bulk_imported') {
+        const batchId =
+            log.subject_type === 'ImportBatch'
+                ? log.subject_id
+                : log.description.match(/\(batch:\s*([0-9a-f-]+)\)/i)?.[1];
+
+        return batchId
+            ? `/liquidation?import_history=1&import_batch=${batchId}`
+            : null;
+    }
+
     if (!log.subject_type || !log.subject_id) return null;
     if (log.action === 'deleted') return null;
 
