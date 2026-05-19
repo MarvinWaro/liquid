@@ -19,6 +19,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SemesterController;
 use App\Http\Controllers\AcademicYearController;
 use App\Http\Controllers\AcademicYearRequirementController;
+use App\Http\Controllers\SupportTicketController;
 
 Route::get('/', [AnnouncementController::class, 'welcome'])->name('home');
 
@@ -39,7 +40,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('announcement/{announcement:slug}/comments/{comment}/react', [\App\Http\Controllers\AnnouncementCommentController::class, 'toggleReaction'])->name('announcement-comments.react');
     Route::get('announcement/{announcement:slug}/mentionable-users', [\App\Http\Controllers\AnnouncementCommentController::class, 'mentionableUsers'])->name('announcement-comments.mentionable-users');
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
-    Route::get('contact-support', fn () => Inertia::render('contact-support'))->name('contact-support');
+    Route::get('contact-support', [SupportTicketController::class, 'index'])->name('contact-support');
+    Route::post('contact-support/tickets', [SupportTicketController::class, 'store'])
+        ->middleware('throttle:10,1')
+        ->name('support-tickets.store');
+    Route::post('contact-support/tickets/{supportTicket}/messages', [SupportTicketController::class, 'reply'])
+        ->middleware('throttle:10,1')
+        ->name('support-tickets.reply');
+    Route::patch('contact-support/tickets/{supportTicket}/status', [SupportTicketController::class, 'updateStatus'])
+        ->middleware('throttle:10,1')
+        ->name('support-tickets.update-status');
     Route::get('report', function () {
         $user = auth()->user();
         $roleName = $user->role?->name;

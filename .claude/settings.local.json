@@ -76,7 +76,9 @@
       "Bash(git stash *)",
       "Bash(git restore *)",
       "Bash(git add *)",
-      "Bash(grep -nB1 -A3 \"warning\" storage/logs/laravel.log)"
+      "Bash(grep -nB1 -A3 \"warning\" storage/logs/laravel.log)",
+      "Bash(Find \"c:\\\\Users\\\\MARVIN\\\\projects\\\\liquid\\\\resources\\\\js\\\\hooks\" -name \"*initials*\")",
+      "Bash(grep -nE 'protected \\\\$fillable|'\\\\''name'\\\\''|'\\\\''uii'\\\\''|'\\\\''code'\\\\''|'\\\\''short_name'\\\\''|'\\\\''abbreviation'\\\\''' HEI.php Region.php Program.php)"
     ]
   }
 }

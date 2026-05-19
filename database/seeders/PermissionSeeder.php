@@ -96,6 +96,9 @@ class PermissionSeeder extends Seeder
                 ['name' => 'edit_announcements', 'description' => 'Edit existing announcements'],
                 ['name' => 'delete_announcements', 'description' => 'Delete announcements'],
             ],
+            'Contact & Support' => [
+                ['name' => 'create_ticket', 'description' => 'Create support tickets'],
+            ],
         ];
 
         // Create or update permissions
@@ -138,6 +141,7 @@ class PermissionSeeder extends Seeder
             'view_summary_ay', 'view_summary_hei',
             'view_activity_logs',
             'view_announcements', 'create_announcements', 'edit_announcements', 'delete_announcements',
+            'create_ticket',
         ]);
 
         $this->createExampleRole('Regional Coordinator', 'Reviews and endorses liquidation', [
@@ -147,6 +151,7 @@ class PermissionSeeder extends Seeder
             'view_templates', 'create_templates', 'edit_templates', 'delete_templates',
             'view_reports',
             'view_summary_ay', 'view_summary_hei',
+            'create_ticket',
         ]);
 
         $this->createExampleRole('Accountant', 'Reviews and endorses to COA', [
@@ -155,6 +160,7 @@ class PermissionSeeder extends Seeder
             'view_templates',
             'view_reports', 'view_fund_source_filter',
             'view_summary_ay', 'view_summary_hei',
+            'create_ticket',
         ]);
 
         $this->createExampleRole('COA', 'Commission on Audit — view-only access to endorsed liquidations', [
@@ -163,12 +169,14 @@ class PermissionSeeder extends Seeder
             'view_templates',
             'view_reports', 'view_fund_source_filter',
             'view_summary_ay', 'view_summary_hei',
+            'create_ticket',
         ]);
 
         $this->createExampleRole('HEI', 'Higher Education Institution user', [
             'view_liquidation', 'edit_liquidation',
             'view_templates',
             'view_summary_ay', 'view_fund_source_filter',
+            'create_ticket',
         ]);
 
         $this->createExampleRole('STUFAPS Focal', 'Program-scoped focal for STUFAPS sub-programs', [
@@ -177,16 +185,19 @@ class PermissionSeeder extends Seeder
             'view_templates',
             'view_reports',
             'view_summary_ay', 'view_summary_hei',
+            'create_ticket',
         ]);
 
         $this->createExampleRole('Encoder', 'Data entry staff', [
             'view_hei', 'create_hei', 'edit_hei',
             'view_liquidation', 'create_liquidation', 'edit_liquidation',
+            'create_ticket',
         ]);
 
         $this->createExampleRole('Viewer', 'Read-only access', [
             'view_hei', 'view_liquidation', 'view_reports',
             'view_summary_ay', 'view_summary_hei',
+            'create_ticket',
         ]);
     }
 

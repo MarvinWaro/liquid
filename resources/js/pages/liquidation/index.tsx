@@ -1,7 +1,11 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import AppLayout from '@/layouts/app-layout';
-import { Head, router } from '@inertiajs/react';
+import { Head, router, usePage } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
+import {
+    CreateSupportTicketDialog,
+    type SupportTicketLiquidationOption,
+} from '@/components/support/create-support-ticket-dialog';
 import {
     Table,
     TableBody,
@@ -31,7 +35,7 @@ import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
 import { ImportPreviewDialog } from '@/components/liquidations/import-preview-dialog';
 import { EndorseToAccountingModal } from '@/components/liquidations/endorsement-modals';
 import { toast } from '@/lib/toast';
-import { type BreadcrumbItem } from '@/types';
+import { type BreadcrumbItem, type SharedData } from '@/types';
 
 import type { Liquidation, Program, HEIOption, AcademicYearOption, RcNoteStatusOption } from '@/components/liquidations/index/types';
 import { useReportQueue } from '@/hooks/use-report-queue';
@@ -106,6 +110,17 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Liquidation Management', href: route('liquidation.index') },
 ];
 
+function toSupportTicketLiquidationOption(liquidation: Liquidation): SupportTicketLiquidationOption {
+    return {
+        id: String(liquidation.id),
+        control_no: liquidation.dv_control_no,
+        hei_name: liquidation.hei_name ?? null,
+        program_code: liquidation.program?.code ?? liquidation.program?.name ?? null,
+        document_status: liquidation.document_status ?? null,
+        liquidation_status: liquidation.liquidation_status ?? null,
+    };
+}
+
 // Retain the last non-undefined value so Inertia's deferred re-fetches
 // (pagination, filter changes, partial reloads) can keep rendering the
 // previous data instead of flashing a skeleton on every request.
@@ -156,10 +171,12 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const [allPagesSelected, setAllPagesSelected] = useState(false);
     const [isEndorseModalOpen, setIsEndorseModalOpen] = useState(false);
     const [endorseTarget, setEndorseTarget] = useState<Liquidation | null>(null);
+    const [supportTicketLiquidation, setSupportTicketLiquidation] = useState<SupportTicketLiquidationOption | null>(null);
     const [isEndorsing, setIsEndorsing] = useState(false);
     const { queueReport, pendingFormat } = useReportQueue();
     const isQueueingReport = pendingFormat !== null;
 
+    const { can } = usePage<SharedData>().props;
     const isRC = userRole === 'Regional Coordinator';
     const isHEI = userRole === 'HEI';
     const canCreate = (permissions.create || isRC) && !isHEI;
@@ -385,6 +402,10 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
         setIsEndorseModalOpen(true);
     }, []);
 
+    const handleCreateSupportTicket = useCallback((liquidation: Liquidation) => {
+        setSupportTicketLiquidation(toSupportTicketLiquidationOption(liquidation));
+    }, []);
+
     const handleBulkEndorseClick = useCallback(() => {
         setEndorseTarget(null);
         setIsEndorseModalOpen(true);
@@ -422,6 +443,17 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Liquidation Management" />
+
+            <CreateSupportTicketDialog
+                open={!!supportTicketLiquidation}
+                onOpenChange={(open) => {
+                    if (!open) setSupportTicketLiquidation(null);
+                }}
+                liquidationOptions={supportTicketLiquidation ? [supportTicketLiquidation] : []}
+                initialLiquidationId={supportTicketLiquidation?.id ?? ''}
+                lockLiquidation
+                defaultCategory="liquidation_record"
+            />
 
             {/* Create Liquidation Modal */}
             <CreateLiquidationModal
@@ -786,6 +818,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                                         onVoid={handleVoid}
                                         onRestore={handleRestore}
                                         onEndorse={handleEndorseSingle}
+                                        onCreateSupportTicket={can.canCreateTicket ? handleCreateSupportTicket : undefined}
                                         onTogglePin={handleTogglePin}
                                         lastImportCount={lastImportCount}
                                         onDismissImport={() => setLastImportCount(null)}
@@ -819,6 +852,7 @@ const LiquidationTable = React.memo(function LiquidationTable({
     onVoid,
     onRestore,
     onEndorse,
+    onCreateSupportTicket,
     onTogglePin,
     lastImportCount,
     onDismissImport,
@@ -836,6 +870,7 @@ const LiquidationTable = React.memo(function LiquidationTable({
     onVoid: (l: Liquidation) => void;
     onRestore: (l: Liquidation) => void;
     onEndorse: (l: Liquidation) => void;
+    onCreateSupportTicket: (l: Liquidation) => void;
     onTogglePin: (l: Liquidation) => void;
     lastImportCount: number | null;
     onDismissImport: () => void;
@@ -917,6 +952,7 @@ const LiquidationTable = React.memo(function LiquidationTable({
                                         onVoid={onVoid}
                                         onRestore={onRestore}
                                         onEndorse={onEndorse}
+                                        onCreateSupportTicket={onCreateSupportTicket}
                                         onTogglePin={onTogglePin}
                                         pinDisabled={false}
                                     />
@@ -981,6 +1017,7 @@ const LiquidationTable = React.memo(function LiquidationTable({
                                     onVoid={onVoid}
                                     onRestore={onRestore}
                                     onEndorse={onEndorse}
+                                    onCreateSupportTicket={onCreateSupportTicket}
                                     onTogglePin={onTogglePin}
                                     pinDisabled={pinDisabled}
                                 />

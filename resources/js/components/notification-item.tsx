@@ -38,6 +38,10 @@ const actionColors: Record<string, string> = {
     toggled_status: 'bg-amber-500',
     updated_tracking: 'bg-blue-500',
     updated_running_data: 'bg-blue-500',
+    support_ticket_created: 'bg-sky-500',
+    support_ticket_replied: 'bg-violet-500',
+    support_ticket_resolved: 'bg-emerald-500',
+    support_ticket_reopened: 'bg-amber-500',
     mentioned_in_comment: 'bg-pink-500',
     replied_to_thread: 'bg-violet-500',
     commented_on_requirement: 'bg-sky-500',
@@ -86,6 +90,8 @@ function getSubjectUrl(subjectType: string | null, subjectId: string | null, act
                 return `/announcement/${metadata.slug}#discussion`;
             }
             return '/announcement';
+        case 'SupportTicket':
+            return metadata?.url ?? `/contact-support?ticket=${subjectId}`;
         case 'User':
             return '/users';
         case 'HEI':

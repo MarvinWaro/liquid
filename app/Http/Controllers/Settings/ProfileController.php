@@ -20,9 +20,27 @@ class ProfileController extends Controller
      */
     public function edit(Request $request): Response
     {
+        $user = $request->user()->loadMissing(['role', 'hei', 'region', 'program', 'programs']);
+
+        $programs = $user->programs->isNotEmpty()
+            ? $user->programs->pluck('name')->all()
+            : ($user->program ? [$user->program->name] : []);
+
         return Inertia::render('settings/profile', [
             'mustVerifyEmail' => $request->user() instanceof MustVerifyEmail,
             'status' => $request->session()->get('status'),
+            'accountDetails' => [
+                'role' => $user->role?->name,
+                'status' => $user->status,
+                'hei' => $user->hei ? [
+                    'name' => $user->hei->name,
+                    'uii' => $user->hei->uii,
+                ] : null,
+                'region' => $user->region?->name,
+                'programs' => $programs,
+                'member_since' => $user->created_at?->timezone('Asia/Manila')->format('M d, Y'),
+                'email_verified' => $user->email_verified_at !== null,
+            ],
         ]);
     }
 

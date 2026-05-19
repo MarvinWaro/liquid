@@ -17,7 +17,7 @@ import { useMemo, useState } from 'react';
 
 // Category ordering for permission modules
 const PERMISSION_CATEGORIES: Record<string, string[]> = {
-    'Core Operations': ['Liquidation', 'Reports'],
+    'Core Operations': ['Liquidation', 'Reports', 'Contact & Support'],
     'User Management': ['Users', 'Roles'],
     'System Configuration': ['HEI', 'Regions', 'Programs', 'Semesters', 'Academic Years', 'Document Requirements', 'Activity Logs'],
 };

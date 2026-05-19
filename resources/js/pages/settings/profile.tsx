@@ -3,10 +3,10 @@ import { type BreadcrumbItem, type SharedData } from '@/types';
 import { Transition } from '@headlessui/react';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 
-import DeleteUser from '@/components/delete-user';
 import HeadingSmall from '@/components/heading-small';
 import InputError from '@/components/input-error';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,7 +16,7 @@ import SettingsLayout from '@/layouts/settings/layout';
 import { edit } from '@/routes/profile';
 import AvatarCropModal from '@/components/avatar-crop-modal';
 import { Camera, Trash2, Upload } from 'lucide-react';
-import { type ChangeEvent, type DragEvent, type FormEventHandler, useCallback, useRef, useState } from 'react';
+import { type ChangeEvent, type DragEvent, type FormEventHandler, type ReactNode, useCallback, useRef, useState } from 'react';
 import { toast } from '@/lib/toast';
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -26,12 +26,24 @@ const breadcrumbs: BreadcrumbItem[] = [
     },
 ];
 
+interface AccountDetails {
+    role: string | null;
+    status: string | null;
+    hei: { name: string; uii: string | null } | null;
+    region: string | null;
+    programs: string[];
+    member_since: string | null;
+    email_verified: boolean;
+}
+
 export default function Profile({
     mustVerifyEmail,
     status,
+    accountDetails,
 }: {
     mustVerifyEmail: boolean;
     status?: string;
+    accountDetails: AccountDetails;
 }) {
     const { auth } = usePage<SharedData>().props;
     const getInitials = useInitials();
@@ -129,6 +141,48 @@ export default function Profile({
     };
 
     const displayedAvatar = previewUrl || (auth.user.avatar_url as string | undefined);
+
+    const accountRows: { label: string; value: ReactNode }[] = [];
+    if (accountDetails.role) {
+        accountRows.push({ label: 'Role', value: accountDetails.role });
+    }
+    if (accountDetails.status) {
+        accountRows.push({
+            label: 'Account status',
+            value: (
+                <Badge
+                    variant="outline"
+                    className={
+                        accountDetails.status === 'active'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300'
+                            : 'border-muted bg-muted/40 text-muted-foreground'
+                    }
+                >
+                    {accountDetails.status === 'active' ? 'Active' : 'Inactive'}
+                </Badge>
+            ),
+        });
+    }
+    if (accountDetails.hei) {
+        accountRows.push({
+            label: 'Institution',
+            value: accountDetails.hei.uii
+                ? `${accountDetails.hei.name} · ${accountDetails.hei.uii}`
+                : accountDetails.hei.name,
+        });
+    }
+    if (accountDetails.region) {
+        accountRows.push({ label: 'Region', value: accountDetails.region });
+    }
+    if (accountDetails.programs.length > 0) {
+        accountRows.push({
+            label: accountDetails.programs.length > 1 ? 'Assigned programs' : 'Assigned program',
+            value: accountDetails.programs.join(', '),
+        });
+    }
+    if (accountDetails.member_since) {
+        accountRows.push({ label: 'Member since', value: accountDetails.member_since });
+    }
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -289,7 +343,23 @@ export default function Profile({
                     </form>
                 </div>
 
-                <DeleteUser />
+                <div className="mt-8 space-y-6 border-t pt-8">
+                    <HeadingSmall
+                        title="Account details"
+                        description="Managed by your administrator and cannot be changed here"
+                    />
+
+                    <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
+                        {accountRows.map((row) => (
+                            <div key={row.label} className="flex flex-col gap-1">
+                                <dt className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                                    {row.label}
+                                </dt>
+                                <dd className="text-sm text-foreground">{row.value}</dd>
+                            </div>
+                        ))}
+                    </dl>
+                </div>
             </SettingsLayout>
         </AppLayout>
     );
