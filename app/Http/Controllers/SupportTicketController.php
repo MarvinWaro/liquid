@@ -133,6 +133,11 @@ class SupportTicketController extends Controller
             abort(403, 'You cannot reply to this ticket.');
         }
 
+        if ($supportTicket->status === SupportTicket::STATUS_RESOLVED
+            && !$this->canManageTicket($user, $supportTicket)) {
+            abort(403, 'This ticket has been resolved and is closed for replies.');
+        }
+
         $validated = $request->validated();
 
         DB::transaction(function () use ($supportTicket, $user, $validated): void {
@@ -171,8 +176,8 @@ class SupportTicketController extends Controller
         $validated = $request->validated();
         $remarks = trim((string) ($validated['remarks'] ?? ''));
 
-        if ($validated['status'] === SupportTicket::STATUS_IN_PROGRESS && !$this->canManageTicket($user, $supportTicket)) {
-            abort(403, 'Only support staff can mark a ticket in progress.');
+        if (!$this->canManageTicket($user, $supportTicket)) {
+            abort(403, 'Only support staff can update this ticket\'s status.');
         }
 
         $oldStatus = $supportTicket->status;
@@ -241,7 +246,7 @@ class SupportTicketController extends Controller
                 'liquidation.documentStatus:id,name,code',
                 'liquidation.rcNoteStatus:id,name,code',
                 'liquidation.liquidationStatus:id,name,code',
-                'messages.user:id,name,avatar,role_id',
+                'messages.user:id,name,avatar,role_id,region_id,hei_id,program_id',
                 'messages.user.role:id,name',
             ]);
 
@@ -419,7 +424,8 @@ class SupportTicketController extends Controller
             ...$this->ticketSummary($ticket),
             'description' => $ticket->description,
             'can_manage' => $viewerCanManage,
-            'can_update_status' => $viewerCanManage || $ticket->requester_id === $viewer->id,
+            'can_update_status' => $viewerCanManage,
+            'can_reply' => $viewerCanManage || $ticket->status !== SupportTicket::STATUS_RESOLVED,
             'assignee_name' => $ticket->assignee?->name,
             'resolved_by_name' => $ticket->resolver?->name,
             'resolved_at' => $ticket->resolved_at?->timezone('Asia/Manila')->format('M d, Y H:i'),
@@ -564,8 +570,12 @@ class SupportTicketController extends Controller
 
     private function notifyUsers(Collection $users, User $actor, string $action, string $description, SupportTicket $ticket): void
     {
+        $latestMessageId = $ticket->messages()->reorder()->latest()->value('id');
         $metadata = json_encode([
-            'url' => route('contact-support', ['ticket' => $ticket->id], false),
+            'url' => route('contact-support', array_filter([
+                'ticket' => $ticket->id,
+                'message' => $latestMessageId,
+            ]), false),
         ], JSON_THROW_ON_ERROR);
 
         $rows = $users

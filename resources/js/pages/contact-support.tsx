@@ -25,6 +25,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useInitials } from '@/hooks/use-initials';
 import AppLayout from '@/layouts/app-layout';
+import { useLayoutPreference } from '@/hooks/use-layout-preference';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
@@ -41,7 +42,7 @@ import {
     Send,
     Tag,
 } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Contact & Support', href: '/contact-support' },
@@ -101,6 +102,7 @@ interface SupportTicketDetail extends SupportTicketSummary {
     description: string;
     can_manage: boolean;
     can_update_status: boolean;
+    can_reply: boolean;
     assignee_name: string | null;
     resolved_by_name: string | null;
     resolved_at: string | null;
@@ -180,6 +182,8 @@ export default function ContactSupport({
     priorities,
 }: Props) {
     const { can } = usePage<SharedData>().props;
+    const { layout } = useLayoutPreference();
+    const workspaceHeightClass = layout === 'sidebar' ? 'xl:h-[calc(100svh-7rem)]' : 'xl:h-[calc(100svh-9rem)]';
     const [createOpen, setCreateOpen] = useState(false);
     const [search, setSearch] = useState(filters.search ?? '');
     const getInitials = useInitials();
@@ -224,8 +228,8 @@ export default function ContactSupport({
                 priorities={priorities}
             />
 
-            <div className="py-6 w-full">
-                <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className={cn('w-full py-6 xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden', workspaceHeightClass)}>
+                <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between xl:shrink-0">
                     <div>
                         <div className="flex items-center gap-2">
                             <LifeBuoy className="h-5 w-5 text-muted-foreground" />
@@ -243,14 +247,14 @@ export default function ContactSupport({
                     )}
                 </div>
 
-                <div className="mb-4 grid gap-3 sm:grid-cols-3">
+                <div className="mb-4 grid gap-3 sm:grid-cols-3 xl:shrink-0">
                     <StatTile label="Active Tickets" value={stats.active} icon={Inbox} />
                     <StatTile label="Resolved Cases" value={stats.resolved} icon={CheckCircle2} />
                     <StatTile label="Total Tickets" value={stats.all} icon={MessageSquare} />
                 </div>
 
-                <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)] xl:items-start xl:min-h-screen">
-                    <section className="rounded-lg border bg-card xl:sticky xl:top-36 xl:flex xl:flex-col xl:max-h-[calc(100vh-10rem)] xl:overflow-hidden">
+                <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)] xl:min-h-0 xl:flex-1">
+                    <section className="rounded-lg border bg-card xl:flex xl:flex-col xl:h-full xl:min-h-0 xl:overflow-hidden">
                         <div className="border-b p-3 xl:shrink-0">
                             <form onSubmit={handleSearch} className="flex gap-2">
                                 <div className="relative flex-1">
@@ -337,7 +341,7 @@ export default function ContactSupport({
                         )}
                     </section>
 
-                    <section className="min-w-0 rounded-lg border bg-card xl:sticky xl:top-36 xl:flex xl:flex-col xl:max-h-[calc(100vh-10rem)] xl:overflow-hidden">
+                    <section className="min-w-0 rounded-lg border bg-card xl:flex xl:flex-col xl:h-full xl:min-h-0 xl:overflow-hidden">
                         {selectedTicket ? (
                             <TicketDetail
                                 ticket={selectedTicket}
@@ -470,6 +474,26 @@ function TicketDetail({
     const [statusAction, setStatusAction] = useState<'resolved' | 'open' | null>(null);
     const [confettiRun, setConfettiRun] = useState(0);
     const getInitials = useInitials();
+    const { url } = usePage();
+    const bottomRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const query = url.includes('?') ? url.slice(url.indexOf('?') + 1) : '';
+        const targetId = new URLSearchParams(query).get('message');
+        if (!targetId) return;
+
+        const timer = window.setTimeout(() => {
+            const el = document.getElementById(`ticket-message-${targetId}`);
+            if (!el) return;
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('rounded-md', 'ring-2', 'ring-primary', 'ring-offset-2');
+            window.setTimeout(() => {
+                el.classList.remove('rounded-md', 'ring-2', 'ring-primary', 'ring-offset-2');
+            }, 2200);
+        }, 80);
+
+        return () => window.clearTimeout(timer);
+    }, [url]);
     const status = statusConfig[ticket.status] ?? statusConfig.open;
     const StatusIcon = status.icon;
 
@@ -478,7 +502,14 @@ function TicketDetail({
 
         replyForm.post(route('support-tickets.reply', ticket.id), {
             preserveScroll: true,
-            onSuccess: () => replyForm.reset(),
+            onSuccess: () => {
+                replyForm.reset();
+                requestAnimationFrame(() =>
+                    requestAnimationFrame(() => {
+                        bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                    }),
+                );
+            },
         });
     };
 
@@ -613,7 +644,7 @@ function TicketDetail({
             <div className="p-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
                 <div className="space-y-4">
                     {ticket.messages.map((message) => (
-                        <div key={message.id} className="flex gap-3">
+                        <div key={message.id} id={`ticket-message-${message.id}`} className="flex gap-3">
                             <Avatar className="h-9 w-9 shrink-0">
                                 <AvatarImage src={message.user_avatar_url ?? undefined} alt={message.user_name} />
                                 <AvatarFallback className="text-xs">{getInitials(message.user_name)}</AvatarFallback>
@@ -633,29 +664,41 @@ function TicketDetail({
                         </div>
                     ))}
                 </div>
+                <div ref={bottomRef} aria-hidden className="h-6" />
             </div>
 
-            <form onSubmit={submitReply} className="sticky bottom-0 z-20 border-t bg-card p-4 shadow-[0_-8px_20px_rgba(15,23,42,0.06)] xl:shrink-0">
-                <Label htmlFor="reply">Reply</Label>
-                <Textarea
-                    id="reply"
-                    value={replyForm.data.body}
-                    onChange={(event) => replyForm.setData('body', event.target.value)}
-                    onKeyDown={handleReplyKeyDown}
-                    rows={3}
-                    placeholder={ticket.status === 'resolved' ? 'Replying will reopen this ticket...' : 'Type your reply...'}
-                    className={cn('mt-2 resize-none', replyForm.errors.body && 'border-red-500')}
-                />
+            {ticket.can_reply ? (
+            <form onSubmit={submitReply} className="sticky bottom-0 z-20 border-t bg-card p-3 shadow-[0_-8px_20px_rgba(15,23,42,0.06)] xl:shrink-0">
+                <div className="flex items-end gap-2">
+                    <Label htmlFor="reply" className="sr-only">Reply</Label>
+                    <Textarea
+                        id="reply"
+                        value={replyForm.data.body}
+                        onChange={(event) => replyForm.setData('body', event.target.value)}
+                        onKeyDown={handleReplyKeyDown}
+                        rows={1}
+                        placeholder={ticket.status === 'resolved' ? 'Replying will reopen this ticket...' : 'Type your reply...'}
+                        className={cn('max-h-32 min-h-[2.5rem] flex-1 resize-none', replyForm.errors.body && 'border-red-500')}
+                    />
+                    <Button
+                        type="submit"
+                        size="icon"
+                        className="h-10 w-10 shrink-0"
+                        disabled={replyForm.processing || !replyForm.data.body.trim()}
+                        aria-label="Send reply"
+                    >
+                        <Send className="h-4 w-4" />
+                    </Button>
+                </div>
                 {replyForm.errors.body && (
                     <p className="mt-1 text-sm text-red-500">{replyForm.errors.body}</p>
                 )}
-                <div className="mt-3 flex justify-end">
-                    <Button type="submit" disabled={replyForm.processing || !replyForm.data.body.trim()}>
-                        <Send className="mr-2 h-4 w-4" />
-                        {replyForm.processing ? 'Sending...' : 'Send Reply'}
-                    </Button>
-                </div>
             </form>
+            ) : (
+                <div className="sticky bottom-0 z-20 border-t bg-card p-4 text-sm text-muted-foreground xl:shrink-0">
+                    This ticket has been resolved and is closed for replies.
+                </div>
+            )}
 
             {canManageTickets && !ticket.can_manage && (
                 <p className="border-t px-4 py-2 text-xs text-muted-foreground xl:shrink-0">
