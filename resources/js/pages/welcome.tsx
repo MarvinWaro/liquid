@@ -260,6 +260,16 @@ export default function Welcome({
         }).then(() => setInit(true));
     }, []);
 
+    // Always land on the hero on (re)load. Modern browsers preserve scroll
+    // position on F5; for a single-screen landing page we want a fresh top.
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if ('scrollRestoration' in window.history) {
+            window.history.scrollRestoration = 'manual';
+        }
+        window.scrollTo(0, 0);
+    }, []);
+
     useEffect(() => {
         if (!themeMenuOpen) return;
         const close = () => setThemeMenuOpen(false);
@@ -425,10 +435,10 @@ export default function Welcome({
                 </div>
 
                 {/* ── Main: hero on top, boards below (shadcn-style stacked layout) ── */}
-                <main className="relative z-10 flex flex-1 flex-col items-center w-full max-w-7xl mx-auto px-6 sm:px-10 md:px-14 pt-24 sm:pt-24 md:pt-24 xl:pt-16 pb-12 sm:pb-14 gap-10 sm:gap-12">
+                <main className="relative z-10 flex flex-1 flex-col items-center w-full max-w-7xl mx-auto px-6 sm:px-10 md:px-14 pt-12 sm:pt-14 md:pt-16 xl:pt-10 pb-6 sm:pb-8 gap-6 sm:gap-8">
 
                     {/* Hero — centered above the boards */}
-                    <div className="w-full max-w-2xl flex flex-col items-center text-center space-y-5 sm:space-y-6">
+                    <div className="w-full max-w-2xl flex flex-col items-center text-center space-y-4 sm:space-y-5">
 
                         <div className="anim-logos flex items-center justify-center gap-2.5 sm:gap-3">
                             <img src="/assets/img/ched-logo.png"        alt="CHED"            className="h-9 sm:h-11 xl:h-12 w-auto drop-shadow-sm" />
@@ -455,11 +465,15 @@ export default function Welcome({
                             </p>
                         </div>
 
+                        <p className="anim-desc text-[10px] sm:text-[11px] leading-snug text-muted-foreground max-w-sm mx-auto">
+                            Public transparency dashboard tracking <span className="font-medium text-foreground/80">TES, TDP &amp; STuFAPs</span> fund liquidation across HEIs in Region&nbsp;XII.
+                        </p>
+
                         <div className="anim-line">
                             <div className="h-px w-20 shimmer-line text-border mx-auto" />
                         </div>
 
-                        <div className="anim-cta me-3">
+                        <div className="anim-cta me-3 flex flex-col items-center gap-1.5">
                             <Link
                                 href={auth.user ? dashboard() : login()}
                                 className="group inline-flex items-center gap-2 rounded-lg bg-foreground px-5 sm:px-6 py-2.5 sm:py-3 text-[11px] sm:text-xs font-bold text-background shadow-sm transition-all hover:bg-foreground/90 active:scale-[0.97]"
@@ -471,6 +485,11 @@ export default function Welcome({
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
                                 </svg>
                             </Link>
+                            <p className="text-[10px] sm:text-[11px] text-muted-foreground/80">
+                                {auth.user
+                                    ? 'Continue to your dashboard.'
+                                    : "Sign in to manage your institution's liquidations."}
+                            </p>
                         </div>
                     </div>
 
@@ -539,6 +558,17 @@ export default function Welcome({
                                     Clear
                                 </button>
                             )}
+
+                            {/* Data-freshness indicator — right-aligned on wide screens, wraps under filters on mobile */}
+                            <div className="flex items-center gap-1.5 ml-auto text-[10px] text-muted-foreground">
+                                <span className="relative inline-flex h-1.5 w-1.5">
+                                    <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-60 animate-ping" />
+                                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                </span>
+                                <span>
+                                    Live data &middot; as of {new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                                </span>
+                            </div>
                         </div>
 
                         {/* Panels — stack on mobile, side-by-side with hover-expand on sm+ */}
