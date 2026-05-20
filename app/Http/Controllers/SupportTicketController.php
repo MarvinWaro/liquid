@@ -268,6 +268,14 @@ class SupportTicketController extends Controller
             $q->where('requester_id', $user->id)
                 ->orWhere('assigned_to', $user->id);
 
+            // HEI users share visibility with their institution peers:
+            // any ticket opened by a user of the same HEI is visible to all.
+            if ($user->role?->name === 'HEI' && $user->hei_id) {
+                $q->orWhereHas('requester', function (Builder $requesterQuery) use ($user) {
+                    $requesterQuery->where('hei_id', $user->hei_id);
+                });
+            }
+
             if ($this->canHandleScopedLiquidationTickets($user)) {
                 $q->orWhereHas('liquidation', function (Builder $liquidationQuery) use ($user) {
                     $this->scopeLiquidationsForUser($liquidationQuery, $user);
@@ -480,11 +488,32 @@ class SupportTicketController extends Controller
             && $this->canAccessLiquidation($user, $ticket->liquidation);
     }
 
+    /**
+     * Active HEI teammates that share the requester's institution.
+     * Mirrors the institution-peer visibility rule so the whole team
+     * is kept in sync on ticket activity.
+     */
+    private function heiPeersForTicket(SupportTicket $ticket): Collection
+    {
+        $ticket->loadMissing('requester.role');
+        $requester = $ticket->requester;
+
+        if (!$requester || $requester->role?->name !== 'HEI' || !$requester->hei_id) {
+            return collect();
+        }
+
+        return User::where('hei_id', $requester->hei_id)
+            ->where('status', 'active')
+            ->whereHas('role', fn (Builder $q) => $q->where('name', 'HEI'))
+            ->get();
+    }
+
     private function supportRecipientsForTicket(SupportTicket $ticket): Collection
     {
         $recipients = User::whereHas('role', fn (Builder $q) => $q->whereIn('name', ['Admin', 'Super Admin']))
             ->where('status', 'active')
-            ->get();
+            ->get()
+            ->merge($this->heiPeersForTicket($ticket));
 
         $ticket->loadMissing(['liquidation.hei', 'liquidation.program']);
         $liquidation = $ticket->liquidation;
