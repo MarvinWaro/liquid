@@ -1,15 +1,36 @@
 <?php
 
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\RateLimiter;
+use Inertia\Testing\AssertableInertia as Assert;
 use Laravel\Fortify\Features;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
+
+beforeEach(function () {
+    config()->set('services.turnstile.enabled', false);
+});
 
 test('login screen can be rendered', function () {
     $response = $this->get(route('login'));
 
     $response->assertStatus(200);
+});
+
+test('login screen includes turnstile settings when enabled', function () {
+    config()->set('services.turnstile.enabled', true);
+    config()->set('services.turnstile.site_key', 'site-key');
+    config()->set('services.turnstile.secret_key', 'secret-key');
+
+    $this->get(route('login'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('auth/login')
+            ->where('turnstile.enabled', true)
+            ->where('turnstile.siteKey', 'site-key')
+        );
 });
 
 test('users can authenticate using the login screen', function () {
@@ -22,6 +43,72 @@ test('users can authenticate using the login screen', function () {
 
     $this->assertAuthenticated();
     $response->assertRedirect(route('dashboard', absolute: false));
+});
+
+test('turnstile token is required when enabled', function () {
+    config()->set('services.turnstile.enabled', true);
+    config()->set('services.turnstile.site_key', 'site-key');
+    config()->set('services.turnstile.secret_key', 'secret-key');
+
+    Http::fake();
+
+    $user = User::factory()->create();
+
+    $response = $this->post(route('login.store'), [
+        'email' => $user->email,
+        'password' => 'password',
+    ]);
+
+    $this->assertGuest();
+    $response->assertSessionHasErrors('cf-turnstile-response');
+    Http::assertNothingSent();
+});
+
+test('users can authenticate when turnstile verification passes', function () {
+    config()->set('services.turnstile.enabled', true);
+    config()->set('services.turnstile.site_key', 'site-key');
+    config()->set('services.turnstile.secret_key', 'secret-key');
+    config()->set('services.turnstile.verify_url', 'https://turnstile.test/siteverify');
+
+    Http::fake([
+        'https://turnstile.test/siteverify' => Http::response(['success' => true]),
+    ]);
+
+    $user = User::factory()->create();
+
+    $this->post(route('login.store'), [
+        'email' => $user->email,
+        'password' => 'password',
+        'cf-turnstile-response' => 'valid-token',
+    ]);
+
+    $this->assertAuthenticated();
+    Http::assertSentCount(1);
+});
+
+test('users can not authenticate when turnstile verification fails', function () {
+    config()->set('services.turnstile.enabled', true);
+    config()->set('services.turnstile.site_key', 'site-key');
+    config()->set('services.turnstile.secret_key', 'secret-key');
+    config()->set('services.turnstile.verify_url', 'https://turnstile.test/siteverify');
+
+    Http::fake([
+        'https://turnstile.test/siteverify' => Http::response([
+            'success' => false,
+            'error-codes' => ['invalid-input-response'],
+        ]),
+    ]);
+
+    $user = User::factory()->create();
+
+    $response = $this->post(route('login.store'), [
+        'email' => $user->email,
+        'password' => 'password',
+        'cf-turnstile-response' => 'invalid-token',
+    ]);
+
+    $this->assertGuest();
+    $response->assertSessionHasErrors('cf-turnstile-response');
 });
 
 test('users with two factor enabled are redirected to two factor challenge', function () {
