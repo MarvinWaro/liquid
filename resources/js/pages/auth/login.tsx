@@ -7,6 +7,7 @@ import { useAppearance } from '@/hooks/use-appearance';
 import { home } from '@/routes';
 import { store } from '@/routes/login';
 import { Form, Head, Link } from '@inertiajs/react';
+import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import Particles, { initParticlesEngine } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
 import {
@@ -29,37 +30,15 @@ interface LoginProps {
     };
 }
 
-type TurnstileRenderTheme = 'light' | 'dark' | 'auto';
+type TurnstileWidgetSize = 'compact' | 'flexible';
 
-interface TurnstileRenderOptions {
-    sitekey: string;
-    theme: TurnstileRenderTheme;
-    size: 'normal' | 'compact' | 'flexible';
-    callback: (token: string) => void;
-    'expired-callback': () => void;
-    'error-callback': () => void;
-}
-
-interface TurnstileApi {
-    render: (container: HTMLElement, options: TurnstileRenderOptions) => string;
-    reset: (widgetId?: string) => void;
-    remove: (widgetId?: string) => void;
-}
-
-declare global {
-    interface Window {
-        turnstile?: TurnstileApi;
-    }
-}
-
-const TURNSTILE_SCRIPT_ID = 'cloudflare-turnstile-script';
-const TURNSTILE_SCRIPT_SRC =
-    'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+// Below this width, the mobile card cannot provide Turnstile's 300 px flexible minimum.
+const TURNSTILE_COMPACT_MEDIA_QUERY = '(max-width: 387px)';
+const TURNSTILE_WIDE_FORM_MEDIA_QUERY = '(min-width: 640px)';
 
 export default function Login({
     status,
     googleAuthError,
-    canResetPassword,
     turnstile = { enabled: false, siteKey: null },
 }: LoginProps) {
     const { appearance, updateAppearance } = useAppearance();
@@ -244,7 +223,7 @@ export default function Login({
             {/* Login Card */}
             <div className="anim-card relative z-10 w-full max-w-md">
                 <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-2xl dark:shadow-none">
-                    <div className="flex flex-col justify-center p-8 sm:p-10">
+                    <div className="flex flex-col justify-center px-5 py-8 sm:p-10">
                         {/* Logos — also act as a home link */}
                         <Link
                             href={home()}
@@ -494,89 +473,80 @@ function TurnstileWidget({
     onVerify: (token: string) => void;
     onExpire: () => void;
 }) {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const widgetIdRef = useRef<string | null>(null);
+    const widgetRef = useRef<TurnstileInstance | null>(null);
     const hasMountedRef = useRef(false);
-    const [scriptReady, setScriptReady] = useState(
-        () => typeof window !== 'undefined' && Boolean(window.turnstile),
-    );
+    const previousRenderOptionsRef = useRef<{
+        size: TurnstileWidgetSize;
+        theme: 'auto' | 'dark' | 'light';
+        wideForm: boolean;
+    } | null>(null);
     const [loadFailed, setLoadFailed] = useState(false);
+    const [widgetSize, setWidgetSize] = useState<TurnstileWidgetSize>(() =>
+        typeof window !== 'undefined' &&
+        window.matchMedia(TURNSTILE_COMPACT_MEDIA_QUERY).matches
+            ? 'compact'
+            : 'flexible',
+    );
+    const [wideForm, setWideForm] = useState(
+        () =>
+            typeof window !== 'undefined' &&
+            window.matchMedia(TURNSTILE_WIDE_FORM_MEDIA_QUERY).matches,
+    );
+    const theme =
+        appearance === 'dark'
+            ? 'dark'
+            : appearance === 'light'
+              ? 'light'
+              : 'auto';
 
     useEffect(() => {
         if (typeof window === 'undefined') {
             return;
         }
 
-        if (window.turnstile) {
-            setScriptReady(true);
-            return;
-        }
-
-        const existingScript = document.getElementById(
-            TURNSTILE_SCRIPT_ID,
-        ) as HTMLScriptElement | null;
-        const script = existingScript ?? document.createElement('script');
-
-        const handleLoad = () => {
-            setLoadFailed(false);
-            setScriptReady(true);
+        const mediaQuery = window.matchMedia(TURNSTILE_COMPACT_MEDIA_QUERY);
+        const updateWidgetSize = (event: MediaQueryListEvent) => {
+            setWidgetSize(event.matches ? 'compact' : 'flexible');
         };
 
-        const handleError = () => {
-            setLoadFailed(true);
-            onExpire();
-        };
+        mediaQuery.addEventListener('change', updateWidgetSize);
 
-        script.addEventListener('load', handleLoad);
-        script.addEventListener('error', handleError);
-
-        if (!existingScript) {
-            script.id = TURNSTILE_SCRIPT_ID;
-            script.src = TURNSTILE_SCRIPT_SRC;
-            script.async = true;
-            script.defer = true;
-            document.head.appendChild(script);
-        }
-
-        return () => {
-            script.removeEventListener('load', handleLoad);
-            script.removeEventListener('error', handleError);
-        };
-    }, [onExpire]);
+        return () => mediaQuery.removeEventListener('change', updateWidgetSize);
+    }, []);
 
     useEffect(() => {
-        if (
-            !scriptReady ||
-            !containerRef.current ||
-            !window.turnstile ||
-            widgetIdRef.current
-        ) {
+        if (typeof window === 'undefined') {
             return;
         }
 
-        const theme: TurnstileRenderTheme =
-            appearance === 'dark'
-                ? 'dark'
-                : appearance === 'light'
-                  ? 'light'
-                  : 'auto';
-
-        widgetIdRef.current = window.turnstile.render(containerRef.current, {
-            sitekey: siteKey,
-            theme,
-            size: 'flexible',
-            callback: onVerify,
-            'expired-callback': onExpire,
-            'error-callback': onExpire,
-        });
-
-        return () => {
-            if (widgetIdRef.current && window.turnstile) {
-                window.turnstile.remove(widgetIdRef.current);
-                widgetIdRef.current = null;
-            }
+        const mediaQuery = window.matchMedia(TURNSTILE_WIDE_FORM_MEDIA_QUERY);
+        const updateFormLayout = (event: MediaQueryListEvent) => {
+            setWideForm(event.matches);
         };
-    }, [appearance, onExpire, onVerify, scriptReady, siteKey]);
+
+        mediaQuery.addEventListener('change', updateFormLayout);
+
+        return () => mediaQuery.removeEventListener('change', updateFormLayout);
+    }, []);
+
+    useEffect(() => {
+        const previousOptions = previousRenderOptionsRef.current;
+
+        if (
+            previousOptions &&
+            (previousOptions.size !== widgetSize ||
+                previousOptions.theme !== theme ||
+                previousOptions.wideForm !== wideForm)
+        ) {
+            onExpire();
+        }
+
+        previousRenderOptionsRef.current = {
+            size: widgetSize,
+            theme,
+            wideForm,
+        };
+    }, [onExpire, theme, widgetSize, wideForm]);
 
     useEffect(() => {
         if (!hasMountedRef.current) {
@@ -584,15 +554,43 @@ function TurnstileWidget({
             return;
         }
 
-        if (widgetIdRef.current && window.turnstile) {
-            window.turnstile.reset(widgetIdRef.current);
+        if (widgetRef.current) {
+            widgetRef.current.reset();
             onExpire();
         }
     }, [onExpire, resetSignal]);
 
+    const handleFailure = useCallback(() => {
+        setLoadFailed(true);
+        onExpire();
+    }, [onExpire]);
+
+    const handleSuccess = useCallback(
+        (token: string) => {
+            setLoadFailed(false);
+            onVerify(token);
+        },
+        [onVerify],
+    );
+
     return (
-        <div className="min-h-[65px] leading-none">
-            <div ref={containerRef} />
+        <div className="w-full leading-none">
+            <div className="flex min-h-[65px] w-full justify-center">
+                <Turnstile
+                    key={`${widgetSize}-${wideForm ? 'wide' : 'narrow'}`}
+                    ref={widgetRef}
+                    siteKey={siteKey}
+                    options={{
+                        responseField: false,
+                        size: widgetSize,
+                        theme,
+                    }}
+                    scriptOptions={{ onError: handleFailure }}
+                    onSuccess={handleSuccess}
+                    onExpire={onExpire}
+                    onError={handleFailure}
+                />
+            </div>
             {loadFailed && (
                 <p className="mt-2 text-xs text-destructive">
                     Security check could not load. Refresh the page and try
