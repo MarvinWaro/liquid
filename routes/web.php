@@ -21,6 +21,7 @@ use App\Http\Controllers\SemesterController;
 use App\Http\Controllers\AcademicYearController;
 use App\Http\Controllers\AcademicYearRequirementController;
 use App\Http\Controllers\SupportTicketController;
+use App\Http\Controllers\ReportAssistantController;
 
 Route::get('/', [AnnouncementController::class, 'welcome'])->name('home');
 
@@ -109,6 +110,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
             'userRole' => $roleName,
         ]);
     })->name('report');
+    Route::get('report-assistant', [ReportAssistantController::class, 'index'])->name('report-assistant.index');
+    Route::post('report-assistant/messages', [ReportAssistantController::class, 'answer'])
+        ->middleware('throttle:12,1')
+        ->name('report-assistant.answer');
     Route::get('summary/academic-year', [DashboardController::class, 'summaryPerAY'])->name('summary.academic-year');
     Route::get('summary/hei', [DashboardController::class, 'summaryPerHEI'])->name('summary.hei');
 

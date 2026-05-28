@@ -48,4 +48,17 @@ return [
         'verify_url' => env('TURNSTILE_VERIFY_URL', 'https://challenges.cloudflare.com/turnstile/v0/siteverify'),
     ],
 
+    // OpenAI provider config now lives in config/ai.php (laravel/ai SDK).
+    // The SDK reads OPENAI_API_KEY and OPENAI_URL automatically.
+    // App-specific overrides for the Report Assistant feature only:
+    'report_assistant' => [
+        'model' => env('OPENAI_REPORT_ASSISTANT_MODEL', 'gpt-5-nano'),
+        'timeout' => (int) env('OPENAI_TIMEOUT', 45),
+    ],
+
+    'mcp' => [
+        'api_key' => env('MCP_API_KEY'),
+        'user_email' => env('MCP_USER_EMAIL'),
+    ],
+
 ];

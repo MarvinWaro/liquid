@@ -12,7 +12,7 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem, type SharedData, type NavigationAbilities } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { FileText, LayoutGrid, BarChart3, Megaphone, FileBarChart } from 'lucide-react';
+import { FileText, LayoutGrid, BarChart3, Megaphone, FileBarChart, Sparkles } from 'lucide-react';
 import { HatGlasses } from '@/components/icons/hat-glasses';
 
 // Define all navigation items with their required ability key
@@ -56,6 +56,12 @@ const allNavItems: (NavItem & { ability?: keyof NavigationAbilities; children?: 
         href: '/report',
         icon: FileBarChart,
         ability: 'canViewReports',
+    },
+    {
+        title: 'Report Assistant',
+        href: '/report-assistant',
+        icon: Sparkles,
+        ability: 'canUseReportAssistant',
     },
     {
         title: 'Contact & Support',

@@ -245,6 +245,15 @@ class User extends Authenticatable
     }
 
     /**
+     * Limit the initial report assistant rollout to reporting administrators.
+     */
+    public function canUseReportAssistant(): bool
+    {
+        return in_array($this->role?->name, ['Admin', 'Super Admin'], true)
+            && $this->hasPermission('view_reports');
+    }
+
+    /**
      * Get navigation abilities for the user.
      * This determines which navigation items the user can see.
      */
@@ -257,6 +266,7 @@ class User extends Authenticatable
             'canViewDashboard' => true, // Everyone can see dashboard
             'canViewLiquidation' => $this->hasPermission('view_liquidation'),
             'canViewReports' => $this->hasPermission('view_reports'),
+            'canUseReportAssistant' => $this->canUseReportAssistant(),
             'canViewRoles' => $this->hasPermission('view_roles'),
             'canViewUsers' => $this->hasPermission('view_users'),
             'canViewHEI' => $this->hasPermission('view_hei'),

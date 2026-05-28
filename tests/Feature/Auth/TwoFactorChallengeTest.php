@@ -21,11 +21,6 @@ test('two factor challenge can be rendered', function () {
         $this->markTestSkipped('Two-factor authentication is not enabled.');
     }
 
-    Features::twoFactorAuthentication([
-        'confirm' => true,
-        'confirmPassword' => true,
-    ]);
-
     $user = User::factory()->create();
 
     $user->forceFill([
@@ -34,12 +29,13 @@ test('two factor challenge can be rendered', function () {
         'two_factor_confirmed_at' => now(),
     ])->save();
 
-    $this->post(route('login'), [
-        'email' => $user->email,
-        'password' => 'password',
-    ]);
-
-    $this->get(route('two-factor.login'))
+    // Seed the session state Fortify expects after a successful
+    // first-factor authentication. This isolates the challenge view test
+    // from the login POST handler — what we're verifying here is "given a
+    // pending 2FA session, the challenge page renders" not the full login
+    // flow (which is covered separately in AuthenticationTest).
+    $this->withSession(['login.id' => $user->id])
+        ->get(route('two-factor.login'))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('auth/two-factor-challenge')

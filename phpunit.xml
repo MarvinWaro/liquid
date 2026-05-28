@@ -23,6 +23,13 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
+        <!--
+            Tests MUST run against an isolated sqlite-in-memory database, NOT
+            the real MySQL 'liquid' database. RefreshDatabase calls migrate:fresh
+            between test runs, which would destroy production data if pointed
+            at the real DB. DB::prohibitDestructiveCommands() in AppServiceProvider
+            also blocks this, but defense-in-depth: keep this config correct too.
+        -->
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="MAIL_MAILER" value="array"/>

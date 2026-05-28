@@ -78,7 +78,15 @@
       "Bash(git add *)",
       "Bash(grep -nB1 -A3 \"warning\" storage/logs/laravel.log)",
       "Bash(Find \"c:\\\\Users\\\\MARVIN\\\\projects\\\\liquid\\\\resources\\\\js\\\\hooks\" -name \"*initials*\")",
-      "Bash(grep -nE 'protected \\\\$fillable|'\\\\''name'\\\\''|'\\\\''uii'\\\\''|'\\\\''code'\\\\''|'\\\\''short_name'\\\\''|'\\\\''abbreviation'\\\\''' HEI.php Region.php Program.php)"
+      "Bash(grep -nE 'protected \\\\$fillable|'\\\\''name'\\\\''|'\\\\''uii'\\\\''|'\\\\''code'\\\\''|'\\\\''short_name'\\\\''|'\\\\''abbreviation'\\\\''' HEI.php Region.php Program.php)",
+      "Bash(powershell -NoProfile -Command \"Get-Content storage/logs/laravel.log -Tail 80\")",
+      "Bash(powershell -NoProfile -Command \"Select-String -Path package.json -Pattern 'recharts|skeleton'\")",
+      "Bash(powershell -NoProfile -Command \"Get-Content storage/logs/laravel.log -Tail 50\")",
+      "Bash(powershell -NoProfile -Command \"Get-Content storage/logs/laravel.log -Tail 40\")",
+      "Bash(grep -nE \"^;?extension=\\(pdo_sqlite|sqlite3\\)\" /c/php/php.ini 2>&1)",
+      "Read(//c/php/**)",
+      "Bash(composer update *)",
+      "Bash(powershell -NoProfile -Command \"Get-ChildItem public/build/assets -Filter 'report-assistant-*' | Sort-Object LastWriteTime -Descending | Select-Object -First 1 Name, LastWriteTime\")"
     ]
   }
 }
