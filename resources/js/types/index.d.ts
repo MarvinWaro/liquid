@@ -27,6 +27,7 @@ export interface NavigationAbilities {
     canViewDashboard: boolean;
     canViewLiquidation: boolean;
     canViewReports: boolean;
+    canUseReportAssistant: boolean;
     canViewRoles: boolean;
     canViewUsers: boolean;
     canViewHEI: boolean;

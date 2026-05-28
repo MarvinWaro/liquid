@@ -56,8 +56,12 @@ return new class extends Migration
                 ->update(['academic_year_id' => $id]);
         }
 
-        // 5. Drop the old string column
+        // 5. Drop the old string column.
+        // The composite index idx_liquidations_hei_year depends on this
+        // column. MySQL drops it automatically with the column; SQLite
+        // refuses unless we drop the index first.
         Schema::table('liquidations', function (Blueprint $table) {
+            $table->dropIndex('idx_liquidations_hei_year');
             $table->dropColumn('academic_year');
         });
     }

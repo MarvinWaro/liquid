@@ -6,6 +6,7 @@ use App\Models\ImportBatch;
 use App\Models\LiquidationDocument;
 use App\Observers\ImportBatchObserver;
 use App\Observers\LiquidationDocumentObserver;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -28,5 +29,15 @@ class AppServiceProvider extends ServiceProvider
         // tearDown, raw queries dispatched through Eloquent, etc.
         ImportBatch::observe(ImportBatchObserver::class);
         LiquidationDocument::observe(LiquidationDocumentObserver::class);
+
+        // Block destructive Artisan commands (db:wipe, migrate:fresh,
+        // migrate:refresh, migrate:rollback) in production ONLY.
+        // - Production (APP_ENV=production): prohibition active → can't wipe.
+        // - Local/staging/testing: prohibition off → RefreshDatabase works,
+        //   you can still run migrate:fresh locally when needed.
+        // If you ever need to genuinely reset production (decommissioning),
+        // temporarily flip APP_ENV or comment this line, run the command,
+        // then restore.
+        DB::prohibitDestructiveCommands($this->app->isProduction());
     }
 }

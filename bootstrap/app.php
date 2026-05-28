@@ -23,6 +23,10 @@ return Application::configure(basePath: dirname(__DIR__))
             AddLinkHeadersForPreloadedAssets::class,
             TrackUserActivity::class,
         ]);
+
+        $middleware->alias([
+            'mcp.auth' => \App\Http\Middleware\AuthenticateMcpClient::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

@@ -409,6 +409,17 @@ class LiquidationService
     }
 
     /**
+     * Apply ONLY the role-based scope to a query, without voided exclusion or
+     * status filters. Use this for exact-record lookups (e.g. find by control
+     * number) where the caller intends to surface the record regardless of its
+     * liquidation status, but still bounded by the user's access scope.
+     */
+    public function applyRoleScope(Builder $query, User $user): void
+    {
+        $this->applyRoleFilter($query, $user);
+    }
+
+    /**
      * Check if the liquidation_status filter includes 'voided' (supports both string and array).
      */
     private function isFilteringVoided(array $filters): bool

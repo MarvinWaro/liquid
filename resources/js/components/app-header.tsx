@@ -42,6 +42,7 @@ import {
     Monitor,
     Moon,
     PanelLeft,
+    Sparkles,
     Sun,
 } from 'lucide-react';
 import { HatGlasses } from '@/components/icons/hat-glasses';
@@ -88,6 +89,12 @@ const allNavItems: (NavItem & { ability?: keyof NavigationAbilities; children?: 
         href: '/report',
         icon: FileBarChart,
         ability: 'canViewReports',
+    },
+    {
+        title: 'Report Assistant',
+        href: '/report-assistant',
+        icon: Sparkles,
+        ability: 'canUseReportAssistant',
     },
     {
         title: 'Contact & Support',

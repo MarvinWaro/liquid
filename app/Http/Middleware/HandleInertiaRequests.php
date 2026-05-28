@@ -54,6 +54,7 @@ class HandleInertiaRequests extends Middleware
                 'canViewDashboard' => false,
                 'canViewLiquidation' => false,
                 'canViewReports' => false,
+                'canUseReportAssistant' => false,
                 'canViewRoles' => false,
                 'canViewUsers' => false,
                 'canViewHEI' => false,

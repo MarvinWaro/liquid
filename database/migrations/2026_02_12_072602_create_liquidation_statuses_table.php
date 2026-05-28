@@ -82,8 +82,11 @@ return new class extends Migration
                 ->update(['liquidation_status_id' => $unliquidatedId]);
         }
 
-        // Step 5: Drop old ENUM column
+        // Step 5: Drop old ENUM column.
+        // Drop the dependent index first — MySQL auto-drops it with the
+        // column, but SQLite refuses unless the index is removed beforehand.
         Schema::table('liquidations', function (Blueprint $table) {
+            $table->dropIndex(['liquidation_status']);
             $table->dropColumn('liquidation_status');
         });
 

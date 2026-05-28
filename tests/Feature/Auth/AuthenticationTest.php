@@ -41,8 +41,11 @@ test('users can authenticate using the login screen', function () {
         'password' => 'password',
     ]);
 
+    // Successful login redirects to the announcements page per
+    // App\Http\Responses\LoginResponse (not the Laravel scaffold default
+    // /dashboard); the route value is configurable via Fortify::redirects.
     $this->assertAuthenticated();
-    $response->assertRedirect(route('dashboard', absolute: false));
+    $response->assertRedirect('/announcement');
 });
 
 test('turnstile token is required when enabled', function () {
