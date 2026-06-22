@@ -114,6 +114,15 @@ class User extends Authenticatable
     }
 
     /**
+     * Direct per-user permission grants — additive on top of the user's role.
+     * Effective permissions = role's permissions ∪ these.
+     */
+    public function permissions(): BelongsToMany
+    {
+        return $this->belongsToMany(Permission::class, 'user_permission')->withTimestamps();
+    }
+
+    /**
      * Get the HEI that owns the user (for HEI users).
      */
     public function hei(): BelongsTo
@@ -217,7 +226,17 @@ class User extends Authenticatable
      */
     public function hasPermission(string $permissionName): bool
     {
-        return $this->role && $this->role->hasPermission($permissionName);
+        // Granted via the user's role...
+        if ($this->role && $this->role->hasPermission($permissionName)) {
+            return true;
+        }
+
+        // ...or granted directly to this specific user (additive override).
+        if ($this->relationLoaded('permissions')) {
+            return $this->permissions->contains('name', $permissionName);
+        }
+
+        return $this->permissions()->where('name', $permissionName)->exists();
     }
 
     /**
@@ -259,8 +278,9 @@ class User extends Authenticatable
      */
     public function getNavigationAbilities(): array
     {
-        // Ensure permissions are loaded to avoid N+1 queries (12 checks below)
-        $this->loadMissing('role.permissions');
+        // Ensure permissions are loaded to avoid N+1 queries (many checks below).
+        // Includes direct per-user grants so hasPermission() stays query-free.
+        $this->loadMissing('role.permissions', 'permissions');
 
         return [
             'canViewDashboard' => true, // Everyone can see dashboard
@@ -277,6 +297,8 @@ class User extends Authenticatable
             'canViewDocumentRequirements' => $this->hasPermission('view_document_requirements'),
             'canViewTemplates' => $this->hasPermission('view_templates'),
             'canViewActivityLogs' => $this->hasPermission('view_activity_logs'),
+            'canAccessActivityLogs' => $this->hasPermission('view_activity_logs')
+                || $this->hasPermission('view_own_activity_logs'),
             'canViewSummaryAY' => $this->hasPermission('view_summary_ay'),
             'canViewSummaryHEI' => $this->hasPermission('view_summary_hei'),
             'canCreateAnnouncements' => $this->hasPermission('create_announcements'),

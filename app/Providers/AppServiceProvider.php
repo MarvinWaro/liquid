@@ -30,6 +30,11 @@ class AppServiceProvider extends ServiceProvider
         ImportBatch::observe(ImportBatchObserver::class);
         LiquidationDocument::observe(LiquidationDocumentObserver::class);
 
+        // Note: LogSuccessfulLogin / LogSuccessfulLogout listeners in
+        // app/Listeners are auto-discovered by Laravel from their handle()
+        // type-hints, so no manual Event::listen() registration is needed here
+        // (registering them again would fire — and log — each event twice).
+
         // Block destructive Artisan commands (db:wipe, migrate:fresh,
         // migrate:refresh, migrate:rollback) in production ONLY.
         // - Production (APP_ENV=production): prohibition active → can't wipe.

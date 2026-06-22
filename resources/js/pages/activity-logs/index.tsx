@@ -26,7 +26,9 @@ import {
     ChevronDown,
     ChevronRight,
     ExternalLink,
+    Globe,
     History,
+    Monitor,
     Search,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -42,6 +44,8 @@ interface ActivityLog {
     subject_id: string | null;
     subject_label: string | null;
     module: string | null;
+    ip_address: string | null;
+    device: string | null;
     old_values: Record<string, unknown> | null;
     new_values: Record<string, unknown> | null;
     created_at: string;
@@ -68,6 +72,7 @@ interface Props {
     actions: string[];
     modules: string[];
     filters: Record<string, string>;
+    scopedToOwn?: boolean;
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -76,6 +81,8 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 const actionColors: Record<string, string> = {
+    login: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    logout: 'border-slate-200 bg-slate-50 text-slate-700',
     created: 'border-green-200 bg-green-50 text-green-700',
     updated: 'border-blue-200 bg-blue-50 text-blue-700',
     deleted: 'border-red-200 bg-red-50 text-red-700',
@@ -90,12 +97,15 @@ const actionColors: Record<string, string> = {
     bulk_imported: 'border-teal-200 bg-teal-50 text-teal-700',
     imported_beneficiaries: 'border-teal-200 bg-teal-50 text-teal-700',
     toggled_status: 'border-amber-200 bg-amber-50 text-amber-700',
+    updated_permissions: 'border-violet-200 bg-violet-50 text-violet-700',
     synced_permissions: 'border-violet-200 bg-violet-50 text-violet-700',
     updated_tracking: 'border-blue-200 bg-blue-50 text-blue-700',
     updated_running_data: 'border-blue-200 bg-blue-50 text-blue-700',
 };
 
 const actionLeftBorder: Record<string, string> = {
+    login: 'border-l-emerald-500',
+    logout: 'border-l-slate-500',
     created: 'border-l-green-500',
     updated: 'border-l-blue-500',
     deleted: 'border-l-red-500',
@@ -110,6 +120,7 @@ const actionLeftBorder: Record<string, string> = {
     bulk_imported: 'border-l-teal-500',
     imported_beneficiaries: 'border-l-teal-500',
     toggled_status: 'border-l-amber-500',
+    updated_permissions: 'border-l-violet-500',
     synced_permissions: 'border-l-violet-500',
     updated_tracking: 'border-l-blue-500',
     updated_running_data: 'border-l-blue-500',
@@ -235,6 +246,7 @@ export default function Index({
     actions,
     modules,
     filters,
+    scopedToOwn = false,
 }: Props) {
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
     const getInitials = useInitials();
@@ -338,8 +350,9 @@ export default function Index({
                                 Activity Logs
                             </h2>
                             <p className="mt-1 text-sm text-muted-foreground">
-                                Monitor all system transactions and user
-                                activities.
+                                {scopedToOwn
+                                    ? 'Monitor your activity in the system.'
+                                    : 'Monitor all system transactions and user activities.'}
                             </p>
                         </div>
 
@@ -365,29 +378,31 @@ export default function Index({
                                         className="pl-8"
                                     />
                                 </div>
-                                <Select
-                                    value={filters.user || 'all'}
-                                    onValueChange={(v) =>
-                                        applyFilter('user', v)
-                                    }
-                                >
-                                    <SelectTrigger className="w-[160px]">
-                                        <SelectValue placeholder="All Users" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">
-                                            All Users
-                                        </SelectItem>
-                                        {users.map((user) => (
-                                            <SelectItem
-                                                key={user.id}
-                                                value={user.id}
-                                            >
-                                                {user.name}
+                                {!scopedToOwn && (
+                                    <Select
+                                        value={filters.user || 'all'}
+                                        onValueChange={(v) =>
+                                            applyFilter('user', v)
+                                        }
+                                    >
+                                        <SelectTrigger className="w-[160px]">
+                                            <SelectValue placeholder="All Users" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">
+                                                All Users
                                             </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                            {users.map((user) => (
+                                                <SelectItem
+                                                    key={user.id}
+                                                    value={user.id}
+                                                >
+                                                    {user.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                )}
                                 <Select
                                     value={filters.action || 'all'}
                                     onValueChange={(v) =>
@@ -568,10 +583,22 @@ export default function Index({
                                                     {renderDescription(log.description, log.subject_label)}
                                                 </p>
 
-                                                {/* Timestamp */}
-                                                <p className="mt-1.5 text-xs text-muted-foreground">
-                                                    {log.created_at}
-                                                </p>
+                                                {/* Meta: timestamp · device · IP */}
+                                                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                                    <span>{log.created_at}</span>
+                                                    {log.device && (
+                                                        <span className="flex items-center gap-1">
+                                                            <Monitor className="h-3 w-3" />
+                                                            {log.device}
+                                                        </span>
+                                                    )}
+                                                    {log.ip_address && (
+                                                        <span className="flex items-center gap-1">
+                                                            <Globe className="h-3 w-3" />
+                                                            {log.ip_address}
+                                                        </span>
+                                                    )}
+                                                </div>
 
                                                 {/* Expandable changes */}
                                                 {hasChanges && (
