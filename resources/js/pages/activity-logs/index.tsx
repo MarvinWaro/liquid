@@ -26,7 +26,9 @@ import {
     ChevronDown,
     ChevronRight,
     ExternalLink,
+    Globe,
     History,
+    Monitor,
     Search,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -42,6 +44,8 @@ interface ActivityLog {
     subject_id: string | null;
     subject_label: string | null;
     module: string | null;
+    ip_address: string | null;
+    device: string | null;
     old_values: Record<string, unknown> | null;
     new_values: Record<string, unknown> | null;
     created_at: string;
@@ -76,6 +80,8 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 const actionColors: Record<string, string> = {
+    login: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    logout: 'border-slate-200 bg-slate-50 text-slate-700',
     created: 'border-green-200 bg-green-50 text-green-700',
     updated: 'border-blue-200 bg-blue-50 text-blue-700',
     deleted: 'border-red-200 bg-red-50 text-red-700',
@@ -96,6 +102,8 @@ const actionColors: Record<string, string> = {
 };
 
 const actionLeftBorder: Record<string, string> = {
+    login: 'border-l-emerald-500',
+    logout: 'border-l-slate-500',
     created: 'border-l-green-500',
     updated: 'border-l-blue-500',
     deleted: 'border-l-red-500',
@@ -568,10 +576,22 @@ export default function Index({
                                                     {renderDescription(log.description, log.subject_label)}
                                                 </p>
 
-                                                {/* Timestamp */}
-                                                <p className="mt-1.5 text-xs text-muted-foreground">
-                                                    {log.created_at}
-                                                </p>
+                                                {/* Meta: timestamp · device · IP */}
+                                                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                                    <span>{log.created_at}</span>
+                                                    {log.device && (
+                                                        <span className="flex items-center gap-1">
+                                                            <Monitor className="h-3 w-3" />
+                                                            {log.device}
+                                                        </span>
+                                                    )}
+                                                    {log.ip_address && (
+                                                        <span className="flex items-center gap-1">
+                                                            <Globe className="h-3 w-3" />
+                                                            {log.ip_address}
+                                                        </span>
+                                                    )}
+                                                </div>
 
                                                 {/* Expandable changes */}
                                                 {hasChanges && (

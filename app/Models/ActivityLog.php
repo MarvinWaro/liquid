@@ -7,8 +7,10 @@ namespace App\Models;
 use App\Services\NotificationService;
 use App\Traits\HasUuid;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
 
 class ActivityLog extends Model
 {
@@ -44,6 +46,60 @@ class ActivityLog extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    // ========================================
+    // ACCESSORS
+    // ========================================
+
+    /**
+     * Human-readable device label parsed from the raw user agent,
+     * e.g. "Chrome on Windows". Computed on read — not persisted.
+     */
+    protected function device(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): ?string => self::parseDevice($this->user_agent),
+        );
+    }
+
+    /**
+     * Parse a user-agent string into a friendly "Browser on OS" label.
+     * Order matters: Edge/Opera/Samsung UAs also contain "Chrome"/"Safari",
+     * so the more specific tokens are matched first. Falls back to the raw
+     * agent (truncated) for non-browser clients such as CLI/seeder requests.
+     */
+    private static function parseDevice(?string $userAgent): ?string
+    {
+        if (empty($userAgent)) {
+            return null;
+        }
+
+        $browser = match (true) {
+            str_contains($userAgent, 'Edg/'), str_contains($userAgent, 'Edge') => 'Edge',
+            str_contains($userAgent, 'OPR/'), str_contains($userAgent, 'Opera') => 'Opera',
+            str_contains($userAgent, 'SamsungBrowser') => 'Samsung Internet',
+            str_contains($userAgent, 'Firefox') => 'Firefox',
+            str_contains($userAgent, 'Chrome') => 'Chrome',
+            str_contains($userAgent, 'Safari') => 'Safari',
+            default => null,
+        };
+
+        $os = match (true) {
+            str_contains($userAgent, 'Windows NT 10.0') => 'Windows 10/11',
+            str_contains($userAgent, 'Windows') => 'Windows',
+            str_contains($userAgent, 'iPhone'), str_contains($userAgent, 'iPad') => 'iOS',
+            str_contains($userAgent, 'Mac OS X'), str_contains($userAgent, 'Macintosh') => 'macOS',
+            str_contains($userAgent, 'Android') => 'Android',
+            str_contains($userAgent, 'Linux') => 'Linux',
+            default => null,
+        };
+
+        if ($browser === null && $os === null) {
+            return Str::limit($userAgent, 40);
+        }
+
+        return ($browser ?? 'Unknown browser').' on '.($os ?? 'Unknown OS');
     }
 
     // ========================================

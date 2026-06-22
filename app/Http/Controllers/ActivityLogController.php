@@ -18,6 +18,10 @@ class ActivityLogController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
+        // IP addresses are sensitive — only Super Admins may see them. We gate this
+        // server-side so the value never reaches a non-Super-Admin's browser.
+        $canViewIp = $request->user()->isSuperAdmin();
+
         $filters = $request->only(['search', 'user', 'action', 'module', 'date_from', 'date_to']);
 
         $query = ActivityLog::query()
@@ -31,6 +35,11 @@ class ActivityLogController extends Controller
         }
         if (! empty($filters['action']) && $filters['action'] !== 'all') {
             $query->byAction($filters['action']);
+        }
+        // Hide logout entries from the default feed to keep it compact, but still
+        // surface them when the user explicitly filters by the Logout action.
+        if (($filters['action'] ?? null) !== 'logout') {
+            $query->where('action', '!=', 'logout');
         }
         if (! empty($filters['module']) && $filters['module'] !== 'all') {
             $query->byModule($filters['module']);
@@ -49,6 +58,8 @@ class ActivityLogController extends Controller
             'subject_id' => $log->subject_id,
             'subject_label' => $log->subject_label,
             'module' => $log->module,
+            'ip_address' => $canViewIp ? $log->ip_address : null,
+            'device' => $log->device,
             'old_values' => $log->old_values,
             'new_values' => $log->new_values,
             'created_at' => $log->created_at->timezone('Asia/Manila')->format('M d, Y H:i:s'),
