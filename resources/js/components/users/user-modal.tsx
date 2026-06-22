@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useForm } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,11 +20,24 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { HEISelector } from '@/components/ui/hei-selector';
-import { Save, Loader2 } from 'lucide-react';
+import {
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
+} from '@/components/ui/accordion';
+import { Save, Loader2, Shield, Search } from 'lucide-react';
 
 interface Role {
     id: number;
     name: string;
+}
+
+interface Permission {
+    id: string;
+    name: string;
+    module: string;
+    description: string;
 }
 
 interface Region {
@@ -58,6 +71,7 @@ interface User {
     region_id?: string | null;
     hei_id?: string | null;
     programs?: Program[];
+    permissions?: { id: string }[];
 }
 
 interface UserModalProps {
@@ -68,6 +82,8 @@ interface UserModalProps {
     regions: Region[];
     heis: HEI[];
     programs?: Program[];
+    permissions?: Record<string, Permission[]>;
+    canAssignPermissions?: boolean;
 }
 
 interface FormData {
@@ -79,11 +95,30 @@ interface FormData {
     region_id: string;
     hei_id: string;
     program_ids: string[];
+    permission_ids: string[];
     status: string;
 }
 
-export function UserModal({ isOpen, onClose, user, roles, regions, heis, programs = [] }: UserModalProps) {
+export function UserModal({ isOpen, onClose, user, roles, regions, heis, programs = [], permissions = {}, canAssignPermissions = false }: UserModalProps) {
     const isEdit = !!user;
+    const [permissionSearch, setPermissionSearch] = useState('');
+
+    // Filter the permission picker by name or module as the admin types.
+    const filteredPermissions = useMemo(() => {
+        const q = permissionSearch.trim().toLowerCase();
+        if (!q) return permissions;
+
+        const result: Record<string, Permission[]> = {};
+        for (const [module, perms] of Object.entries(permissions)) {
+            const matched = perms.filter(
+                (p) =>
+                    p.name.replace(/_/g, ' ').toLowerCase().includes(q) ||
+                    module.toLowerCase().includes(q),
+            );
+            if (matched.length > 0) result[module] = matched;
+        }
+        return result;
+    }, [permissions, permissionSearch]);
 
     const { data, setData, post, put, processing, errors, reset, clearErrors } = useForm<FormData>({
         name: '',
@@ -94,6 +129,7 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis, program
         region_id: '',
         hei_id: '',
         program_ids: [],
+        permission_ids: [],
         status: 'active',
     });
 
@@ -120,6 +156,7 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis, program
                     region_id: user.region_id || '',
                     hei_id: user.hei_id || '',
                     program_ids: user.programs?.map(p => p.id) || [],
+                    permission_ids: user.permissions?.map(p => p.id) || [],
                     status: user.status,
                 });
             } else {
@@ -133,10 +170,12 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis, program
                     region_id: '',
                     hei_id: '',
                     program_ids: [],
+                    permission_ids: [],
                     status: 'active',
                 });
             }
             clearErrors();
+            setPermissionSearch('');
         }
     }, [isOpen, user]);
 
@@ -144,6 +183,14 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis, program
         setData('program_ids', checked
             ? [...data.program_ids, programId]
             : data.program_ids.filter(id => id !== programId)
+        );
+    };
+
+    const handlePermissionToggle = (permissionId: string) => {
+        setData('permission_ids',
+            data.permission_ids.includes(permissionId)
+                ? data.permission_ids.filter(id => id !== permissionId)
+                : [...data.permission_ids, permissionId]
         );
     };
 
@@ -166,15 +213,15 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis, program
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader className="pb-2">
+            <DialogContent className="sm:max-w-3xl max-h-[90vh] flex flex-col p-0 gap-0">
+                <DialogHeader className="px-6 pt-6 pb-4 border-b">
                     <DialogTitle>{isEdit ? 'Edit User' : 'Create New User'}</DialogTitle>
                     <DialogDescription>
                         {isEdit ? 'Update user details.' : 'Add a new user to the system.'}
                     </DialogDescription>
                 </DialogHeader>
 
-                <form id="user-form" onSubmit={handleSubmit} className="space-y-3">
+                <form id="user-form" onSubmit={handleSubmit} className="flex-1 space-y-3 overflow-y-auto px-6 py-5">
                     <div className="space-y-1.5">
                         <Label htmlFor="name">Full Name *</Label>
                         <Input
@@ -355,6 +402,74 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis, program
                         </div>
                     )}
 
+                    {/* Additional (direct) Permissions — Super Admin only, collapsed by default */}
+                    {canAssignPermissions && Object.keys(permissions).length > 0 && (
+                        <Accordion type="single" collapsible className="rounded-md border px-3">
+                            <AccordionItem value="permissions" className="border-b-0">
+                                <AccordionTrigger className="py-3 hover:no-underline">
+                                    <span className="flex items-center gap-2">
+                                        <Shield className="h-3.5 w-3.5 text-muted-foreground" />
+                                        <span className="text-sm font-medium">Additional Permissions</span>
+                                        {data.permission_ids.length > 0 && (
+                                            <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+                                                {data.permission_ids.length} selected
+                                            </span>
+                                        )}
+                                    </span>
+                                </AccordionTrigger>
+                                <AccordionContent>
+                                    <p className="mb-3 text-xs text-muted-foreground">
+                                        Grant extra permissions to this specific user, on top of their role.
+                                    </p>
+                                    <div className="relative mb-3">
+                                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            type="search"
+                                            placeholder="Search permissions..."
+                                            value={permissionSearch}
+                                            onChange={(e) => setPermissionSearch(e.target.value)}
+                                            className="pl-8"
+                                        />
+                                    </div>
+                                    <div className="max-h-72 space-y-4 overflow-y-auto pr-1">
+                                        {Object.keys(filteredPermissions).length === 0 ? (
+                                            <p className="py-4 text-center text-sm text-muted-foreground">
+                                                No permissions found.
+                                            </p>
+                                        ) : (
+                                            Object.entries(filteredPermissions).map(([module, modulePermissions]) => (
+                                                <div key={module} className="space-y-1">
+                                                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                                        {module}
+                                                    </p>
+                                                    <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+                                                        {modulePermissions.map((permission) => (
+                                                            <label
+                                                                key={permission.id}
+                                                                className="flex items-center gap-2.5 rounded px-1 py-1 cursor-pointer transition-colors hover:bg-muted/50"
+                                                            >
+                                                                <Checkbox
+                                                                    checked={data.permission_ids.includes(permission.id)}
+                                                                    onCheckedChange={() => handlePermissionToggle(permission.id)}
+                                                                />
+                                                                <span className="text-sm">
+                                                                    {permission.name
+                                                                        .split('_')
+                                                                        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                                                                        .join(' ')}
+                                                                </span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </AccordionContent>
+                            </AccordionItem>
+                        </Accordion>
+                    )}
+
                     <div className="space-y-1.5">
                         <Label htmlFor="password">
                             Password {isEdit ? '(Leave blank to keep current)' : '*'}
@@ -389,7 +504,7 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis, program
                     </div>
                 </form>
 
-                <DialogFooter>
+                <DialogFooter className="px-6 py-4 border-t bg-muted/30">
                     <Button variant="outline" type="button" onClick={onClose}>
                         Cancel
                     </Button>

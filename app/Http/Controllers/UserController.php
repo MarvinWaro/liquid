@@ -7,6 +7,7 @@ use App\Models\Role;
 use App\Models\Region;
 use App\Models\HEI;
 use App\Models\Program;
+use App\Models\Permission;
 use App\Models\ActivityLog;
 use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
@@ -68,7 +69,10 @@ class UserController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        $users = User::with(['role', 'hei.region', 'region', 'programs'])
+        // Only Super Admin may grant direct per-user permissions.
+        $canAssignPermissions = auth()->user()->isSuperAdmin();
+
+        $users = User::with(['role', 'hei.region', 'region', 'programs', 'permissions:id'])
             ->join('roles', 'users.role_id', '=', 'roles.id')
             ->select('users.*')
             ->orderByRaw("CASE WHEN roles.name = 'Super Admin' THEN 0 ELSE 1 END")
@@ -76,6 +80,9 @@ class UserController extends Controller
             ->get();
 
         $roles = Role::select('id', 'name')->orderBy('name')->get();
+
+        // Permission picker for the Edit User modal (Super Admin only).
+        $permissions = $canAssignPermissions ? Permission::getGroupedByModule() : [];
         $regions = Region::where('status', 'active')->orderBy('name')->get(['id', 'code', 'name']);
         $heis = HEI::with('region:id,code,name')
             ->where('status', 'active')
@@ -94,6 +101,8 @@ class UserController extends Controller
             'regions' => $regions,
             'heis' => $heis,
             'programs' => $programs,
+            'permissions' => $permissions,
+            'canAssignPermissions' => $canAssignPermissions,
             'canCreate' => auth()->user()->hasPermission('create_users'),
             'canEdit' => auth()->user()->hasPermission('edit_users'),
             'canDelete' => auth()->user()->hasPermission('delete_users'),
@@ -121,6 +130,8 @@ class UserController extends Controller
             'hei_id' => $isHEIRole ? 'required|exists:heis,id' : 'nullable|exists:heis,id',
             'program_ids' => $isProgramScoped ? 'required|array|min:1' : 'nullable|array',
             'program_ids.*' => 'exists:programs,id',
+            'permission_ids' => 'nullable|array',
+            'permission_ids.*' => 'exists:permissions,id',
             'status' => 'required|in:active,inactive',
         ]);
 
@@ -137,6 +148,16 @@ class UserController extends Controller
         // Sync program assignments for STUFAPS Focal
         if ($isProgramScoped && !empty($validated['program_ids'])) {
             $user->programs()->sync($validated['program_ids']);
+        }
+
+        // Direct per-user permission grants — Super Admin only (server-side guard
+        // against privilege escalation, regardless of who can edit users).
+        if (auth()->user()->isSuperAdmin()) {
+            $permissionIds = $validated['permission_ids'] ?? [];
+            $user->permissions()->sync($permissionIds);
+            if (! empty($permissionIds)) {
+                ActivityLog::log('updated_permissions', "Set direct permissions for {$user->name}", $user, 'User Management');
+            }
         }
 
         // Backfill notifications for HEI users so they see liquidations created before their account
@@ -171,6 +192,8 @@ class UserController extends Controller
             'hei_id' => $isHEIRole ? 'required|exists:heis,id' : 'nullable|exists:heis,id',
             'program_ids' => $isProgramScoped ? 'required|array|min:1' : 'nullable|array',
             'program_ids.*' => 'exists:programs,id',
+            'permission_ids' => 'nullable|array',
+            'permission_ids.*' => 'exists:permissions,id',
             'status' => 'required|in:active,inactive',
         ]);
 
@@ -194,6 +217,18 @@ class UserController extends Controller
             $user->programs()->sync($validated['program_ids']);
         } else {
             $user->programs()->detach();
+        }
+
+        // Direct per-user permission grants — Super Admin only. Audit-log when the
+        // granted set actually changes.
+        if (auth()->user()->isSuperAdmin()) {
+            $before = $user->permissions()->pluck('permissions.id')->sort()->values();
+            $after = collect($validated['permission_ids'] ?? [])->sort()->values();
+
+            if ($before->toArray() !== $after->toArray()) {
+                $user->permissions()->sync($after->all());
+                ActivityLog::log('updated_permissions', "Updated direct permissions for {$user->name}", $user, 'User Management');
+            }
         }
 
         return redirect()->back()->with('success', 'User updated successfully.');

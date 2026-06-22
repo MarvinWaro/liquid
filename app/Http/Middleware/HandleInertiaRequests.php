@@ -46,7 +46,7 @@ class HandleInertiaRequests extends Middleware
             'name' => config('app.name'),
             'quote' => ['message' => trim($message), 'author' => trim($author)],
             'auth' => [
-                'user' => $user ? $user->load('role.permissions') : null,
+                'user' => $user ? $user->load('role.permissions', 'permissions') : null,
             ],
 
             // Navigation abilities - controls what menu items user can see

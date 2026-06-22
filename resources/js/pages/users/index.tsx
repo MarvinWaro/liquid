@@ -63,6 +63,13 @@ interface Program {
     parent?: { id: string; code: string; name: string } | null;
 }
 
+interface Permission {
+    id: string;
+    name: string;
+    module: string;
+    description: string;
+}
+
 interface User {
     id: number;
     name: string;
@@ -75,6 +82,7 @@ interface User {
     region?: Region | null;
     region_id?: string | null;
     programs?: Program[];
+    permissions?: { id: string }[];
     created_at: string;
 }
 
@@ -87,6 +95,8 @@ interface Props {
     regions: Region[];
     heis: HEI[];
     programs: Program[];
+    permissions: Record<string, Permission[]>;
+    canAssignPermissions: boolean;
     canCreate: boolean;
     canEdit: boolean;
     canDelete: boolean;
@@ -105,6 +115,8 @@ export default function Index({
     regions,
     heis,
     programs,
+    permissions,
+    canAssignPermissions,
     canCreate,
     canEdit,
     canDelete,
@@ -210,6 +222,8 @@ export default function Index({
                 regions={regions}
                 heis={heis}
                 programs={programs}
+                permissions={permissions}
+                canAssignPermissions={canAssignPermissions}
             />
 
             <div className="w-full min-w-0 py-8">
