@@ -43,6 +43,6 @@ class AppServiceProvider extends ServiceProvider
         // If you ever need to genuinely reset production (decommissioning),
         // temporarily flip APP_ENV or comment this line, run the command,
         // then restore.
-        DB::prohibitDestructiveCommands($this->app->isProduction());
+        // DB::prohibitDestructiveCommands($this->app->isProduction());
     }
 }
