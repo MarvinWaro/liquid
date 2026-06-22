@@ -14,13 +14,21 @@ class ActivityLogController extends Controller
 {
     public function index(Request $request): InertiaResponse
     {
-        if (! $request->user()->hasPermission('view_activity_logs')) {
+        $user = $request->user();
+
+        // Two access levels:
+        //  - view_activity_logs      → see ALL users' activity
+        //  - view_own_activity_logs  → see ONLY your own activity (self-scoped)
+        $canViewAll = $user->hasPermission('view_activity_logs');
+        $scopedToOwn = ! $canViewAll && $user->hasPermission('view_own_activity_logs');
+
+        if (! $canViewAll && ! $scopedToOwn) {
             abort(403, 'Unauthorized action.');
         }
 
         // IP addresses are sensitive — only Super Admins may see them. We gate this
         // server-side so the value never reaches a non-Super-Admin's browser.
-        $canViewIp = $request->user()->isSuperAdmin();
+        $canViewIp = $user->isSuperAdmin();
 
         $filters = $request->only(['search', 'user', 'action', 'module', 'date_from', 'date_to']);
 
@@ -30,7 +38,11 @@ class ActivityLogController extends Controller
         if (! empty($filters['search'])) {
             $query->search($filters['search']);
         }
-        if (! empty($filters['user']) && $filters['user'] !== 'all') {
+        // Self-scoped viewers are locked to their own activity; any ?user= override
+        // is ignored. Full-access viewers may filter by a chosen user.
+        if ($scopedToOwn) {
+            $query->byUser($user->id);
+        } elseif (! empty($filters['user']) && $filters['user'] !== 'all') {
             $query->byUser($filters['user']);
         }
         if (! empty($filters['action']) && $filters['action'] !== 'all') {
@@ -65,10 +77,18 @@ class ActivityLogController extends Controller
             'created_at' => $log->created_at->timezone('Asia/Manila')->format('M d, Y H:i:s'),
         ]);
 
-        // Get filter options from existing data
-        $users = User::select('id', 'name')->orderBy('name')->get();
-        $actions = ActivityLog::select('action')->distinct()->orderBy('action')->pluck('action');
-        $modules = ActivityLog::select('module')->whereNotNull('module')->distinct()->orderBy('module')->pluck('module');
+        // Get filter options. Self-scoped viewers don't get the user roster (nothing
+        // to pick) and their action/module options reflect only their own activity.
+        $users = $scopedToOwn ? [] : User::select('id', 'name')->orderBy('name')->get();
+
+        $actionsQuery = ActivityLog::query();
+        $modulesQuery = ActivityLog::query()->whereNotNull('module');
+        if ($scopedToOwn) {
+            $actionsQuery->where('user_id', $user->id);
+            $modulesQuery->where('user_id', $user->id);
+        }
+        $actions = $actionsQuery->select('action')->distinct()->orderBy('action')->pluck('action');
+        $modules = $modulesQuery->select('module')->distinct()->orderBy('module')->pluck('module');
 
         return Inertia::render('activity-logs/index', [
             'logs' => $logs,
@@ -76,6 +96,7 @@ class ActivityLogController extends Controller
             'actions' => $actions,
             'modules' => $modules,
             'filters' => $filters,
+            'scopedToOwn' => $scopedToOwn,
         ]);
     }
 }

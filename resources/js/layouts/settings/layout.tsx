@@ -100,7 +100,7 @@ const systemConfigNavItems: AdminNavItem[] = [
         title: 'Activity Logs',
         href: '/activity-logs',
         icon: History,
-        ability: 'canViewActivityLogs',
+        ability: 'canAccessActivityLogs',
     },
 ];
 
@@ -125,6 +125,7 @@ export default function SettingsLayout({ children, wide = false }: SettingsLayou
         canViewDocumentRequirements: false,
         canViewTemplates: false,
         canViewActivityLogs: false,
+        canAccessActivityLogs: false,
     };
 
     const filterByAbility = (items: AdminNavItem[]) =>

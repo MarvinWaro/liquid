@@ -88,7 +88,8 @@ class PermissionSeeder extends Seeder
                 ['name' => 'view_summary_hei', 'description' => 'View summary per HEI'],
             ],
             'Activity Logs' => [
-                ['name' => 'view_activity_logs', 'description' => 'View system activity logs'],
+                ['name' => 'view_activity_logs', 'description' => "View all users' activity logs"],
+                ['name' => 'view_own_activity_logs', 'description' => 'View only your own activity logs'],
             ],
             'Announcements' => [
                 ['name' => 'view_announcements', 'description' => 'View announcements'],

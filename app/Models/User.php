@@ -277,6 +277,8 @@ class User extends Authenticatable
             'canViewDocumentRequirements' => $this->hasPermission('view_document_requirements'),
             'canViewTemplates' => $this->hasPermission('view_templates'),
             'canViewActivityLogs' => $this->hasPermission('view_activity_logs'),
+            'canAccessActivityLogs' => $this->hasPermission('view_activity_logs')
+                || $this->hasPermission('view_own_activity_logs'),
             'canViewSummaryAY' => $this->hasPermission('view_summary_ay'),
             'canViewSummaryHEI' => $this->hasPermission('view_summary_hei'),
             'canCreateAnnouncements' => $this->hasPermission('create_announcements'),

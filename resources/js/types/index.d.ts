@@ -38,6 +38,7 @@ export interface NavigationAbilities {
     canViewDocumentRequirements: boolean;
     canViewTemplates: boolean;
     canViewActivityLogs: boolean;
+    canAccessActivityLogs: boolean;
     canViewSummaryAY: boolean;
     canViewSummaryHEI: boolean;
     canCreateAnnouncements: boolean;

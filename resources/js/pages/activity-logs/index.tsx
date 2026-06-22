@@ -72,6 +72,7 @@ interface Props {
     actions: string[];
     modules: string[];
     filters: Record<string, string>;
+    scopedToOwn?: boolean;
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -243,6 +244,7 @@ export default function Index({
     actions,
     modules,
     filters,
+    scopedToOwn = false,
 }: Props) {
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
     const getInitials = useInitials();
@@ -346,8 +348,9 @@ export default function Index({
                                 Activity Logs
                             </h2>
                             <p className="mt-1 text-sm text-muted-foreground">
-                                Monitor all system transactions and user
-                                activities.
+                                {scopedToOwn
+                                    ? 'Monitor your activity in the system.'
+                                    : 'Monitor all system transactions and user activities.'}
                             </p>
                         </div>
 
@@ -373,29 +376,31 @@ export default function Index({
                                         className="pl-8"
                                     />
                                 </div>
-                                <Select
-                                    value={filters.user || 'all'}
-                                    onValueChange={(v) =>
-                                        applyFilter('user', v)
-                                    }
-                                >
-                                    <SelectTrigger className="w-[160px]">
-                                        <SelectValue placeholder="All Users" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">
-                                            All Users
-                                        </SelectItem>
-                                        {users.map((user) => (
-                                            <SelectItem
-                                                key={user.id}
-                                                value={user.id}
-                                            >
-                                                {user.name}
+                                {!scopedToOwn && (
+                                    <Select
+                                        value={filters.user || 'all'}
+                                        onValueChange={(v) =>
+                                            applyFilter('user', v)
+                                        }
+                                    >
+                                        <SelectTrigger className="w-[160px]">
+                                            <SelectValue placeholder="All Users" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">
+                                                All Users
                                             </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                            {users.map((user) => (
+                                                <SelectItem
+                                                    key={user.id}
+                                                    value={user.id}
+                                                >
+                                                    {user.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                )}
                                 <Select
                                     value={filters.action || 'all'}
                                     onValueChange={(v) =>
