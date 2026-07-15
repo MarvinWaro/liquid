@@ -379,7 +379,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
         if (!liquidations?.data) return;
         if (checked) {
             const eligible = liquidations.data
-                .filter(l => !l.is_voided && !l.is_endorsed)
+                .filter(l => !l.is_voided && !l.is_endorsed && l.can_act)
                 .map(l => l.id);
             setSelectedIds(prev => {
                 const next = new Set(prev);
@@ -908,7 +908,7 @@ const LiquidationTable = React.memo(function LiquidationTable({
         );
     };
     const pageSelectableIds = liquidations.data
-        .filter(l => !l.is_voided && !l.is_endorsed)
+        .filter(l => !l.is_voided && !l.is_endorsed && l.can_act)
         .map(l => l.id);
     const allSelected = pageSelectableIds.length > 0 && pageSelectableIds.every(id => selectedIds.has(id));
     const someSelected = !allSelected && pageSelectableIds.some(id => selectedIds.has(id));

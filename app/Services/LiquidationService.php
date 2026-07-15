@@ -295,7 +295,7 @@ class LiquidationService
         // Select from the liquidations table explicitly so sort joins on
         // heis/programs/liquidation_financials don't collide on shared column
         // names (e.g. id, name, created_at).
-        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus'])
+        $query = Liquidation::with(['hei', 'region', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus'])
             ->select('liquidations.*');
 
         $this->applyRoleFilter($query, $user);
@@ -380,7 +380,7 @@ class LiquidationService
      */
     public function getPinnedLiquidationsForUser(User $user, int $limit): \Illuminate\Support\Collection
     {
-        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus', 'trackingEntries'])
+        $query = Liquidation::with(['hei', 'region', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus', 'trackingEntries'])
             ->whereHas('pinnedByUsers', fn (Builder $q) => $q->where('users.id', $user->id))
             ->leftJoin('user_liquidation_pins', function ($join) use ($user) {
                 $join->on('user_liquidation_pins.liquidation_id', '=', 'liquidations.id')
@@ -440,9 +440,15 @@ class LiquidationService
         if ($roleName === 'HEI' && $user->hei_id) {
             $query->where('hei_id', $user->hei_id);
         } elseif ($roleName === 'Regional Coordinator' && $user->region_id) {
-            // RCs see liquidations from HEIs in their region, excluding STUFAPS sub-programs
-            $query->whereHas('hei', function (Builder $q) use ($user) {
-                $q->where('region_id', $user->region_id);
+            // RCs see records processed under their region (snapshot) OR records of
+            // HEIs currently in their region, excluding STUFAPS sub-programs. After
+            // an HEI transfers regions, the old region keeps read access to its
+            // history while the new region sees the HEI's full record.
+            $query->where(function (Builder $q) use ($user) {
+                $q->where('liquidations.region_id', $user->region_id)
+                    ->orWhereHas('hei', function (Builder $h) use ($user) {
+                        $h->where('region_id', $user->region_id);
+                    });
             });
             $query->whereDoesntHave('program', function (Builder $q) {
                 $q->whereNotNull('parent_id');
@@ -554,11 +560,17 @@ class LiquidationService
             $query->whereIn('academic_year_id', $academicYears);
         }
 
-        // Region filter — filters by HEI's region (Admin/Super Admin only; controller strips for others)
+        // Region filter — filters by the region that processed the record (snapshot),
+        // falling back to the HEI's current region for rows without a snapshot
+        // (Admin/Super Admin only; controller strips for others)
         $regions = $toArray($filters['region'] ?? null);
         if (!empty($regions)) {
-            $query->whereHas('hei', function (Builder $q) use ($regions) {
-                $q->whereIn('region_id', $regions);
+            $query->where(function (Builder $q) use ($regions) {
+                $q->whereIn('liquidations.region_id', $regions)
+                    ->orWhere(function (Builder $q2) use ($regions) {
+                        $q2->whereNull('liquidations.region_id')
+                            ->whereHas('hei', fn (Builder $h) => $h->whereIn('region_id', $regions));
+                    });
             });
         }
 
@@ -616,6 +628,7 @@ class LiquidationService
                     !empty($data['date_fund_released']) ? (int) date('Y', strtotime($data['date_fund_released'])) : null,
                 ),
                 'hei_id'                => $hei->id,
+                'region_id'             => $hei->region_id,
                 'program_id'            => $data['program_id'],
                 'academic_year_id'      => $data['academic_year_id'],
                 'semester_id'           => $semesterId,
@@ -649,6 +662,11 @@ class LiquidationService
     {
         return DB::transaction(function () use ($liquidation, $data) {
             $liquidationFields = array_intersect_key($data, array_flip(['hei_id', 'remarks']));
+
+            // Reassigning the record to another HEI re-derives the region snapshot
+            if (isset($liquidationFields['hei_id']) && $liquidationFields['hei_id'] !== $liquidation->hei_id) {
+                $liquidationFields['region_id'] = HEI::find($liquidationFields['hei_id'])?->region_id;
+            }
 
             // Handle liquidation_status → liquidation_status_id lookup
             if (isset($data['liquidation_status'])) {

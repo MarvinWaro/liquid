@@ -79,7 +79,7 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
                 )}
             </TableCell>
             <TableCell className="py-3 w-[40px]">
-                {!liquidation.is_voided && !liquidation.is_endorsed && canReview && (
+                {!liquidation.is_voided && !liquidation.is_endorsed && canReview && liquidation.can_act && (
                     <Checkbox
                         checked={isSelected}
                         onCheckedChange={(checked) => onSelect(liquidation.id, !!checked)}
@@ -109,6 +109,11 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
                     </TooltipContent>
                 </Tooltip>
                 <div className="text-xs text-muted-foreground font-mono">{liquidation.uii}</div>
+                {liquidation.region_mismatch && liquidation.processed_under_region && (
+                    <Badge variant="outline" className="mt-0.5 text-[10px] font-normal text-amber-700 border-amber-300 dark:text-amber-400 dark:border-amber-800">
+                        Processed under {liquidation.processed_under_region}
+                    </Badge>
+                )}
             </TableCell>
             {/* Combined: Academic Year + Semester */}
             <TableCell className="py-3">
@@ -208,7 +213,7 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
                             <TooltipContent>Create support ticket</TooltipContent>
                         </Tooltip>
                     )}
-                    {canReview && !liquidation.is_voided && !liquidation.is_endorsed && (
+                    {canReview && !liquidation.is_voided && !liquidation.is_endorsed && liquidation.can_act && (
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button

@@ -155,11 +155,14 @@ class LiquidationCommentController extends Controller
                             ->whereHas('programs', fn ($r) => $r->where('programs.id', $liquidation->program_id));
                     });
                 } else {
-                    // For non-STUFAPS: show RCs for the same region
-                    if ($liquidation->hei?->region_id) {
-                        $q->orWhere(function ($sub) use ($liquidation) {
+                    // For non-STUFAPS: show RCs of the region that processed the
+                    // record and of the HEI's current region (differs after an
+                    // HEI region transfer — both remain conversation participants)
+                    $regionIds = $liquidation->actingRegionIds();
+                    if ($regionIds) {
+                        $q->orWhere(function ($sub) use ($regionIds) {
                             $sub->whereHas('role', fn ($r) => $r->where('name', 'Regional Coordinator'))
-                                ->where('region_id', $liquidation->hei->region_id);
+                                ->whereIn('region_id', $regionIds);
                         });
                     }
                 }
@@ -353,10 +356,14 @@ class LiquidationCommentController extends Controller
                     ->whereHas('programs', fn ($q) => $q->where('programs.id', $liquidation->program_id))
                     ->get();
             }
+            // Notify RCs of the region that processed the record and of the HEI's
+            // current region (differs after an HEI region transfer)
+            $regionIds = $liquidation->actingRegionIds();
+
             return User::where('status', 'active')
                 ->where('id', '!=', $actor->id)
                 ->whereNotIn('id', $excludeIds)
-                ->where('region_id', $liquidation->hei?->region_id)
+                ->whereIn('region_id', $regionIds ?: ['none'])
                 ->whereHas('role', fn ($q) => $q->where('name', 'Regional Coordinator'))
                 ->get();
         };

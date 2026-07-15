@@ -26,9 +26,9 @@ class UpdateLiquidationRequest extends FormRequest
             return true;
         }
 
-        // Regional Coordinators can edit liquidations in their region
+        // Regional Coordinators can edit records processed under their region
         if ($user->isRegionalCoordinator()) {
-            return true;
+            return $liquidation->isActionableByRegion($user);
         }
 
         // Regular users can only edit their own editable liquidations

@@ -70,6 +70,11 @@ export default function LiquidationHeader({ liquidation, isHEIUser, canEdit, can
                 <Badge variant="outline" className="text-muted-foreground px-2.5 py-0.5 text-xs font-normal">
                     {liquidation.number_of_grantees || liquidation.beneficiaries.length} Grantees
                 </Badge>
+                {liquidation.region_mismatch && liquidation.processed_under_region && (
+                    <Badge variant="outline" className="text-amber-700 border-amber-300 dark:text-amber-400 dark:border-amber-800 px-2.5 py-0.5 text-xs font-normal">
+                        Processed under {liquidation.processed_under_region}
+                    </Badge>
+                )}
             </div>
         </div>
     );

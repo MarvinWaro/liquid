@@ -138,8 +138,11 @@ export default function Show({
     const isCOA = userRole === 'COA';
     const isViewOnly = isAccountant || isCOA;
     const canSubmit = permissions.submit;
-    const canReview = permissions.review;
-    const canEditDetails = (permissions.edit || permissions.review) && !isViewOnly;
+    // can_act is false for RCs whose region neither processed the record nor
+    // currently owns the HEI (view-only access)
+    const canAct = permissions.can_act ?? true;
+    const canReview = permissions.review && canAct;
+    const canEditDetails = (permissions.edit || permissions.review) && !isViewOnly && canAct;
     const canEdit = canSubmit;
     const hasBeenReturned = (liquidation.review_history?.length ?? 0) > 0;
 
@@ -346,7 +349,7 @@ export default function Show({
                     liquidationId={liquidation.id}
                     initialEntries={liquidation.tracking_entries ?? []}
                     isHEIUser={isHEIUser}
-                    readOnly={isViewOnly}
+                    readOnly={isViewOnly || !canAct}
                     regionalCoordinators={regionalCoordinators}
                     documentLocations={documentLocations}
                     avatarMap={avatarMap}
@@ -362,7 +365,7 @@ export default function Show({
                     totalDisbursements={totalDisbursements}
                     totalGrantees={totalGrantees}
                     isHEIUser={isHEIUser}
-                    readOnly={isViewOnly}
+                    readOnly={isViewOnly || !canAct}
                     latestLiquidationStatus={latestLiquidationStatus ?? undefined}
                     onTotalLiquidatedChange={debouncedSetTotalLiquidated}
                     updatedAt={liquidation.updated_at}
@@ -389,6 +392,7 @@ export default function Show({
                     documents={liquidation.documents ?? []}
                     userRole={userRole}
                     isStufapsProgram={isStufapsProgram}
+                    readOnly={!canAct}
                 />
             </div>
 

@@ -18,6 +18,8 @@ interface RcLetterUploadProps {
     documents: LiquidationDocument[];
     userRole: string;
     isStufapsProgram?: boolean;
+    /** Read-only mode, e.g. RC whose region may not act on this record. */
+    readOnly?: boolean;
 }
 
 function formatFileSize(bytes: number): string {
@@ -31,8 +33,8 @@ function formatUploadDate(dateStr: string): string {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export default function RcLetterUpload({ liquidationId, documents, userRole, isStufapsProgram = false }: RcLetterUploadProps) {
-    const canManage = userRole === 'Regional Coordinator' || userRole === 'STUFAPS Focal';
+export default function RcLetterUpload({ liquidationId, documents, userRole, isStufapsProgram = false, readOnly = false }: RcLetterUploadProps) {
+    const canManage = (userRole === 'Regional Coordinator' || userRole === 'STUFAPS Focal') && !readOnly;
     const isFocalContext = isStufapsProgram || userRole === 'STUFAPS Focal';
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);

@@ -530,9 +530,11 @@ class SupportTicketController extends Controller
             return $recipients->merge($focals)->unique('id')->values();
         }
 
-        if ($liquidation->hei?->region_id) {
+        // Notify RCs of every region that may act on the record: the region
+        // that processed it and the HEI's current region
+        if ($actingRegionIds = $liquidation->actingRegionIds()) {
             $rcs = User::whereHas('role', fn (Builder $q) => $q->where('name', 'Regional Coordinator'))
-                ->where('region_id', $liquidation->hei->region_id)
+                ->whereIn('region_id', $actingRegionIds)
                 ->where('status', 'active')
                 ->get();
 

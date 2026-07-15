@@ -21,8 +21,8 @@ class ReturnToHEIRequest extends FormRequest
             return false;
         }
 
-        // RC can return any liquidation they have access to
-        return true;
+        // RCs may only act on records processed under their own region
+        return $liquidation->isActionableByRegion($user);
     }
 
     /**
@@ -63,6 +63,6 @@ class ReturnToHEIRequest extends FormRequest
             abort(403, 'Only Regional Coordinator can return liquidation to HEI.');
         }
 
-        abort(403, 'This liquidation is not available for Regional Coordinator review.');
+        abort(403, 'This liquidation is managed by another region.');
     }
 }

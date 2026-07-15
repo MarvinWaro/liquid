@@ -124,7 +124,7 @@ class CacheService
     /**
      * Get Regional Coordinators (cached).
      */
-    public function getRegionalCoordinators(?string $regionId = null): Collection
+    public function getRegionalCoordinators(string|array|null $regionId = null): Collection
     {
         $all = Cache::remember('users:regional_coordinators', self::TTL_SHORT, function () {
             return User::whereHas('role', function ($q) {
@@ -135,7 +135,7 @@ class CacheService
         });
 
         if ($regionId) {
-            return $all->where('region_id', $regionId)->values();
+            return $all->whereIn('region_id', (array) $regionId)->values();
         }
 
         return $all;

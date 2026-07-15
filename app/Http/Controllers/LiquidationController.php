@@ -137,7 +137,7 @@ class LiquidationController extends Controller
             'liquidations' => Inertia::defer(fn () =>
                 $this->liquidationService
                     ->getPaginatedLiquidations($user, $filters)
-                    ->through(fn ($liquidation) => $this->formatLiquidationForList($liquidation, $pinnedIds))
+                    ->through(fn ($liquidation) => $this->formatLiquidationForList($liquidation, $pinnedIds, $user))
             ),
 
             // Pinned rows shown above the main table (page 1 only in the UI).
@@ -145,7 +145,7 @@ class LiquidationController extends Controller
             'pinnedLiquidations' => Inertia::defer(fn () =>
                 $this->liquidationService
                     ->getPinnedLiquidationsForUser($user, self::PIN_LIMIT)
-                    ->map(fn ($liquidation) => $this->formatLiquidationForList($liquidation, $pinnedIds))
+                    ->map(fn ($liquidation) => $this->formatLiquidationForList($liquidation, $pinnedIds, $user))
                     ->values()
             ),
 
@@ -266,7 +266,8 @@ class LiquidationController extends Controller
                 ->whereNull('reviewed_at')
                 ->whereNotNull('date_submitted');
             if ($roleName === 'Regional Coordinator' && $user->region_id) {
-                $query->whereHas('hei', fn ($q) => $q->where('region_id', $user->region_id));
+                // Actionable = processed under the RC's region or HEI currently theirs
+                $this->applyRegionActionScope($query, $user);
                 $query->whereDoesntHave('program', fn ($q) => $q->whereNotNull('parent_id'));
             } elseif ($roleName === 'STUFAPS Focal') {
                 $scopedIds = $user->getParentScopedProgramIds();
@@ -285,12 +286,21 @@ class LiquidationController extends Controller
         $now = now();
         $reviewRemarks = $validated['review_remarks'] ?? null;
 
-        $succeeded = DB::transaction(function () use ($ids, $user, $now, $reviewRemarks) {
+        $succeeded = DB::transaction(function () use ($ids, $user, $roleName, $now, $reviewRemarks) {
             // Load all with financials in one query, re-verify eligibility inside transaction
-            $liquidations = Liquidation::with('financial')
+            $query = Liquidation::with('financial')
                 ->whereIn('id', $ids)
-                ->whereNull('reviewed_at')
-                ->get();
+                ->whereNull('reviewed_at');
+
+            // Re-verify region/program scope so client-supplied IDs cannot cross regions
+            if ($roleName === 'Regional Coordinator' && $user->region_id) {
+                $this->applyRegionActionScope($query, $user);
+            } elseif ($roleName === 'STUFAPS Focal') {
+                $scopedIds = $user->getParentScopedProgramIds();
+                if ($scopedIds) $query->whereIn('program_id', $scopedIds);
+            }
+
+            $liquidations = $query->get();
 
             if ($liquidations->isEmpty()) {
                 return 0;
@@ -1387,7 +1397,7 @@ class LiquidationController extends Controller
 
         // Eager-load only what's needed for the initial paint (header, details, workflow)
         $liquidation->load([
-            'hei', 'program', 'semester', 'academicYear', 'financial',
+            'hei', 'region', 'program', 'semester', 'academicYear', 'financial',
             'reviewer', 'reviews.reviewType',
             'transmittal.endorser', 'transmittal.location',
             'compliance.complianceStatus',
@@ -1395,7 +1405,6 @@ class LiquidationController extends Controller
             'importBatch.user',
         ]);
 
-        $heiRegionId = $liquidation->hei?->region_id;
         $isHEIUser = $user->hei !== null;
         $requirements = $this->cacheService->getDocumentRequirementsForAY($liquidation->program_id, $liquidation->academic_year_id);
 
@@ -1412,13 +1421,14 @@ class LiquidationController extends Controller
             'userHei' => $this->formatUserHei($user->hei),
             'regionalCoordinators' => $liquidation->program?->parent_id
                 ? $this->getStufapsFocalsForProgram($liquidation->program_id)
-                : $this->cacheService->getRegionalCoordinators($heiRegionId),
+                : $this->cacheService->getRegionalCoordinators($liquidation->actingRegionIds() ?: null),
             'accountants' => $this->cacheService->getAccountants(),
             'documentLocations' => DocumentLocation::orderBy('sort_order')->pluck('name'),
             'permissions' => [
                 'review' => $user->hasPermission('review_liquidation'),
                 'submit' => $isHEIUser,
                 'edit' => $user->hasPermission('edit_liquidation'),
+                'can_act' => $liquidation->isActionableByRegion($user),
             ],
             'userRole' => $user->role->name,
             'isStufapsProgram' => (bool) $liquidation->program?->parent_id,
@@ -1440,6 +1450,8 @@ class LiquidationController extends Controller
      */
     public function uploadDocument(Request $request, Liquidation $liquidation): JsonResponse
     {
+        $this->authorizeRegionAction($request->user(), $liquidation);
+
         $requirementId = $request->input('document_requirement_id');
 
         if ($requirementId) {
@@ -1514,6 +1526,8 @@ class LiquidationController extends Controller
      */
     public function storeGdriveLink(Request $request, Liquidation $liquidation): JsonResponse
     {
+        $this->authorizeRegionAction($request->user(), $liquidation);
+
         $validated = $request->validate([
             'gdrive_link' => ['required', 'url', 'regex:/^https:\/\/(drive\.google\.com|docs\.google\.com)/i'],
             'document_requirement_id' => 'required|string',
@@ -1741,6 +1755,9 @@ class LiquidationController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
+        $this->authorizeView($user, $liquidation);
+        $this->authorizeRegionAction($user, $liquidation);
+
         $validated = $request->validate([
             'entries'                       => 'required|array',
             'entries.*.id'                  => 'nullable|string',
@@ -1941,6 +1958,9 @@ class LiquidationController extends Controller
         if (!$user->hasPermission('view_liquidation')) {
             abort(403, 'Unauthorized action.');
         }
+
+        $this->authorizeView($user, $liquidation);
+        $this->authorizeRegionAction($user, $liquidation);
 
         $validated = $request->validate([
             'entries' => 'required|array',
@@ -2254,6 +2274,30 @@ class LiquidationController extends Controller
     // PRIVATE HELPER METHODS
     // =========================================================================
 
+    /**
+     * Restrict a query to records the RC's region may act on: processed under
+     * their region (snapshot) or belonging to an HEI currently assigned to
+     * their region. After an HEI region transfer both regions may act.
+     */
+    private function applyRegionActionScope($query, $user): void
+    {
+        $query->where(function ($q) use ($user) {
+            $q->where('liquidations.region_id', $user->region_id)
+                ->orWhereHas('hei', fn ($h) => $h->where('region_id', $user->region_id));
+        });
+    }
+
+    /**
+     * Abort when a Regional Coordinator tries to act on a record processed
+     * under another region (view access may still be allowed).
+     */
+    private function authorizeRegionAction($user, Liquidation $liquidation): void
+    {
+        if (!$liquidation->isActionableByRegion($user)) {
+            abort(403, 'This liquidation is managed by another region.');
+        }
+    }
+
     private function authorizeView($user, Liquidation $liquidation): void
     {
         $canView = $user->hasPermission('view_liquidation') ||
@@ -2266,10 +2310,13 @@ class LiquidationController extends Controller
 
         $roleName = $user->role->name;
 
-        // Regional Coordinators can only view liquidations from their own region
+        // Regional Coordinators can view records processed under their region
+        // (snapshot) or records of HEIs currently assigned to their region
         if ($roleName === 'Regional Coordinator' && $user->region_id) {
             $liquidation->loadMissing('hei');
-            if ($liquidation->hei?->region_id !== $user->region_id) {
+            $allowed = ($liquidation->region_id !== null && $liquidation->region_id === $user->region_id)
+                || $liquidation->hei?->region_id === $user->region_id;
+            if (!$allowed) {
                 abort(403, 'You can only view liquidations from your region.');
             }
             return;
@@ -2288,7 +2335,7 @@ class LiquidationController extends Controller
         }
     }
 
-    private function formatLiquidationForList(Liquidation $liquidation, ?\Illuminate\Support\Collection $pinnedIds = null): array
+    private function formatLiquidationForList(Liquidation $liquidation, ?\Illuminate\Support\Collection $pinnedIds = null, ?User $user = null): array
     {
         $financial = $liquidation->financial;
 
@@ -2344,6 +2391,10 @@ class LiquidationController extends Controller
             'is_pinned' => $pinnedIds?->contains($liquidation->id) ?? false,
             'percentage_liquidation' => $percentageLiquidation,
             'lapsing_period' => $financial?->lapsing_period ?? 0,
+            'processed_under_region' => $liquidation->region?->name,
+            'region_mismatch' => $liquidation->region_id !== null
+                && $liquidation->hei?->region_id !== $liquidation->region_id,
+            'can_act' => $user ? $liquidation->isActionableByRegion($user) : true,
         ];
     }
 
@@ -2405,6 +2456,9 @@ class LiquidationController extends Controller
             'id' => $liquidation->id,
             'control_no' => $liquidation->control_no,
             'hei_name' => $liquidation->hei?->name ?? 'N/A',
+            'processed_under_region' => $liquidation->region?->name,
+            'region_mismatch' => $liquidation->region_id !== null
+                && $liquidation->hei?->region_id !== $liquidation->region_id,
             'program_name' => $liquidation->program?->name ?? 'N/A',
             'academic_year' => $liquidation->academicYear?->name ?? 'N/A',
             'semester' => $liquidation->semester?->name ?? 'N/A',
@@ -2740,6 +2794,7 @@ class LiquidationController extends Controller
 
             $importable = [
                 'hei_id'                => $hei->id,
+                'region_id'             => $hei->region_id,
                 'hei_name'              => $heiName,
                 'program_id'            => $program->id,
                 'academic_year_id'      => $academicYear->id,
@@ -2842,6 +2897,7 @@ class LiquidationController extends Controller
         $liquidation = Liquidation::create([
             'control_no'            => $controlNo,
             'hei_id'                => $data['hei_id'],
+            'region_id'             => $data['region_id'] ?? null,
             'program_id'            => $data['program_id'],
             'academic_year_id'      => $data['academic_year_id'],
             'semester_id'           => $data['semester_id'],

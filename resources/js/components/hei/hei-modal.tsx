@@ -16,6 +16,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { TriangleAlert } from 'lucide-react';
 
 interface HEI {
     id: string;
@@ -67,6 +69,8 @@ export function HEIModal({ isOpen, onClose, hei, regions }: HEIModalProps) {
             reset();
         }
     }, [hei, isOpen]);
+
+    const isRegionChanged = !!hei && !!hei.region_id && data.region_id !== hei.region_id;
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -184,6 +188,19 @@ export function HEIModal({ isOpen, onClose, hei, regions }: HEIModalProps) {
                             )}
                         </div>
                     </div>
+
+                    {isRegionChanged && (
+                        <Alert className="border-amber-300 text-amber-800 dark:border-amber-800 dark:text-amber-400 [&>svg]:text-amber-600 dark:[&>svg]:text-amber-500">
+                            <TriangleAlert className="h-4 w-4" />
+                            <AlertTitle>Region change</AlertTitle>
+                            <AlertDescription className="text-amber-700 dark:text-amber-400/90">
+                                Responsibility for this HEI's future liquidations transfers to the
+                                new region. Existing records keep a "Processed under" tag for the
+                                region that handled them, and both the previous and the new region
+                                can continue working on them.
+                            </AlertDescription>
+                        </Alert>
+                    )}
 
                     <div className="flex justify-end gap-3 pt-4">
                         <Button

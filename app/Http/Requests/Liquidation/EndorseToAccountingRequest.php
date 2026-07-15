@@ -21,8 +21,8 @@ class EndorseToAccountingRequest extends FormRequest
             return false;
         }
 
-        // RC can endorse any liquidation they have access to
-        return true;
+        // RCs may only act on records processed under their own region
+        return $liquidation->isActionableByRegion($user);
     }
 
     /**
@@ -48,6 +48,6 @@ class EndorseToAccountingRequest extends FormRequest
             abort(403, 'Only Regional Coordinator or STUFAPS Focal can endorse to accounting.');
         }
 
-        abort(403, 'This liquidation is not available for Regional Coordinator review.');
+        abort(403, 'This liquidation is managed by another region.');
     }
 }

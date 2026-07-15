@@ -30,6 +30,9 @@ export interface Liquidation {
     is_voided: boolean;
     is_endorsed: boolean;
     is_pinned: boolean;
+    processed_under_region: string | null;
+    region_mismatch: boolean;
+    can_act: boolean;
 }
 
 export interface HEIOption {

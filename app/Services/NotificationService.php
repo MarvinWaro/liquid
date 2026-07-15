@@ -128,10 +128,13 @@ class NotificationService
         $isSTUFAPSProgram = $liquidation->program && $liquidation->program->parent_id;
 
         // Regional Coordinators — only for non-STUFAPS liquidations
-        // STUFAPS sub-program liquidations are managed by STUFAPS Focals, not RCs
-        if (!$isSTUFAPSProgram && $liquidation->hei?->region_id) {
+        // STUFAPS sub-program liquidations are managed by STUFAPS Focals, not RCs.
+        // Notify every region that may act on the record: the region that
+        // processed it and the HEI's current region (differs after a transfer).
+        $actingRegionIds = $liquidation->actingRegionIds();
+        if (!$isSTUFAPSProgram && $actingRegionIds) {
             $rcs = User::whereHas('role', fn ($q) => $q->where('name', 'Regional Coordinator'))
-                ->where('region_id', $liquidation->hei->region_id)
+                ->whereIn('region_id', $actingRegionIds)
                 ->where('status', 'active')
                 ->get();
             $recipients = $recipients->merge($rcs);

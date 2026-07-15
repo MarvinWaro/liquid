@@ -27,6 +27,7 @@ use Illuminate\Database\Eloquent\Builder;
  * @property string $id
  * @property string $control_no
  * @property string $hei_id
+ * @property string|null $region_id
  * @property string $program_id
  * @property string|null $academic_year_id
  * @property string|null $semester_id
@@ -57,6 +58,7 @@ class Liquidation extends Model
     {
         return [
             'hei_id' => ['hei', 'name'],
+            'region_id' => ['region', 'name'],
             'program_id' => ['program', 'name'],
             'academic_year_id' => ['academicYear', 'name'],
             'semester_id' => ['semester', 'name'],
@@ -69,6 +71,7 @@ class Liquidation extends Model
     {
         return [
             'hei_id' => 'HEI',
+            'region_id' => 'Region',
             'program_id' => 'Program',
             'semester_id' => 'Semester',
             'document_status_id' => 'Document Status',
@@ -107,6 +110,7 @@ class Liquidation extends Model
         // Core identification
         'control_no',
         'hei_id',
+        'region_id',
         'program_id',
 
         // Period coverage
@@ -178,6 +182,48 @@ class Liquidation extends Model
     public function hei(): BelongsTo
     {
         return $this->belongsTo(HEI::class);
+    }
+
+    /**
+     * Get the region this liquidation was processed under (snapshot at
+     * creation; unlike hei.region_id it does not change on HEI transfers).
+     */
+    public function region(): BelongsTo
+    {
+        return $this->belongsTo(Region::class);
+    }
+
+    /**
+     * Regions that may act on this record: the region that processed it
+     * (snapshot) and the HEI's current region. These are the same for HEIs
+     * that never transferred; after a region handover both the old and the
+     * new region remain able to work the record.
+     *
+     * @return array<int, string>
+     */
+    public function actingRegionIds(): array
+    {
+        $this->loadMissing('hei');
+
+        return array_values(array_unique(array_filter([
+            $this->region_id,
+            $this->hei?->region_id,
+        ])));
+    }
+
+    /**
+     * Whether the user may act on (not just view) this record. Only
+     * Regional Coordinators are region-restricted: they can act when their
+     * region processed the record or currently owns the HEI, but not on
+     * other regions' records.
+     */
+    public function isActionableByRegion(User $user): bool
+    {
+        if (!$user->isRegionalCoordinator() || !$user->region_id) {
+            return true;
+        }
+
+        return in_array($user->region_id, $this->actingRegionIds(), true);
     }
 
     /**

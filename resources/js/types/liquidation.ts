@@ -114,6 +114,10 @@ export interface Liquidation {
     id: number;
     control_no: string;
     hei_name: string;
+    /** Name of the region the record was processed under (snapshot). */
+    processed_under_region?: string | null;
+    /** True when the HEI has since moved to a different region. */
+    region_mismatch?: boolean;
     program_name: string;
     academic_year: string;
     semester: string;
@@ -198,6 +202,8 @@ export interface ShowPagePermissions {
     review: boolean;
     submit: boolean;
     edit: boolean;
+    /** False for RCs whose region neither processed the record nor owns the HEI. */
+    can_act?: boolean;
 }
 
 export interface ShowPageProps {
