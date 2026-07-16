@@ -280,6 +280,20 @@ class LiquidationService
             $parts[] = 'HEI: ' . implode(', ', $labels);
         }
 
+        $describeRange = function (string $label, $from, $to) use (&$parts) {
+            $from = $this->parseFilterDate($from);
+            $to = $this->parseFilterDate($to);
+            if ($from && $to) {
+                $parts[] = "{$label}: {$from} to {$to}";
+            } elseif ($from) {
+                $parts[] = "{$label}: from {$from}";
+            } elseif ($to) {
+                $parts[] = "{$label}: until {$to}";
+            }
+        };
+        $describeRange('Fund Released', $filters['date_from'] ?? null, $filters['date_to'] ?? null);
+        $describeRange('Due Date', $filters['due_from'] ?? null, $filters['due_to'] ?? null);
+
         if (!empty($filters['search'])) {
             $parts[] = 'Search: "' . $filters['search'] . '"';
         }
@@ -366,12 +380,14 @@ class LiquidationService
                 break;
             default:
                 $query->orderBy('liquidations.control_no', 'asc');
+                $query->orderBy('liquidations.id', 'asc');
                 return;
         }
 
         // Stable secondary sort so rows with tied primary values don't shuffle
-        // between pages.
+        // between pages. control_no is not unique, so id breaks remaining ties.
         $query->orderBy('liquidations.control_no', 'asc');
+        $query->orderBy('liquidations.id', 'asc');
     }
 
     /**
@@ -505,15 +521,21 @@ class LiquidationService
             $query->whereIn('program_id', $programIds->unique());
         }
 
-        // Search filter
+        // Search filter — multi-term: each whitespace-separated term must match
+        // at least one searchable field (control no, HEI name, or UII), so a
+        // query like "2023-001 antonio" narrows across fields together instead
+        // of being matched as one literal phrase.
         if (!empty($filters['search'])) {
-            $search = $filters['search'];
-            $query->where(function ($q) use ($search) {
-                $q->where('control_no', 'like', "%{$search}%")
-                    ->orWhereHas('hei', function ($q) use ($search) {
-                        $q->where('name', 'like', "%{$search}%");
-                    });
-            });
+            $terms = preg_split('/\s+/', trim((string) $filters['search']), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            foreach ($terms as $term) {
+                $query->where(function ($q) use ($term) {
+                    $q->where('liquidations.control_no', 'like', "%{$term}%")
+                        ->orWhereHas('hei', function ($h) use ($term) {
+                            $h->where('name', 'like', "%{$term}%")
+                                ->orWhere('uii', 'like', "%{$term}%");
+                        });
+                });
+            }
         }
 
         // Document status filter
@@ -593,6 +615,40 @@ class LiquidationService
                     $q->orWhereNull('rc_note_status_id');
                 }
             });
+        }
+
+        // Date range filters — applied to the financial record's dates.
+        // Each bound is optional and inclusive (from-only = "since this date",
+        // to-only = "up to this date"). Invalid date strings are ignored.
+        $dateRanges = [
+            'date_fund_released' => [$filters['date_from'] ?? null, $filters['date_to'] ?? null],
+            'due_date'           => [$filters['due_from'] ?? null, $filters['due_to'] ?? null],
+        ];
+        foreach ($dateRanges as $column => [$from, $to]) {
+            $from = $this->parseFilterDate($from);
+            $to = $this->parseFilterDate($to);
+            if ($from || $to) {
+                $query->whereHas('financial', function (Builder $f) use ($column, $from, $to) {
+                    if ($from) $f->whereDate($column, '>=', $from);
+                    if ($to) $f->whereDate($column, '<=', $to);
+                });
+            }
+        }
+    }
+
+    /**
+     * Parse a user-supplied filter date into Y-m-d, or null when empty/invalid.
+     */
+    private function parseFilterDate($value): ?string
+    {
+        if (empty($value) || !is_string($value)) {
+            return null;
+        }
+
+        try {
+            return \Carbon\Carbon::parse($value)->format('Y-m-d');
+        } catch (\Throwable) {
+            return null;
         }
     }
 

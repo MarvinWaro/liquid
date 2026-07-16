@@ -18,9 +18,11 @@ class FindLiquidationTool extends Tool
 
     public function description(): string
     {
-        return 'Look up a single liquidation by its exact control number and return its '
-            .'HEI, program, period, statuses, and financial figures. Respects role scope: '
-            .'returns "not found" if the record exists but is outside the requester\'s access.';
+        return 'Look up liquidations by exact control number and return HEI, program, '
+            .'period, statuses, and financial figures. Control numbers are DV/batch-level '
+            .'and may match multiple records (multiple_matches=true with a records array). '
+            .'Respects role scope: returns "not found" if the record exists but is outside '
+            .'the requester\'s access.';
     }
 
     public function jsonSchema(): array

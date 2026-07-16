@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Requests\Liquidation;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class StoreLiquidationRequest extends FormRequest
 {
@@ -49,12 +48,13 @@ class StoreLiquidationRequest extends FormRequest
             'academic_year_id' => 'required|exists:academic_years,id',
             'semester' => 'nullable|string|max:50',
             'batch_no' => 'nullable|string|max:50',
+            // Control numbers are DV/batch-level and may repeat across records —
+            // no uniqueness rule
             'dv_control_no' => [
                 'nullable',
                 'string',
                 'max:100',
                 'regex:/^[A-Za-z0-9\-]+$/',
-                Rule::unique('liquidations', 'control_no'),
             ],
             'number_of_grantees' => 'nullable|integer|min:0',
             'total_disbursements' => 'required|numeric|min:0',
@@ -77,7 +77,6 @@ class StoreLiquidationRequest extends FormRequest
             'program_id.exists' => 'The selected program is invalid.',
             'dv_control_no.required' => 'Control number is required.',
             'dv_control_no.regex' => 'Control number may only contain letters, numbers, and hyphens (no spaces or special characters).',
-            'dv_control_no.unique' => 'This control number already exists. Please use a different one.',
         ];
     }
 }

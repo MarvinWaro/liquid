@@ -33,7 +33,6 @@ const breadcrumbs: BreadcrumbItem[] = [
 
 export default function Show({
     liquidation,
-    userHei,
     regionalCoordinators,
     accountants,
     documentLocations,
@@ -110,9 +109,11 @@ export default function Show({
             }, 200);
         };
 
-        // Handle hash present on initial load
-        if (initialHash) {
-            scrollAndHighlight(initialHash);
+        // Handle hash present on initial load — read it here (not from the
+        // render-scope variable) so this mount-only effect has no dependencies
+        const hashOnMount = typeof window !== 'undefined' ? window.location.hash : '';
+        if (hashOnMount) {
+            scrollAndHighlight(hashOnMount);
         }
 
         // Handle hash set after Inertia navigation (onFinish sets it late)

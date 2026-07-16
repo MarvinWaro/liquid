@@ -1,9 +1,21 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { CalendarDays, ChevronDown, Search, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { MultiSelectFilter, type FilterOption } from './multi-select-filter';
 import type { Program, AcademicYearOption, RcNoteStatusOption } from './types';
+
+export interface DateFilters {
+    date_from: string;
+    date_to: string;
+    due_from: string;
+    due_to: string;
+}
+
+export const EMPTY_DATE_FILTERS: DateFilters = { date_from: '', date_to: '', due_from: '', due_to: '' };
 
 interface RegionOption {
     id: string;
@@ -31,6 +43,8 @@ interface LiquidationFiltersProps {
     regions?: RegionOption[];
     regionFilter?: string[];
     onRegionFilter?: (value: string[]) => void;
+    dateFilters: DateFilters;
+    onDateFilters: (value: DateFilters) => void;
 }
 
 export const LiquidationFilters = React.memo(function LiquidationFilters({
@@ -53,6 +67,8 @@ export const LiquidationFilters = React.memo(function LiquidationFilters({
     regions,
     regionFilter,
     onRegionFilter,
+    dateFilters,
+    onDateFilters,
 }: LiquidationFiltersProps) {
     const programOptions = useMemo(() => buildProgramOptions(programs), [programs]);
     const academicYearOptions = useMemo(() =>
@@ -74,7 +90,7 @@ export const LiquidationFilters = React.memo(function LiquidationFilters({
                     <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
                         type="search"
-                        placeholder="Search by reference number or HEI name..."
+                        placeholder="Search control no, HEI name, or UII — combine terms, e.g. 2023-001 antonio"
                         value={searchQuery}
                         onChange={(e) => onSearchChange(e.target.value)}
                         className="pl-8"
@@ -121,6 +137,7 @@ export const LiquidationFilters = React.memo(function LiquidationFilters({
                     onChange={onRcNoteStatusFilter}
                     width="w-[170px]"
                 />
+                <DateRangeFilter value={dateFilters} onChange={onDateFilters} />
                 <Button type="submit" className="bg-foreground text-background hover:bg-foreground/90">Search</Button>
             </div>
             <div className="flex items-center gap-4 my-3 text-xs text-muted-foreground">
@@ -144,6 +161,108 @@ export const LiquidationFilters = React.memo(function LiquidationFilters({
         </form>
     );
 });
+
+/* ── Date range filter ── */
+
+const hasActiveDates = (v: DateFilters) => !!(v.date_from || v.date_to || v.due_from || v.due_to);
+
+function DateRangeFilter({ value, onChange }: { value: DateFilters; onChange: (value: DateFilters) => void }) {
+    const [open, setOpen] = useState(false);
+    const active = hasActiveDates(value);
+
+    const set = (key: keyof DateFilters) => (e: React.ChangeEvent<HTMLInputElement>) =>
+        onChange({ ...value, [key]: e.target.value });
+
+    const clear = (e?: React.MouseEvent) => {
+        e?.stopPropagation();
+        onChange({ ...EMPTY_DATE_FILTERS });
+    };
+
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <Button variant="outline" className={cn('justify-between font-normal min-w-[110px]', active && 'border-foreground/40')}>
+                    <span className="flex items-center gap-1.5 text-sm whitespace-nowrap">
+                        <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        Dates
+                    </span>
+                    <div className="flex items-center gap-1 ml-1 shrink-0">
+                        {active && (
+                            <span
+                                role="button"
+                                tabIndex={-1}
+                                onClick={clear}
+                                className="rounded-full hover:bg-muted p-0.5"
+                                aria-label="Clear date filters"
+                            >
+                                <X className="h-3 w-3 text-muted-foreground" />
+                            </span>
+                        )}
+                        <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                    </div>
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-[400px] p-0">
+                <div className="px-5 py-4 space-y-5">
+                    <div className="space-y-2.5">
+                        <p className="text-xs font-semibold text-foreground">
+                            Date of Fund Released
+                        </p>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <Label htmlFor="date-from" className="text-xs font-normal text-muted-foreground">From</Label>
+                                <Input id="date-from" type="date" value={value.date_from} onChange={set('date_from')} className="h-9 w-full" />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="date-to" className="text-xs font-normal text-muted-foreground">To</Label>
+                                <Input id="date-to" type="date" value={value.date_to} onChange={set('date_to')} min={value.date_from || undefined} className="h-9 w-full" />
+                            </div>
+                        </div>
+                    </div>
+                    <div className="border-t" />
+                    <div className="space-y-2.5">
+                        <p className="text-xs font-semibold text-foreground">
+                            Due Date
+                        </p>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <Label htmlFor="due-from" className="text-xs font-normal text-muted-foreground">From</Label>
+                                <Input id="due-from" type="date" value={value.due_from} onChange={set('due_from')} className="h-9 w-full" />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="due-to" className="text-xs font-normal text-muted-foreground">To</Label>
+                                <Input id="due-to" type="date" value={value.due_to} onChange={set('due_to')} min={value.due_from || undefined} className="h-9 w-full" />
+                            </div>
+                        </div>
+                    </div>
+                    <p className="text-[11px] leading-snug text-muted-foreground">
+                        Leave a side empty for an open-ended range — e.g. only "From" shows everything since that date.
+                    </p>
+                </div>
+                <div className="flex items-center justify-between gap-2 border-t bg-muted/40 px-5 py-3">
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-xs text-muted-foreground"
+                        onClick={() => clear()}
+                        disabled={!active}
+                    >
+                        Clear dates
+                    </Button>
+                    <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => setOpen(false)}
+                    >
+                        Done
+                    </Button>
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
+}
 
 /* ── Static option lists ── */
 

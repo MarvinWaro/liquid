@@ -214,3 +214,40 @@ test('tracking and running data writes are blocked for unrelated regions only', 
     expect($old->isActionableByRegion($this->rc12))->toBeTrue()
         ->and($old->isActionableByRegion($this->rcBarmm))->toBeTrue();
 });
+
+test('region attribution tag is hidden from HEI users but shown to internal roles', function () {
+    $old = ($this->makeLiquidation)();
+    $this->hei->update(['region_id' => $this->barmm->id]);
+
+    $heiRole = Role::create(['name' => 'HEI']);
+    $heiRole->permissions()->attach(Permission::where('name', 'view_liquidation')->first()->id);
+    $heiUser = User::factory()->create(['role_id' => $heiRole->id, 'hei_id' => $this->hei->id]);
+
+    // liquidations is a deferred prop — request it the way Inertia's
+    // follow-up partial reload does, using the version from the initial load
+    $rowFor = function (User $user) use ($old) {
+        $initial = $this->actingAs($user)->get(route('liquidation.index'));
+        $initial->assertOk();
+        $version = $initial->viewData('page')['version'] ?? '';
+
+        $response = $this->actingAs($user)->get(route('liquidation.index'), [
+            'X-Inertia' => 'true',
+            'X-Inertia-Version' => $version,
+            'X-Inertia-Partial-Component' => 'liquidation/index',
+            'X-Inertia-Partial-Data' => 'liquidations',
+        ]);
+        $response->assertOk();
+
+        return collect($response->json('props.liquidations.data') ?? [])->firstWhere('id', $old->id);
+    };
+
+    $heiRow = $rowFor($heiUser);
+    expect($heiRow)->not->toBeNull()
+        ->and($heiRow['region_mismatch'])->toBeFalse()
+        ->and($heiRow['processed_under_region'])->toBeNull();
+
+    $rcRow = $rowFor($this->rcBarmm);
+    expect($rcRow)->not->toBeNull()
+        ->and($rcRow['region_mismatch'])->toBeTrue()
+        ->and($rcRow['processed_under_region'])->toBe('Region XII');
+});

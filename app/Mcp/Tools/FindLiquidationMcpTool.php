@@ -11,9 +11,10 @@ use Laravel\Mcp\Server\Attributes\Name;
 
 #[Name('find_liquidation')]
 #[Description(
-    'Look up a single liquidation by its exact control number and return its '
-    .'HEI, program, period, statuses, and financial figures. Respects role '
-    .'scope: returns not-found if the record exists but is outside access.',
+    'Look up liquidations by exact control number and return HEI, program, '
+    .'period, statuses, and financial figures. Control numbers are DV/batch-level '
+    .'and may match multiple records (multiple_matches=true with a records array). '
+    .'Respects role scope: returns not-found if the record exists but is outside access.',
 )]
 class FindLiquidationMcpTool extends AbstractDomainTool
 {

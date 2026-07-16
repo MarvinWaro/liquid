@@ -728,7 +728,6 @@ export function BulkEntryModal({
 
     const validateRows = (): boolean => {
         const errors: Record<number, string> = {};
-        const seenControlNos = new Map<string, number>();
 
         rows.forEach((row, i) => {
             if (!row.program_id) errors[i] = 'Program is required.';
@@ -737,17 +736,11 @@ export function BulkEntryModal({
             else if (!row.academic_year_id) errors[i] = 'Academic Year is required.';
             else if (!row.total_disbursements) errors[i] = 'Total Disbursements is required.';
             else if (row.dv_control_no.trim()) {
-                // Validate format only when user provides a control number
+                // Validate format only when user provides a control number.
+                // Duplicate control numbers are allowed — they are DV/batch-level
+                // and legitimately repeat across records.
                 if (row.dv_control_no.trim() !== row.dv_control_no) errors[i] = 'Control / Ledger No. has leading/trailing spaces.';
                 else if (!SUFFIX_REGEX.test(row.dv_control_no)) errors[i] = 'Control / Ledger No. format invalid. Use: YYYY-NNNN (e.g., 2026-0001).';
-                else {
-                    const fullControlNo = getProgramPrefix(row.program_id) + row.dv_control_no;
-                    if (seenControlNos.has(fullControlNo)) {
-                        errors[i] = `Control / Ledger No. "${fullControlNo}" is duplicated with Row ${(seenControlNos.get(fullControlNo)!) + 1}.`;
-                    } else {
-                        seenControlNos.set(fullControlNo, i);
-                    }
-                }
             }
             // If control no is empty, it will be auto-generated server-side
         });

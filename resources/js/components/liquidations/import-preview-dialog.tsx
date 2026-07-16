@@ -88,7 +88,7 @@ interface ImportBatchRecord {
 interface ImportValidationResponse {
     success: boolean;
     token: string | null;
-    seen_control_nos?: Record<string, number>;
+    seen_fingerprints?: Record<string, number>;
     rows: ValidatedRow[];
     summary: {
         valid: number;
@@ -276,7 +276,8 @@ export function ImportPreviewDialog({
         }
 
         let importToken: string | null = null;
-        let seenControlNos: Record<string, number> = {};
+        // Server-side duplicate-detection state relayed between chunks (opaque to the client)
+        let seenFingerprints: Record<string, number> = {};
         const allValidatedRows: ValidatedRow[] = [];
         let totalValid = 0;
         let totalErrors = 0;
@@ -287,12 +288,12 @@ export function ImportPreviewDialog({
                     rows: chunks[i],
                     file_name: file.name,
                     import_token: importToken,
-                    seen_control_nos: seenControlNos,
+                    seen_fingerprints: seenFingerprints,
                 });
 
                 if (response.data.success) {
                     importToken = response.data.token;
-                    seenControlNos = response.data.seen_control_nos ?? seenControlNos;
+                    seenFingerprints = response.data.seen_fingerprints ?? seenFingerprints;
                     allValidatedRows.push(...response.data.rows);
                     totalValid += response.data.summary.valid;
                     totalErrors += response.data.summary.errors;

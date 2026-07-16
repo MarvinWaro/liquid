@@ -204,7 +204,9 @@ class ReportAssistantQueryService
     }
 
     /**
-     * Look up a single liquidation by control number, respecting role scope.
+     * Look up liquidations by exact control number, respecting role scope.
+     * Control numbers repeat across records (DV/batch-level), so the result
+     * may contain multiple matches for the caller to disambiguate.
      *
      * @param  array<string, mixed>  $arguments
      * @return array<string, mixed>
@@ -238,9 +240,11 @@ class ReportAssistantQueryService
         // specific record and should see it regardless of status.
         $this->liquidationService->applyRoleScope($scoped, $user);
 
-        $record = $scoped->first();
+        // Control numbers are DV/batch-level and may repeat across records,
+        // so an exact lookup can legitimately match several liquidations.
+        $records = $scoped->orderByDesc('created_at')->limit(5)->get();
 
-        if (! $record) {
+        if ($records->isEmpty()) {
             return [
                 'generated_at' => now()->timezone('Asia/Manila')->toIso8601String(),
                 'control_no' => $controlNo,
@@ -249,11 +253,23 @@ class ReportAssistantQueryService
             ];
         }
 
+        if ($records->count() > 1) {
+            return [
+                'generated_at' => now()->timezone('Asia/Manila')->toIso8601String(),
+                'control_no' => $controlNo,
+                'found' => true,
+                'multiple_matches' => true,
+                'count' => $records->count(),
+                'message' => 'Multiple liquidations share this control number (it is DV/batch-level). Disambiguate by HEI, academic year, or semester.',
+                'records' => $records->map(fn ($r) => $this->serializeLiquidation($r))->values()->all(),
+            ];
+        }
+
         return [
             'generated_at' => now()->timezone('Asia/Manila')->toIso8601String(),
             'control_no' => $controlNo,
             'found' => true,
-            'record' => $this->serializeLiquidation($record),
+            'record' => $this->serializeLiquidation($records->first()),
         ];
     }
 

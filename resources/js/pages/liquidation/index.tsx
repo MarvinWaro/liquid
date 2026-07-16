@@ -45,7 +45,7 @@ interface RegionOption {
     code: string;
     name: string;
 }
-import { LiquidationFilters } from '@/components/liquidations/index/liquidation-filters';
+import { LiquidationFilters, EMPTY_DATE_FILTERS, type DateFilters } from '@/components/liquidations/index/liquidation-filters';
 import { LiquidationTableRow } from '@/components/liquidations/index/liquidation-table-row';
 import { LiquidationTableSkeleton } from '@/components/liquidations/index/liquidation-table-skeleton';
 
@@ -95,6 +95,10 @@ interface Props {
         academic_year?: string | string[];
         rc_note_status?: string | string[];
         region?: string | string[];
+        date_from?: string;
+        date_to?: string;
+        due_from?: string;
+        due_to?: string;
         sort?: string;
         direction?: 'asc' | 'desc';
     };
@@ -143,6 +147,12 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const [academicYearFilter, setAcademicYearFilter] = useState<string[]>(toArr(filters.academic_year));
     const [rcNoteStatusFilter, setRcNoteStatusFilter] = useState<string[]>(toArr(filters.rc_note_status));
     const [regionFilter, setRegionFilter] = useState<string[]>(toArr(filters.region));
+    const [dateFilters, setDateFilters] = useState<DateFilters>({
+        date_from: typeof filters.date_from === 'string' ? filters.date_from : '',
+        date_to: typeof filters.date_to === 'string' ? filters.date_to : '',
+        due_from: typeof filters.due_from === 'string' ? filters.due_from : '',
+        due_to: typeof filters.due_to === 'string' ? filters.due_to : '',
+    });
     // When no filters are set, PHP serializes `filters` as an empty JSON array,
     // which makes `filters.sort` resolve to `Array.prototype.sort` — a function
     // React would then invoke as the initial state. Guard with a type check.
@@ -209,6 +219,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
             liquidation_status: liquidationStatusFilter,
             academic_year: academicYearFilter,
             rc_note_status: rcNoteStatusFilter,
+            ...dateFilters,
             ...(canFilterByRegion ? { region: regionFilter } : {}),
             ...(sortKey ? { sort: sortKey, direction: sortDir } : {}),
             ...overrides,
@@ -246,7 +257,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
         }, 350);
         return () => clearTimeout(timeout);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [programFilter, documentStatusFilter, liquidationStatusFilter, academicYearFilter, rcNoteStatusFilter, regionFilter]);
+    }, [programFilter, documentStatusFilter, liquidationStatusFilter, academicYearFilter, rcNoteStatusFilter, regionFilter, dateFilters]);
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
@@ -275,6 +286,10 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
 
     const handleRegionFilter = useCallback((value: string[]) => {
         setRegionFilter(value);
+    }, []);
+
+    const handleDateFilters = useCallback((value: DateFilters) => {
+        setDateFilters(value);
     }, []);
 
     // Three-state cycle on header click: asc → desc → cleared (default order).
@@ -318,6 +333,9 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
         if (academicYearFilter.length) payload.academic_year = academicYearFilter;
         if (rcNoteStatusFilter.length) payload.rc_note_status = rcNoteStatusFilter;
         if (canFilterByRegion && regionFilter.length) payload.region = regionFilter;
+        for (const [key, value] of Object.entries(dateFilters)) {
+            if (value) payload[key] = value;
+        }
         return payload;
     };
 
@@ -733,6 +751,8 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                                 regions={canFilterByRegion ? regions : undefined}
                                 regionFilter={regionFilter}
                                 onRegionFilter={canFilterByRegion ? handleRegionFilter : undefined}
+                                dateFilters={dateFilters}
+                                onDateFilters={handleDateFilters}
                             />
 
                             {/* Summary stats bar */}

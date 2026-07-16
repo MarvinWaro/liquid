@@ -124,7 +124,14 @@
       "PowerShell(npm run build)",
       "PowerShell(npm run types)",
       "PowerShell(npx eslint --no-fix \"resources/js/components/liquidations/index/liquidation-table-row.tsx\" \"resources/js/components/liquidations/index/types.ts\" \"resources/js/components/liquidations/show/liquidation-header.tsx\" \"resources/js/components/liquidations/show/rc-letter-upload.tsx\" \"resources/js/components/hei/hei-modal.tsx\" \"resources/js/pages/liquidation/index.tsx\" \"resources/js/pages/liquidation/show.tsx\" \"resources/js/types/liquidation.ts\")",
-      "PowerShell(php artisan config:show services.turnstile)"
+      "PowerShell(php artisan config:show services.turnstile)",
+      "PowerShell(php artisan test tests/Feature/Liquidation/DuplicateControlNoTest.php)",
+      "PowerShell(npx eslint --no-fix \"resources/js/pages/liquidation/show.tsx\")",
+      "PowerShell(php artisan migrate)",
+      "PowerShell(php artisan test tests/Feature/Liquidation/)",
+      "PowerShell(npm run build 2>&1)",
+      "PowerShell(npx eslint --no-fix \"resources/js/components/liquidations/index/liquidation-filters.tsx\")",
+      "PowerShell(php artisan test tests/Feature/Liquidation/RegionSnapshotTest.php --filter \"region attribution\")"
     ]
   }
 }

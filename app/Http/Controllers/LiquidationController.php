@@ -81,6 +81,10 @@ class LiquidationController extends Controller
         'rc_note_status',
         'region',
         'hei',
+        'date_from',
+        'date_to',
+        'due_from',
+        'due_to',
         'sort',
         'direction',
     ];
@@ -515,7 +519,9 @@ class LiquidationController extends Controller
             'entries'                          => 'required|array|min:1|max:100',
             'entries.*.program_id'             => 'required|exists:programs,id',
             'entries.*.uii'                    => 'required|string',
-            'entries.*.dv_control_no'          => 'nullable|string|max:100|distinct|unique:liquidations,control_no',
+            // Control numbers are DV/batch-level and may repeat across records —
+            // no distinct/unique rules
+            'entries.*.dv_control_no'          => 'nullable|string|max:100',
             'entries.*.date_fund_released'     => 'nullable|date',
             'entries.*.due_date'               => 'nullable|date',
             'entries.*.academic_year_id'       => 'required|exists:academic_years,id',
@@ -526,9 +532,6 @@ class LiquidationController extends Controller
             'entries.*.total_amount_liquidated' => 'nullable|numeric|min:0',
             'entries.*.document_status'        => 'nullable|string|in:NONE,PARTIAL,COMPLETE',
             'entries.*.rc_notes'               => 'nullable|string|max:1000',
-        ], [
-            'entries.*.dv_control_no.distinct'  => 'Control / Ledger No. in row :position is duplicated.',
-            'entries.*.dv_control_no.unique'    => 'Control / Ledger No. in row :position already exists in the system.',
         ]);
 
         $imported = 0;
@@ -619,32 +622,13 @@ class LiquidationController extends Controller
         $this->liquidationService->getCachedRcNoteStatuses();
         $this->cacheService->getPrograms();
 
-        // Pre-load all existing control numbers for fast duplicate checks
-        // Flatten to individual ledger tokens so multi-ledger control_no strings
-        // (e.g. "TDP-200910699 / TDP-200910700") collide with single-ledger
-        // re-imports of the same numbers. Splitting on the same separators the
-        // import parser uses keeps the lookup symmetric.
-        $existingControlNos = Liquidation::pluck('control_no')
-            ->filter()
-            ->flatMap(fn ($s) => preg_split(self::TOKEN_SEPARATORS, (string) $s, -1, PREG_SPLIT_NO_EMPTY) ?: [])
-            ->flip()
-            ->all();
-
         // Pre-load academic years keyed by code for in-memory lookup
         $academicYearsMap = \App\Models\AcademicYear::all()->keyBy(fn ($ay) => trim($ay->code));
 
-        // Pre-load existing liquidation fingerprints for fast duplicate detection
-        $existingFingerprints = DB::table('liquidations')
-            ->join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->select('liquidations.hei_id', 'liquidations.program_id', 'liquidations.academic_year_id',
-                     'liquidations.semester_id', 'liquidations.batch_no', 'liquidations.control_no',
-                     'liquidation_financials.date_fund_released')
-            ->whereNull('liquidations.deleted_at')
-            ->get()
-            ->map(fn ($r) => $r->hei_id . '|' . $r->program_id . '|' . $r->academic_year_id . '|' .
-                ($r->date_fund_released ?? '') . '|' . ($r->semester_id ?? '') . '|' . ($r->batch_no ?? ''))
-            ->flip()
-            ->all();
+        // Pre-load existing liquidation fingerprints for exact-duplicate
+        // detection. Control numbers are DV/batch-level and repeat across
+        // records, so uniqueness applies to the full fingerprint only.
+        $existingFingerprints = $this->loadExistingFingerprints();
 
         // Count data rows for progress tracking
         $dataRows = array_filter($allRows, function ($row) {
@@ -661,10 +645,10 @@ class LiquidationController extends Controller
         $fileCache = Cache::store('file');
         $fileCache->put($progressKey, ['processed' => 0, 'total' => $totalDataRows, 'done' => false], $progressTtl);
 
-        $validatedRows  = [];
-        $importableRows = [];
-        $seenControlNos = []; // track within-file duplicates
-        $processedCount = 0;
+        $validatedRows    = [];
+        $importableRows   = [];
+        $seenFingerprints = []; // track within-file exact duplicates
+        $processedCount   = 0;
 
         foreach ($allRows as $index => $row) {
             if (empty(array_filter($row, fn($cell) => $cell !== null && $cell !== ''))) {
@@ -683,28 +667,23 @@ class LiquidationController extends Controller
                 $fileCache->put($progressKey, ['processed' => $processedCount, 'total' => $totalDataRows, 'done' => false], $progressTtl);
             }
 
-            $parsed = $this->parseImportRow($row, $user, $existingControlNos, $academicYearsMap, $existingFingerprints);
+            $parsed = $this->parseImportRow($row, $user, $academicYearsMap, $existingFingerprints);
             $parsed['row'] = $index + 1;
             $parsed['seq'] = $seq;
 
-            // Within-file duplicate control_no detection — checked per-token so
-            // multi-ledger rows can't smuggle a duplicate ledger past validation.
-            // (DB check only catches existing records, not duplicates within the
-            // same uploaded file.)
-            $controlNoInFile = $parsed['control_no'] ?? '';
-            if (!empty($controlNoInFile)) {
-                $tokensInRow = preg_split(self::TOKEN_SEPARATORS, $controlNoInFile, -1, PREG_SPLIT_NO_EMPTY) ?: [];
-                foreach ($tokensInRow as $token) {
-                    if (isset($seenControlNos[$token])) {
-                        $parsed['valid'] = false;
-                        $parsed['errors'][] = "Control / Ledger No '{$token}' (col J) appears more than once in this file (first seen at row {$seenControlNos[$token]}).";
-                        break;
-                    }
-                }
-                if ($parsed['valid']) {
-                    foreach ($tokensInRow as $token) {
-                        $seenControlNos[$token] = $parsed['row'];
-                    }
+            // Within-file exact-duplicate detection — two rows with the same
+            // disbursement fingerprint (HEI + control no + period + batch +
+            // date + grantees + amounts) are the same record. Rows merely
+            // sharing a control number are legitimate and pass. (DB check only
+            // catches existing records, not duplicates within the same file.)
+            $rowFingerprint = $parsed['fingerprint'] ?? null;
+            unset($parsed['fingerprint']);
+            if ($rowFingerprint !== null) {
+                if (isset($seenFingerprints[$rowFingerprint])) {
+                    $parsed['valid'] = false;
+                    $parsed['errors'][] = "This row is a duplicate of row {$seenFingerprints[$rowFingerprint]} in this file (same HEI, control no, period, batch, date, grantees, and amounts).";
+                } elseif ($parsed['valid']) {
+                    $seenFingerprints[$rowFingerprint] = $parsed['row'];
                 }
             }
 
@@ -766,7 +745,7 @@ class LiquidationController extends Controller
      * Designed to be called multiple times for chunked validation:
      * - First chunk: no import_token → creates a new cache entry, returns token.
      * - Subsequent chunks: pass import_token → appends importable rows to cache.
-     * - Pass seen_control_nos between chunks for cross-chunk duplicate detection.
+     * - Pass seen_fingerprints between chunks for cross-chunk duplicate detection.
      */
     public function validateParsedImport(Request $request): JsonResponse
     {
@@ -781,7 +760,7 @@ class LiquidationController extends Controller
             'rows.*.seq'        => 'required',
             'file_name'         => 'nullable|string|max:255',
             'import_token'      => 'nullable|string',
-            'seen_control_nos'  => 'nullable|array',
+            'seen_fingerprints' => 'nullable|array',
         ]);
 
         $inputRows = $request->input('rows');
@@ -793,35 +772,17 @@ class LiquidationController extends Controller
         $this->cacheService->getPrograms();
 
         $heiMap             = HEI::all()->keyBy(fn ($h) => strtolower(trim($h->uii)));
-        // Flatten to individual ledger tokens so multi-ledger control_no strings
-        // (e.g. "TDP-200910699 / TDP-200910700") collide with single-ledger
-        // re-imports of the same numbers. Splitting on the same separators the
-        // import parser uses keeps the lookup symmetric.
-        $existingControlNos = Liquidation::pluck('control_no')
-            ->filter()
-            ->flatMap(fn ($s) => preg_split(self::TOKEN_SEPARATORS, (string) $s, -1, PREG_SPLIT_NO_EMPTY) ?: [])
-            ->flip()
-            ->all();
         $academicYearsMap   = \App\Models\AcademicYear::all()->keyBy(fn ($ay) => trim($ay->code));
 
-        $existingFingerprints = DB::table('liquidations')
-            ->join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->select(
-                'liquidations.hei_id', 'liquidations.program_id', 'liquidations.academic_year_id',
-                'liquidations.semester_id', 'liquidations.batch_no', 'liquidations.control_no',
-                'liquidation_financials.date_fund_released'
-            )
-            ->whereNull('liquidations.deleted_at')
-            ->get()
-            ->map(fn ($r) => $r->hei_id . '|' . $r->program_id . '|' . $r->academic_year_id . '|' .
-                ($r->date_fund_released ?? '') . '|' . ($r->semester_id ?? '') . '|' . ($r->batch_no ?? ''))
-            ->flip()
-            ->all();
+        // Existing-record fingerprints for exact-duplicate detection. Control
+        // numbers are DV/batch-level and repeat across records, so uniqueness
+        // applies to the full fingerprint only.
+        $existingFingerprints = $this->loadExistingFingerprints();
 
-        // Cross-chunk state: reuse token & seen control numbers from previous chunks
-        $fileCache     = Cache::store('file');
-        $token         = $request->input('import_token') ?: Str::uuid()->toString();
-        $seenControlNos = $request->input('seen_control_nos', []);
+        // Cross-chunk state: reuse token & seen fingerprints from previous chunks
+        $fileCache        = Cache::store('file');
+        $token            = $request->input('import_token') ?: Str::uuid()->toString();
+        $seenFingerprints = $request->input('seen_fingerprints', []);
 
         $validatedRows  = [];
         $importableRows = [];
@@ -829,27 +790,22 @@ class LiquidationController extends Controller
         foreach ($inputRows as $parsedRow) {
             $raw = $this->structuredToRawRow($parsedRow);
 
-            $parsed       = $this->parseImportRow($raw, $user, $existingControlNos, $academicYearsMap, $existingFingerprints, $heiMap);
+            $parsed       = $this->parseImportRow($raw, $user, $academicYearsMap, $existingFingerprints, $heiMap);
             $parsed['row'] = (int) ($parsedRow['row'] ?? 0);
             $parsed['seq'] = (string) ($parsedRow['seq'] ?? '');
 
-            // Cross-chunk duplicate control_no detection — per-token so a
-            // ledger inside a multi-ledger row collides with the same ledger
-            // appearing as a single value (or in another multi-ledger row).
-            $controlNoInFile = $parsed['control_no'] ?? '';
-            if (!empty($controlNoInFile)) {
-                $tokensInRow = preg_split(self::TOKEN_SEPARATORS, $controlNoInFile, -1, PREG_SPLIT_NO_EMPTY) ?: [];
-                foreach ($tokensInRow as $token) {
-                    if (isset($seenControlNos[$token])) {
-                        $parsed['valid']    = false;
-                        $parsed['errors'][] = "Control / Ledger No '{$token}' (col J) appears more than once in this file (first seen at row {$seenControlNos[$token]}).";
-                        break;
-                    }
-                }
-                if ($parsed['valid']) {
-                    foreach ($tokensInRow as $token) {
-                        $seenControlNos[$token] = $parsed['row'];
-                    }
+            // Cross-chunk exact-duplicate detection — two rows with the same
+            // disbursement fingerprint (HEI + control no + period + batch +
+            // date + grantees + amounts) are the same record. Rows merely
+            // sharing a control number are legitimate and pass.
+            $rowFingerprint = $parsed['fingerprint'] ?? null;
+            unset($parsed['fingerprint']);
+            if ($rowFingerprint !== null) {
+                if (isset($seenFingerprints[$rowFingerprint])) {
+                    $parsed['valid']    = false;
+                    $parsed['errors'][] = "This row is a duplicate of row {$seenFingerprints[$rowFingerprint]} in this file (same HEI, control no, period, batch, date, grantees, and amounts).";
+                } elseif ($parsed['valid']) {
+                    $seenFingerprints[$rowFingerprint] = $parsed['row'];
                 }
             }
 
@@ -878,10 +834,10 @@ class LiquidationController extends Controller
         $fileCache->put($cacheKey, $existingCache, now()->addMinutes(self::IMPORT_TOKEN_TTL));
 
         return response()->json([
-            'success'          => true,
-            'token'            => $token,
-            'rows'             => $validatedRows,
-            'seen_control_nos' => $seenControlNos,
+            'success'           => true,
+            'token'             => $token,
+            'rows'              => $validatedRows,
+            'seen_fingerprints' => $seenFingerprints,
             'summary'          => [
                 'total'  => count($validatedRows),
                 'valid'  => $validCount,
@@ -914,6 +870,45 @@ class LiquidationController extends Controller
         $raw[self::COL_DOC_STATUS]         = $parsed['doc_status'] ?? '';
         $raw[self::COL_RC_NOTES]           = $parsed['rc_notes'] ?? '';
         return $raw;
+    }
+
+    /**
+     * Pre-load existing liquidation fingerprints for exact-duplicate detection
+     * during import validation. The fingerprint identifies a disbursement row:
+     * HEI + program + AY + fund release date + semester + batch + control no
+     * + grantees + amounts. Control numbers repeat legitimately (DV/batch-level)
+     * and even full header matches can be distinct disbursements, so only the
+     * complete combination including figures is treated as a duplicate. The
+     * control_no part is normalized with the same token split + lowercase used
+     * by parseImportRow so lookups stay symmetric with freshly parsed rows.
+     *
+     * @return array<string, int> fingerprint => flipped index (isset() lookups)
+     */
+    private function loadExistingFingerprints(): array
+    {
+        return DB::table('liquidations')
+            ->join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
+            ->select('liquidations.hei_id', 'liquidations.program_id', 'liquidations.academic_year_id',
+                     'liquidations.semester_id', 'liquidations.batch_no', 'liquidations.control_no',
+                     'liquidation_financials.date_fund_released', 'liquidation_financials.number_of_grantees',
+                     'liquidation_financials.amount_received', 'liquidation_financials.amount_liquidated')
+            ->whereNull('liquidations.deleted_at')
+            ->get()
+            ->map(function ($r) {
+                $tokens = preg_split(self::TOKEN_SEPARATORS, (string) ($r->control_no ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+                // DATE columns may serialize with a time suffix on some drivers;
+                // trim to Y-m-d to match parseImportRow's format
+                $date = substr((string) ($r->date_fund_released ?? ''), 0, 10);
+
+                return $r->hei_id . '|' . $r->program_id . '|' . $r->academic_year_id . '|' .
+                    $date . '|' . ($r->semester_id ?? '') . '|' . ($r->batch_no ?? '') . '|' .
+                    strtolower(implode(' / ', $tokens)) . '|' .
+                    ($r->number_of_grantees ?? '') . '|' .
+                    sprintf('%.2f', (float) ($r->amount_received ?? 0)) . '|' .
+                    sprintf('%.2f', (float) ($r->amount_liquidated ?? 0));
+            })
+            ->flip()
+            ->all();
     }
 
     /**
@@ -2338,6 +2333,7 @@ class LiquidationController extends Controller
     private function formatLiquidationForList(Liquidation $liquidation, ?\Illuminate\Support\Collection $pinnedIds = null, ?User $user = null): array
     {
         $financial = $liquidation->financial;
+        $showRegionTag = $user?->role?->name !== 'HEI';
 
         // Calculate financial values
         $totalDisbursements = (float) ($financial?->amount_received ?? 0);
@@ -2391,8 +2387,11 @@ class LiquidationController extends Controller
             'is_pinned' => $pinnedIds?->contains($liquidation->id) ?? false,
             'percentage_liquidation' => $percentageLiquidation,
             'lapsing_period' => $financial?->lapsing_period ?? 0,
-            'processed_under_region' => $liquidation->region?->name,
-            'region_mismatch' => $liquidation->region_id !== null
+            // Region attribution is internal workflow detail — hidden from HEI
+            // users, shown to RCs/Admins and other internal roles
+            'processed_under_region' => $showRegionTag ? $liquidation->region?->name : null,
+            'region_mismatch' => $showRegionTag
+                && $liquidation->region_id !== null
                 && $liquidation->hei?->region_id !== $liquidation->region_id,
             'can_act' => $user ? $liquidation->isActionableByRegion($user) : true,
         ];
@@ -2456,8 +2455,10 @@ class LiquidationController extends Controller
             'id' => $liquidation->id,
             'control_no' => $liquidation->control_no,
             'hei_name' => $liquidation->hei?->name ?? 'N/A',
-            'processed_under_region' => $liquidation->region?->name,
-            'region_mismatch' => $liquidation->region_id !== null
+            // Region attribution is internal workflow detail — hidden from HEI users
+            'processed_under_region' => $isHEIUser ? null : $liquidation->region?->name,
+            'region_mismatch' => !$isHEIUser
+                && $liquidation->region_id !== null
                 && $liquidation->hei?->region_id !== $liquidation->region_id,
             'program_name' => $liquidation->program?->name ?? 'N/A',
             'academic_year' => $liquidation->academicYear?->name ?? 'N/A',
@@ -2608,7 +2609,7 @@ class LiquidationController extends Controller
      * containing pre-resolved IDs ready for DB insert — or null when invalid.
      * This single method replaces the old processImportRow + parseRowForPreview pair.
      */
-    private function parseImportRow(array $row, $user, array $existingControlNos = [], $academicYearsMap = null, array $existingFingerprints = [], $heiMap = null): array
+    private function parseImportRow(array $row, $user, $academicYearsMap = null, array $existingFingerprints = [], $heiMap = null): array
     {
         $errors = [];
 
@@ -2712,27 +2713,23 @@ class LiquidationController extends Controller
         $ledgerTokens = $this->splitLedgerTokens($dvControlNo, $program);
         $dvControlNo  = implode(' / ', $ledgerTokens);
 
-        // Per-token uniqueness — multi-ledger strings can't be checked as a
-        // whole (the joined form rarely repeats). Check each individual ledger
-        // against the flat token map and surface the first collision.
-        foreach ($ledgerTokens as $token) {
-            if (isset($existingControlNos[$token])) {
-                $errors[] = "Control / Ledger No '{$token}' (col J) already exists.";
-                break;
-            }
-        }
-
-        // ── Potential duplicate check (auto control numbers only) ─────────────
-        // When the control number is not provided, we cannot check for an exact
-        // control_no match. Instead, detect records that share the same key
-        // business identifiers — these almost certainly represent a re-import.
-        if (empty($dvControlNo) && $hei && $program && $academicYear && $dateFundReleased) {
-            $fundReleasedStr = \Carbon\Carbon::instance($dateFundReleased)->format('Y-m-d');
+        // ── Exact-duplicate check ─────────────────────────────────────────────
+        // Control numbers are DV/batch-level and legitimately repeat across
+        // rows and HEIs, so they are NOT checked for uniqueness. Instead the
+        // full disbursement fingerprint (HEI + program + AY + fund release +
+        // semester + batch + control no + grantees + amounts) must be unique —
+        // this flags re-imports of the same row while letting distinct
+        // disbursements that share every header field (but differ in figures)
+        // pass validation.
+        $fingerprint = null;
+        if ($hei && $program && $academicYear) {
+            $fundReleasedStr = $dateFundReleased ? \Carbon\Carbon::instance($dateFundReleased)->format('Y-m-d') : '';
             $fingerprint = $hei->id . '|' . $program->id . '|' . $academicYear->id . '|' .
-                $fundReleasedStr . '|' . ($semesterId ?? '') . '|' . ($batchNo ?? '');
+                $fundReleasedStr . '|' . ($semesterId ?? '') . '|' . ($batchNo ?? '') . '|' . strtolower($dvControlNo) . '|' .
+                ($grantees ?? '') . '|' . sprintf('%.2f', $totalDisbursements) . '|' . sprintf('%.2f', $totalLiquidated);
 
             if (isset($existingFingerprints[$fingerprint])) {
-                $errors[] = "A record already exists for this disbursement. This row would create a duplicate — remove it from the file.";
+                $errors[] = 'This exact record (same HEI, control no, period, batch, date, grantees, and amounts) already exists — it was likely imported before.';
             }
         }
 
@@ -2816,7 +2813,12 @@ class LiquidationController extends Controller
             ];
         }
 
-        return $this->buildRowResult($errors, $programCode, $uii, $heiName, $dvControlNo, $dateFundReleased, $dueDate, $academicYearCode, $semesterRaw, $batchNo, $grantees, $totalDisbursements, $totalLiquidated, $docStatusRaw, $rcNotesRaw, $liquidationStatusLabel, $importable, $ledgerBreakdown);
+        $result = $this->buildRowResult($errors, $programCode, $uii, $heiName, $dvControlNo, $dateFundReleased, $dueDate, $academicYearCode, $semesterRaw, $batchNo, $grantees, $totalDisbursements, $totalLiquidated, $docStatusRaw, $rcNotesRaw, $liquidationStatusLabel, $importable, $ledgerBreakdown);
+        // Expose the fingerprint so callers can detect duplicates within the
+        // same file / across chunks; stripped before the response is sent.
+        $result['fingerprint'] = $fingerprint;
+
+        return $result;
     }
 
     /**
@@ -2874,8 +2876,6 @@ class LiquidationController extends Controller
     /**
      * Insert a single pre-validated import row into the database.
      * Must be called within a DB::transaction().
-     *
-     * @throws \RuntimeException if an explicit control number was taken between validate and import.
      */
     private function insertImportRow(array $data, $user, ?string $batchId = null): void
     {
@@ -2886,13 +2886,10 @@ class LiquidationController extends Controller
                 ? (int) substr($data['date_fund_released'], 0, 4)
                 : null;
             $controlNo = $this->liquidationService->generateControlNo($data['program_id'], $fundYear);
-        } else {
-            // Re-check: another import may have taken this number since validate step
-            // Include soft-deleted records — MySQL unique constraint covers all rows
-            if (Liquidation::withTrashed()->where('control_no', $controlNo)->lockForUpdate()->exists()) {
-                throw new \RuntimeException("Control / Ledger No '{$controlNo}' was already taken. Please re-validate.");
-            }
         }
+        // Explicit control numbers are DV/batch-level and may repeat across
+        // records — no uniqueness re-check. Exact-duplicate rows are caught at
+        // the validate step via the disbursement fingerprint.
 
         $liquidation = Liquidation::create([
             'control_no'            => $controlNo,
