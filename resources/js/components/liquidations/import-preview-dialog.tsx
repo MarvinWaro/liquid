@@ -39,7 +39,9 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import axios, { type AxiosResponse } from 'axios';
-import ExcelJS from 'exceljs';
+import { parseExcelBuffer, type ParsedExcelRow } from '@/lib/import-excel-parser';
+import { useImportProgress, importPhase, type ImportProgress } from '@/hooks/use-import-progress';
+import type { ParseRequest, ParseResponse } from '@/workers/import-parser.worker';
 
 // --- Types ----------------------------------------------------------------
 
@@ -72,17 +74,45 @@ export interface LedgerBreakdownEntry {
     grantees: number;
 }
 
+type ImportBatchStatus = 'processing' | 'active' | 'undone' | 'failed';
+
 interface ImportBatchRecord {
     id: string;
     file_name: string;
     file_size: number | null;
     total_rows: number;
     imported_count: number;
-    status: 'active' | 'undone';
+    status: ImportBatchStatus;
+    failed_reason: string | null;
     created_at: string;
     undone_at: string | null;
     imported_by?: string;
     can_download: boolean;
+    can_undo: boolean;
+}
+
+const BATCH_STATUS_LABELS: Record<ImportBatchStatus, string> = {
+    processing: 'Importing…',
+    active: 'Active',
+    undone: 'Undone',
+    failed: 'Failed',
+};
+
+const BATCH_STATUS_STYLES: Record<ImportBatchStatus, string> = {
+    processing: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800',
+    active: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800',
+    undone: 'bg-muted text-muted-foreground border-border',
+    failed: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800',
+};
+
+/** A row the server could not insert, as reported by the bulk-import endpoint. */
+export interface ImportRowError {
+    row: number | null;
+    seq: string | null;
+    program: string | null;
+    uii: string | null;
+    hei_name?: string;
+    error: string;
 }
 
 interface ImportValidationResponse {
@@ -90,20 +120,101 @@ interface ImportValidationResponse {
     token: string | null;
     seen_control_nos?: Record<string, number>;
     rows: ValidatedRow[];
+    /** Rows the server has accumulated for this import token so far. */
+    row_count?: number;
     summary: {
         valid: number;
         errors: number;
     };
 }
 
+/** Response from queueing an import — the work itself happens on the worker. */
+interface BulkImportDispatchResponse {
+    success: boolean;
+    batch_id: string;
+    total_rows: number;
+    source_file_warning: string | null;
+    message: string | null;
+}
+
 interface ImportPreviewDialogProps {
     isOpen: boolean;
     onClose: () => void;
-    onImportComplete: (result: { imported: number; errors: any[] }) => void;
+    onImportComplete: (result: { imported: number; errors: ImportRowError[] }) => void;
     initialFile?: File | null;
     initialShowHistory?: boolean;
     highlightBatchId?: string | null;
 }
+
+// --- Error helpers --------------------------------------------------------
+
+/** Best human-readable message from an axios error, a thrown Error, or anything else. */
+function errorMessage(error: unknown, fallback: string): string {
+    if (axios.isAxiosError(error)) {
+        const data = error.response?.data as { message?: string } | undefined;
+        if (data?.message) return data.message;
+    }
+    if (error instanceof Error && error.message) return error.message;
+    return fallback;
+}
+
+// --- Excel parsing --------------------------------------------------------
+
+/**
+ * Parse the workbook in a Web Worker, reporting rows as they're found.
+ *
+ * ExcelJS blocks for several seconds on a 4,000-row file, which froze the whole
+ * tab while the dialog claimed to be working. Off-thread the UI stays live and
+ * the progress bar actually moves during the parse phase.
+ *
+ * Falls back to parsing inline if the worker can't start (older browser, blocked
+ * blob/module worker) — slower and janky, but never broken.
+ */
+async function parseExcel(
+    file: File,
+    onProgress: (rowsFound: number) => void,
+): Promise<ParsedExcelRow[]> {
+    const buffer = await file.arrayBuffer();
+
+    let worker: Worker;
+    try {
+        worker = new Worker(new URL('../../workers/import-parser.worker.ts', import.meta.url), {
+            type: 'module',
+        });
+    } catch {
+        return parseExcelBuffer(buffer, onProgress);
+    }
+
+    try {
+        return await new Promise<ParsedExcelRow[]>((resolve, reject) => {
+            worker.onmessage = (event: MessageEvent<ParseResponse>) => {
+                const message = event.data;
+
+                if (message.type === 'progress') {
+                    onProgress(message.rowsFound);
+                    return;
+                }
+                if (message.type === 'done') {
+                    resolve(message.rows);
+                    return;
+                }
+                reject(new Error(message.message));
+            };
+
+            worker.onerror = () => reject(new Error('Failed to parse the Excel file.'));
+
+            // Hand the buffer over rather than copying it — a 50 MB workbook
+            // shouldn't be duplicated across threads.
+            worker.postMessage({ buffer } satisfies ParseRequest, [buffer]);
+        });
+    } finally {
+        worker.terminate();
+    }
+}
+
+/** Rows sent to the backend validator per request. */
+const VALIDATION_CHUNK_SIZE = 500;
+
 
 // --- Component ------------------------------------------------------------
 
@@ -120,7 +231,6 @@ export function ImportPreviewDialog({
     const [step, setStep] = useState<'idle' | 'validating' | 'preview' | 'importing'>('idle');
     const [rows, setRows] = useState<ValidatedRow[]>([]);
     const [summary, setSummary] = useState({ total: 0, valid: 0, errors: 0 });
-    const [uploadProgress, setUploadProgress] = useState(0); // 0-100
     const [uploadPhase, setUploadPhase] = useState<'parsing' | 'processing'>('parsing');
     const [selectedRow, setSelectedRow] = useState<ValidatedRow | null>(null);
     const [detailOpen, setDetailOpen] = useState(false);
@@ -131,32 +241,13 @@ export function ImportPreviewDialog({
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const processedFileRef = React.useRef<File | null>(null);
 
-    // Import simulated progress (client-side timer — server is single-threaded so polls can't get through)
-    const [importProgress, setImportProgress] = useState<{
-        processed: number;
-        total: number;
-        imported: number;
-        errors: number;
-    } | null>(null);
-    const importTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    // Which background import to watch. Set on dispatch; also discovered on open,
+    // which is how a refreshed page re-attaches to an import already in flight.
+    const [watchImport, setWatchImport] = useState(false);
+    const [watchedBatchId, setWatchedBatchId] = useState<string | null>(null);
 
-    // Validation progress polling
+    // Validation progress (per-chunk, client-side — not polled)
     const [validateProgress, setValidateProgress] = useState<{ processed: number; total: number } | null>(null);
-    const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-    const stopPolling = useCallback(() => {
-        if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-        }
-        if (importTimerRef.current) {
-            clearInterval(importTimerRef.current);
-            importTimerRef.current = null;
-        }
-    }, []);
-
-    // Clean up polling on unmount
-    useEffect(() => () => { stopPolling(); }, [stopPolling]);
 
     // Import history state
     const [showHistory, setShowHistory] = useState(false);
@@ -180,28 +271,7 @@ export function ImportPreviewDialog({
         [filteredRows, safePage],
     );
 
-    // Auto-validate when opened with an initialFile from the popover
-    React.useEffect(() => {
-        if (isOpen && initialFile && initialFile !== processedFileRef.current) {
-            processedFileRef.current = initialFile;
-            setSelectedFile(initialFile);
-            validateFile(initialFile);
-        }
-        if (!isOpen) {
-            processedFileRef.current = null;
-        }
-    }, [isOpen, initialFile]);
-
-    // Auto-open history when opened via "Import History" menu
-    React.useEffect(() => {
-        if (isOpen && initialShowHistory && !showHistory) {
-            setShowHistory(true);
-            fetchBatches();
-        }
-    }, [isOpen, initialShowHistory, highlightBatchId]);
-
     const reset = useCallback(() => {
-        stopPolling();
         setStep('idle');
         setValidateProgress(null);
         setRows([]);
@@ -212,18 +282,53 @@ export function ImportPreviewDialog({
         setImportToken(null);
         setCurrentPage(1);
         setRowFilter('all');
-        setUploadProgress(0);
         setUploadPhase('parsing');
         setShowHistory(false);
         setConfirmUndoId(null);
-        setImportProgress(null);
+        setWatchImport(false);
+        setWatchedBatchId(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
-    }, [stopPolling]);
+    }, []);
 
-    const handleClose = () => {
+    const handleClose = useCallback(() => {
         reset();
         onClose();
-    };
+    }, [reset, onClose]);
+
+    /**
+     * Live progress for the import being watched.
+     *
+     * Closing the dialog only stops watching — the worker carries on, and the
+     * banner on the liquidation page keeps showing it.
+     */
+    const { progress: importProgress, stalling: importStalling } = useImportProgress({
+        enabled: isOpen && watchImport,
+        batchId: watchedBatchId,
+        onFinished: useCallback((progress: ImportProgress) => {
+            if (progress.failed) {
+                toast.error(progress.failed_reason || 'The import did not complete.');
+            } else if (progress.imported > 0) {
+                toast.success(`Imported ${progress.imported.toLocaleString()} liquidation(s).`);
+            }
+
+            onImportComplete({ imported: progress.imported, errors: [] });
+            handleClose();
+        }, [onImportComplete, handleClose]),
+    });
+
+    // An import is running — whether we just started it or found it already in
+    // flight after a refresh — so show the progress view.
+    useEffect(() => {
+        if (importProgress && !importProgress.done) {
+            setStep('importing');
+        }
+    }, [importProgress]);
+
+    // On open, ask whether the user already has an import running. The hook stops
+    // polling by itself when the answer is no, so this costs one request.
+    useEffect(() => {
+        if (isOpen) setWatchImport(true);
+    }, [isOpen]);
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -234,30 +339,32 @@ export function ImportPreviewDialog({
 
 
     /**
-     * Parse the Excel file client-side with SheetJS, then send the parsed rows
-     * to the backend in chunks for DB-level validation. This avoids both
-     * PhpSpreadsheet memory issues and long single-request timeouts.
+     * Parse the Excel file client-side, then send the parsed rows to the backend
+     * in chunks for DB-level validation. This avoids both PhpSpreadsheet memory
+     * issues and long single-request timeouts.
      */
-    const VALIDATION_CHUNK_SIZE = 500;
-
-    const validateFile = async (file: File) => {
+    const validateFile = useCallback(async (file: File) => {
         setStep('validating');
-        setUploadProgress(0);
         setUploadPhase('parsing');
         setValidateProgress(null);
         setSelectedRow(null);
         setDetailOpen(false);
 
-        // Phase 1 — Parse Excel client-side with SheetJS
-        let parsedRows: any[];
+        // Phase 1 — Parse the workbook off the main thread. Row count isn't known
+        // until the sheet has been walked, so show rows-found as both figures and
+        // let the bar sit at full for this phase; the label says "Reading".
+        let parsedRows: ParsedExcelRow[];
         try {
-            parsedRows = await parseExcel(file);
-        } catch (err: any) {
-            toast.error(err?.message || 'Failed to parse Excel file.');
+            parsedRows = await parseExcel(file, (rowsFound) => {
+                setValidateProgress({ processed: rowsFound, total: rowsFound });
+            });
+        } catch (err: unknown) {
+            toast.error(errorMessage(err, 'Failed to parse Excel file.'));
             setStep('idle');
             if (fileInputRef.current) fileInputRef.current.value = '';
             return;
         }
+        setValidateProgress({ processed: parsedRows.length, total: parsedRows.length });
 
         if (parsedRows.length === 0) {
             toast.error('No data rows found in the Excel file.');
@@ -270,7 +377,7 @@ export function ImportPreviewDialog({
         setUploadPhase('processing');
 
         // Split into chunks
-        const chunks: any[][] = [];
+        const chunks: ParsedExcelRow[][] = [];
         for (let i = 0; i < parsedRows.length; i += VALIDATION_CHUNK_SIZE) {
             chunks.push(parsedRows.slice(i, i + VALIDATION_CHUNK_SIZE));
         }
@@ -290,12 +397,27 @@ export function ImportPreviewDialog({
                     seen_control_nos: seenControlNos,
                 });
 
-                if (response.data.success) {
-                    importToken = response.data.token;
-                    seenControlNos = response.data.seen_control_nos ?? seenControlNos;
-                    allValidatedRows.push(...response.data.rows);
-                    totalValid += response.data.summary.valid;
-                    totalErrors += response.data.summary.errors;
+                // A chunk that comes back unsuccessful used to be skipped silently,
+                // dropping up to VALIDATION_CHUNK_SIZE rows and leaving the summary
+                // quietly wrong. Fail the whole validation instead.
+                if (!response.data.success) {
+                    throw new Error('Validation failed partway through the file. Please try again.');
+                }
+
+                importToken = response.data.token;
+                seenControlNos = response.data.seen_control_nos ?? seenControlNos;
+                allValidatedRows.push(...response.data.rows);
+                totalValid += response.data.summary.valid;
+                totalErrors += response.data.summary.errors;
+
+                // The server's running total must match the valid rows we've sent.
+                // Any drift means a chunk didn't land — catch it here rather than
+                // discovering it as a short import.
+                const serverRowCount = response.data.row_count;
+                if (serverRowCount !== undefined && serverRowCount !== totalValid) {
+                    throw new Error(
+                        `Validation is out of sync (server holds ${serverRowCount} of ${totalValid} rows). Please re-upload the file.`,
+                    );
                 }
 
                 // Update progress after each chunk
@@ -307,126 +429,13 @@ export function ImportPreviewDialog({
             setSummary({ total: allValidatedRows.length, valid: totalValid, errors: totalErrors });
             setImportToken(importToken);
             setStep('preview');
-        } catch (error: any) {
-            const msg = error.response?.data?.message || 'Failed to validate rows.';
-            toast.error(msg);
+        } catch (error: unknown) {
+            toast.error(errorMessage(error, 'Failed to validate rows.'));
             setStep('idle');
         }
 
         if (fileInputRef.current) fileInputRef.current.value = '';
-    };
-
-    /**
-     * Parse an Excel file using ExcelJS on the main thread.
-     * Column indices (1-based) match the backend COL_* constants + 1.
-     *
-     * Handles over-formatted sheets (e.g. styles applied to all 1M+ rows)
-     * via early termination after 50 consecutive non-data rows.
-     */
-    const parseExcel = async (file: File): Promise<any[]> => {
-        // ExcelJS columns are 1-based
-        const COL = {
-            SEQ: 1, PROGRAM: 2, UII: 3, HEI_NAME: 4,
-            DATE_FUND_RELEASED: 5, DUE_DATE: 6, ACADEMIC_YEAR: 7,
-            SEMESTER: 8, BATCH_NO: 9, CONTROL_NO: 10,
-            GRANTEES: 11, DISBURSEMENTS: 12, AMOUNT_LIQUIDATED: 13,
-            DOC_STATUS: 14, RC_NOTES: 15,
-        };
-
-        const cellStr = (v: ExcelJS.CellValue): string => {
-            if (v == null) return '';
-            if (v instanceof Date) return fmtDate(v);
-            // ExcelJS rich text: { richText: [{ text: '...' }, ...] }
-            if (typeof v === 'object' && 'richText' in (v as any)) {
-                return ((v as any).richText as { text: string }[]).map(r => r.text).join('').trim();
-            }
-            // ExcelJS formula result
-            if (typeof v === 'object' && 'result' in (v as any)) {
-                return cellStr((v as any).result);
-            }
-            return String(v).trim();
-        };
-
-        const fmtDate = (d: Date): string => {
-            const y = d.getFullYear();
-            const m = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            return `${y}-${m}-${day}`;
-        };
-
-        const formatDate = (v: ExcelJS.CellValue): string => {
-            if (v == null) return '';
-            if (v instanceof Date) return fmtDate(v);
-            const s = cellStr(v);
-            if (s === '') return '';
-            return s;
-        };
-
-        const buffer = await file.arrayBuffer();
-        const wb = new ExcelJS.Workbook();
-        await wb.xlsx.load(buffer);
-
-        // Find the first worksheet with data rows
-        let ws: ExcelJS.Worksheet | undefined;
-        wb.eachSheet((sheet) => {
-            if (ws) return;
-            sheet.eachRow((row) => {
-                if (ws) return;
-                const seq = cellStr(row.getCell(COL.SEQ).value);
-                const prog = cellStr(row.getCell(COL.PROGRAM).value);
-                const uii = cellStr(row.getCell(COL.UII).value);
-                if (seq !== '' && !isNaN(Number(seq)) && (prog !== '' || uii !== '')) {
-                    ws = sheet;
-                }
-            });
-        });
-
-        if (!ws) {
-            setValidateProgress({ processed: 0, total: 0 });
-            return [];
-        }
-
-        // Collect data rows with early termination
-        const rows: any[] = [];
-        let emptyStreak = 0;
-
-        ws.eachRow((row, rowNumber) => {
-            if (emptyStreak > 50) return;
-
-            const seq = cellStr(row.getCell(COL.SEQ).value);
-            const program = cellStr(row.getCell(COL.PROGRAM).value);
-            const uii = cellStr(row.getCell(COL.UII).value);
-
-            // A real data row has numeric SEQ + at least Program or UII
-            if (seq === '' || isNaN(Number(seq)) || (program === '' && uii === '')) {
-                if (rows.length > 0) emptyStreak++;
-                return;
-            }
-            emptyStreak = 0;
-
-            rows.push({
-                row: rowNumber,
-                seq,
-                program,
-                uii,
-                hei_name:           cellStr(row.getCell(COL.HEI_NAME).value),
-                academic_year:      cellStr(row.getCell(COL.ACADEMIC_YEAR).value),
-                semester:           cellStr(row.getCell(COL.SEMESTER).value),
-                batch_no:           cellStr(row.getCell(COL.BATCH_NO).value),
-                control_no:         cellStr(row.getCell(COL.CONTROL_NO).value),
-                grantees:           cellStr(row.getCell(COL.GRANTEES).value),
-                disbursements:      cellStr(row.getCell(COL.DISBURSEMENTS).value),
-                amount_liquidated:  cellStr(row.getCell(COL.AMOUNT_LIQUIDATED).value),
-                date_fund_released: formatDate(row.getCell(COL.DATE_FUND_RELEASED).value),
-                due_date:           formatDate(row.getCell(COL.DUE_DATE).value),
-                doc_status:         cellStr(row.getCell(COL.DOC_STATUS).value),
-                rc_notes:           cellStr(row.getCell(COL.RC_NOTES).value),
-            });
-        });
-
-        setValidateProgress({ processed: rows.length, total: rows.length });
-        return rows;
-    };
+    }, []);
 
     const handleReUpload = () => {
         setSelectedRow(null);
@@ -434,95 +443,46 @@ export function ImportPreviewDialog({
         fileInputRef.current?.click();
     };
 
-    const IMPORT_CHUNK_SIZE = 200;
-
     const handleImport = async () => {
         if (!importToken || summary.valid === 0) return;
 
-        const token = importToken;
         const total = summary.valid;
         setStep('importing');
-        setImportProgress({ processed: 0, total, imported: 0, errors: 0 });
 
-        let batchId: string | null = null;
-        let totalImported = 0;
-        let allErrors: any[] = [];
-        let totalRows = total;
-        let sourceFileWarning: string | null = null;
+        // The original Excel rides along so the backend can persist it to S3 and
+        // link it to the batch for later download.
+        const formData = new FormData();
+        formData.append('import_token', importToken);
+        // Preflight: the server refuses the import outright if its cached row set
+        // no longer matches the preview the user just approved.
+        formData.append('expected_rows', String(total));
+        if (selectedFile) {
+            // Tell the backend a file is being sent so it can detect and warn
+            // when PHP silently drops it (post_max_size / upload_max_filesize).
+            formData.append('expects_source_file', '1');
+            formData.append('source_file', selectedFile);
+        }
 
         try {
-            for (let offset = 0; offset < totalRows; offset += IMPORT_CHUNK_SIZE) {
-                const isLast = offset + IMPORT_CHUNK_SIZE >= totalRows;
+            const { data } = await axios.post<BulkImportDispatchResponse>(
+                route('liquidation.bulk-import'),
+                formData,
+                { headers: { 'Content-Type': 'multipart/form-data' } },
+            );
 
-                // First chunk attaches the original Excel as multipart so the backend
-                // can persist it to S3 and link it to the new ImportBatch.
-                const isFirstChunk: boolean = batchId === null;
-                let response: AxiosResponse<any>;
-                if (isFirstChunk && selectedFile) {
-                    const formData = new FormData();
-                    formData.append('import_token', token);
-                    formData.append('offset', String(offset));
-                    formData.append('limit', String(IMPORT_CHUNK_SIZE));
-                    formData.append('is_last', isLast ? '1' : '0');
-                    // Tell the backend a file is being sent so it can detect and warn
-                    // when PHP silently drops the file (post_max_size / upload_max_filesize).
-                    formData.append('expects_source_file', '1');
-                    formData.append('source_file', selectedFile);
-                    response = await axios.post(route('liquidation.bulk-import'), formData, {
-                        headers: { 'Content-Type': 'multipart/form-data' },
-                    });
-                } else {
-                    response = await axios.post(route('liquidation.bulk-import'), {
-                        import_token: token,
-                        batch_id: batchId,
-                        offset,
-                        limit: IMPORT_CHUNK_SIZE,
-                        is_last: isLast,
-                    });
-                }
-
-                batchId = response.data.batch_id ?? batchId;
-                totalImported += response.data.imported ?? 0;
-                totalRows = response.data.total_rows ?? totalRows;
-                if (response.data.errors?.length) {
-                    allErrors.push(...response.data.errors);
-                }
-                // Captured only on the first chunk where the file upload is attempted.
-                if (isFirstChunk && response.data.source_file_warning) {
-                    sourceFileWarning = response.data.source_file_warning;
-                }
-
-                // Real progress — updates after each chunk returns
-                const processed = Math.min(offset + IMPORT_CHUNK_SIZE, totalRows);
-                setImportProgress({
-                    processed,
-                    total: totalRows,
-                    imported: totalImported,
-                    errors: allErrors.length,
-                });
+            if (data.source_file_warning) {
+                toast.warning(data.source_file_warning, { duration: 8000 });
             }
 
-            // Brief 100% flash before closing
-            setImportProgress({ processed: totalRows, total: totalRows, imported: totalImported, errors: allErrors.length });
-            await new Promise(r => setTimeout(r, 400));
-
-            if (totalImported > 0 && allErrors.length === 0) {
-                toast.success(`Imported ${totalImported} liquidation(s).`);
-            }
-            // Distinct warning toast — the import worked, but the source Excel
-            // wasn't persisted (e.g. PHP upload limits). Operator-visible signal
-            // to fix server config rather than a silent failure.
-            if (sourceFileWarning) {
-                toast.warning(sourceFileWarning, { duration: 8000 });
-            }
-
-            onImportComplete({ imported: totalImported, errors: allErrors });
-            handleClose();
-        } catch (error: any) {
-            const errors = error.response?.data?.errors ?? [];
-            const imported = error.response?.data?.imported ?? 0;
-            onImportComplete({ imported: totalImported + imported, errors: [...allErrors, ...errors] });
-            handleClose();
+            // Hand off to the poller; the worker owns the import from here.
+            setWatchedBatchId(data.batch_id);
+            setWatchImport(true);
+        } catch (error: unknown) {
+            // Nothing was queued, so nothing was written — keep the user on the
+            // preview with the reason rather than closing into a failure report
+            // for records that were never attempted.
+            toast.error(errorMessage(error, 'Import could not be started. Please re-validate the file.'));
+            setStep('preview');
         }
     };
 
@@ -536,10 +496,10 @@ export function ImportPreviewDialog({
         }
     };
 
-    const fetchBatches = async () => {
+    const fetchBatches = useCallback(async () => {
         setLoadingBatches(true);
         try {
-            const res = await axios.get(route('liquidation.import-batches'), {
+            const res = await axios.get<{ batches?: ImportBatchRecord[] }>(route('liquidation.import-batches'), {
                 params: highlightBatchId ? { batch_id: highlightBatchId } : {},
             });
             setBatches(res.data.batches ?? []);
@@ -548,7 +508,38 @@ export function ImportPreviewDialog({
         } finally {
             setLoadingBatches(false);
         }
-    };
+    }, [highlightBatchId]);
+
+    // Effects live below the callbacks they depend on — dependency arrays are
+    // evaluated during render, so a `const` declared later would be in its TDZ.
+
+    // Auto-validate when opened with an initialFile from the popover
+    React.useEffect(() => {
+        if (isOpen && initialFile && initialFile !== processedFileRef.current) {
+            processedFileRef.current = initialFile;
+            setSelectedFile(initialFile);
+            validateFile(initialFile);
+        }
+        if (!isOpen) {
+            processedFileRef.current = null;
+        }
+    }, [isOpen, initialFile, validateFile]);
+
+    // Auto-open history when opened via "Import History" menu.
+    // Tracked with a ref rather than reading `showHistory`, so toggling history
+    // closed while the dialog is open doesn't immediately snap it back open.
+    const autoOpenedHistoryRef = useRef(false);
+    React.useEffect(() => {
+        if (!isOpen) {
+            autoOpenedHistoryRef.current = false;
+            return;
+        }
+        if (initialShowHistory && !autoOpenedHistoryRef.current) {
+            autoOpenedHistoryRef.current = true;
+            setShowHistory(true);
+            fetchBatches();
+        }
+    }, [isOpen, initialShowHistory, fetchBatches]);
 
     const toggleHistory = async () => {
         const next = !showHistory;
@@ -559,13 +550,13 @@ export function ImportPreviewDialog({
     const handleUndoBatch = async (batchId: string) => {
         setUndoingBatchId(batchId);
         try {
-            const res = await axios.post(route('liquidation.undo-import-batch', { batchId }));
+            const res = await axios.post<{ message: string }>(route('liquidation.undo-import-batch', { batchId }));
             toast.success(res.data.message);
             await fetchBatches();
             // Refresh the parent table
             onImportComplete({ imported: 0, errors: [] });
-        } catch (error: any) {
-            toast.error(error.response?.data?.message || 'Failed to undo import batch.');
+        } catch (error: unknown) {
+            toast.error(errorMessage(error, 'Failed to undo import batch.'));
         } finally {
             setUndoingBatchId(null);
             setConfirmUndoId(null);
@@ -576,8 +567,10 @@ export function ImportPreviewDialog({
         <Dialog open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
             <DialogContent
                 className="max-w-[90vw] sm:max-w-[90vw] w-[1400px] max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden"
-                onInteractOutside={(e) => { if (step === 'validating' || step === 'importing') e.preventDefault(); }}
-                onEscapeKeyDown={(e) => { if (step === 'validating' || step === 'importing') e.preventDefault(); }}
+                // Validation is client-side work that dies with the dialog, so it stays
+                // modal. An import belongs to the worker, so let the user leave.
+                onInteractOutside={(e) => { if (step === 'validating') e.preventDefault(); }}
+                onEscapeKeyDown={(e) => { if (step === 'validating') e.preventDefault(); }}
             >
                 {/* Header */}
                 <DialogHeader className="px-6 pt-6 pb-4 shrink-0 border-b pr-14">
@@ -673,11 +666,9 @@ export function ImportPreviewDialog({
                                                     )}
                                                     <span className={cn(
                                                         'text-[10px] font-medium px-2 py-0.5 rounded-full border',
-                                                        batch.status === 'active'
-                                                            ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800'
-                                                            : 'bg-muted text-muted-foreground border-border',
+                                                        BATCH_STATUS_STYLES[batch.status],
                                                     )}>
-                                                        {batch.status === 'active' ? 'Active' : 'Undone'}
+                                                        {BATCH_STATUS_LABELS[batch.status]}
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center gap-4 text-xs text-muted-foreground">
@@ -690,6 +681,11 @@ export function ImportPreviewDialog({
                                                         </span>
                                                     )}
                                                 </div>
+                                                {batch.failed_reason && (
+                                                    <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                                                        {batch.failed_reason}
+                                                    </p>
+                                                )}
                                             </div>
                                             <div className="ml-4 shrink-0">
                                                 {confirmUndoId === batch.id ? (
@@ -740,7 +736,13 @@ export function ImportPreviewDialog({
                                                                 </TooltipContent>
                                                             </Tooltip>
                                                         )}
-                                                        {batch.status === 'active' && (
+                                                        {batch.status === 'processing' && (
+                                                            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                                Importing in the background
+                                                            </span>
+                                                        )}
+                                                        {batch.can_undo && (
                                                             <Tooltip>
                                                                 <TooltipTrigger asChild>
                                                                     <Button
@@ -770,16 +772,15 @@ export function ImportPreviewDialog({
                     {/* Validating with progress + skeleton */}
                     {!showHistory && step === 'validating' && (() => {
                         const isProcessing = uploadPhase === 'processing';
-                        const hasParseData = !isProcessing && validateProgress && validateProgress.total > 0;
                         const hasValidateData = isProcessing && validateProgress && validateProgress.total > 0;
-                        const parsePct = hasParseData
+                        // The parse phase can't be a percentage — the row count isn't
+                        // known until the worker has walked the whole sheet. Show an
+                        // indeterminate bar with a live rows-read count instead.
+                        const rowsRead = !isProcessing ? (validateProgress?.processed ?? 0) : 0;
+                        const displayPct = hasValidateData
                             ? Math.round((validateProgress!.processed / validateProgress!.total) * 100)
                             : 0;
-                        const validatePct = hasValidateData
-                            ? Math.round((validateProgress!.processed / validateProgress!.total) * 100)
-                            : 0;
-                        const displayPct = isProcessing ? validatePct : parsePct;
-                        const isDeterminate = isProcessing ? hasValidateData : hasParseData;
+                        const isDeterminate = Boolean(hasValidateData);
 
                         return (
                             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -790,7 +791,7 @@ export function ImportPreviewDialog({
                                             <div className="flex items-center gap-2">
                                                 <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
                                                 <span className="text-sm font-medium">
-                                                    {isProcessing ? 'Validating rows...' : 'Parsing Excel file...'}
+                                                    {isProcessing ? 'Validating rows...' : 'Reading Excel file...'}
                                                 </span>
                                             </div>
                                             <span className="text-2xl font-bold font-mono tabular-nums text-foreground">
@@ -814,9 +815,9 @@ export function ImportPreviewDialog({
                                                 ? hasValidateData
                                                     ? `${validateProgress!.processed.toLocaleString()} of ${validateProgress!.total.toLocaleString()} rows checked`
                                                     : 'Preparing validation — this may take a moment for large files.'
-                                                : hasParseData
-                                                    ? `${validateProgress!.processed.toLocaleString()} of ${validateProgress!.total.toLocaleString()} rows parsed`
-                                                    : 'Reading Excel file in the background...'
+                                                : rowsRead > 0
+                                                    ? `${rowsRead.toLocaleString()} rows read so far`
+                                                    : 'Reading the Excel file — the window stays responsive.'
                                             }
                                         </p>
                                     </div>
@@ -855,16 +856,20 @@ export function ImportPreviewDialog({
 
                     {/* Importing — spinner + progress, no skeleton */}
                     {!showHistory && step === 'importing' && (() => {
-                        const pct = importProgress && importProgress.total > 0
-                            ? Math.round((importProgress.processed / importProgress.total) * 100)
-                            : 0;
+                        const pct = importProgress?.percent ?? 0;
+                        // Every row can be in while the batch is still open, so the
+                        // phase comes from the counts — that's what stops "4,334 of
+                        // 4,334" sitting next to a percentage that disagrees with it.
+                        const phase = importProgress ? importPhase(importProgress) : 'inserting';
 
                         return (
                             <div className="flex-1 flex flex-col items-center justify-center gap-6 px-10 py-12 max-w-lg mx-auto w-full">
                                 {/* Spinner + label */}
                                 <div className="flex items-center gap-3">
                                     <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0" />
-                                    <span className="text-sm font-medium">Importing records...</span>
+                                    <span className="text-sm font-medium">
+                                        {phase === 'finalising' ? 'Finalising...' : 'Importing records...'}
+                                    </span>
                                 </div>
 
                                 {/* Progress */}
@@ -883,9 +888,17 @@ export function ImportPreviewDialog({
                                             style={{ width: `${pct}%` }}
                                         />
                                     </div>
-                                    <p className="text-xs text-muted-foreground text-center">
-                                        Please keep this window open until complete.
-                                    </p>
+                                    {importStalling ? (
+                                        <p className="text-xs text-center text-amber-600 dark:text-amber-500">
+                                            Taking longer than usual — still finishing up on the server.
+                                            You can close this window; we'll sort it out either way.
+                                        </p>
+                                    ) : (
+                                        <p className="text-xs text-muted-foreground text-center">
+                                            This runs on the server — you can close this window or leave the
+                                            page and the import will keep going.
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                         );

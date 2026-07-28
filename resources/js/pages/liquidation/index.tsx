@@ -32,7 +32,9 @@ import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, Chevron
 import { Checkbox } from '@/components/ui/checkbox';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
 import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
-import { ImportPreviewDialog } from '@/components/liquidations/import-preview-dialog';
+import { ImportPreviewDialog, type ImportRowError } from '@/components/liquidations/import-preview-dialog';
+import { ImportRunningBanner } from '@/components/liquidations/import-running-banner';
+import { useImportProgress } from '@/hooks/use-import-progress';
 import { EndorseToAccountingModal } from '@/components/liquidations/endorsement-modals';
 import { toast } from '@/lib/toast';
 import { type BreadcrumbItem, type SharedData } from '@/types';
@@ -161,7 +163,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const bulkUploadRef = React.useRef<HTMLInputElement>(null);
     const [importResult, setImportResult] = useState<{
         imported: number;
-        errors: { row: number; seq: string; uii: string; program: string; error: string }[];
+        errors: ImportRowError[];
     } | null>(null);
     const [lastImportCount, setLastImportCount] = useState<number | null>(null);
 
@@ -325,7 +327,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const handleExportExcel = () => queueReport('excel', buildReportPayload());
     const handleExportCsv = () => queueReport('csv', buildReportPayload());
 
-    const handleImportComplete = (result: { imported: number; errors: any[] }) => {
+    const handleImportComplete = (result: { imported: number; errors: ImportRowError[] }) => {
         if (result.errors.length > 0) {
             setImportResult({ imported: result.imported, errors: result.errors });
         }
@@ -335,6 +337,26 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
         // Always reload to refresh the table (covers both import and undo)
         router.reload();
     };
+
+    /**
+     * A bulk import outlives this page — it runs on a queue worker. Watch for one
+     * so a refresh mid-import shows progress instead of looking like nothing
+     * happened, which is what makes users re-import unnecessarily.
+     *
+     * The dialog watches the same batch when it's open; this covers the rest of
+     * the time, so `enabled` drops while the dialog has it.
+     */
+    const { progress: runningImport, stalling: runningImportStalling } = useImportProgress({
+        enabled: !isImportPreviewOpen,
+        onFinished: (progress) => {
+            if (progress.failed) {
+                toast.error(progress.failed_reason || 'The import did not complete.');
+            } else if (progress.imported > 0) {
+                toast.success(`Imported ${progress.imported.toLocaleString()} liquidation(s).`);
+            }
+            router.reload();
+        },
+    });
 
     const handleVoid = useCallback((liquidation: Liquidation) => {
         router.post(route('liquidation.void', liquidation.id), {}, {
@@ -568,6 +590,16 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                             )}
                         </div>
                     </div>
+
+                        {/* A bulk import is running on the worker — show it so leaving or
+                            refreshing this page doesn't look like the import vanished. */}
+                        {runningImport && !runningImport.done && (
+                            <ImportRunningBanner
+                                progress={runningImport}
+                                stalling={runningImportStalling}
+                                onView={() => setIsImportPreviewOpen(true)}
+                            />
+                        )}
 
                         {/* Upload popover — positioned relative to Bulk Actions button */}
                         {isUploadPopoverOpen && (

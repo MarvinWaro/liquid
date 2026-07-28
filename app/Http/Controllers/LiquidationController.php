@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Http\Requests\Liquidation\BulkImportRequest;
+use App\Jobs\BulkImportLiquidationsJob;
 use App\Http\Requests\Liquidation\EndorseToAccountingRequest;
 use App\Http\Requests\Liquidation\EndorseToCOARequest;
 use App\Http\Requests\Liquidation\ReturnToHEIRequest;
@@ -31,6 +32,7 @@ use App\Models\LiquidationTrackingEntry;
 use App\Models\ProgramDueDateRule;
 use App\Models\User;
 use App\Services\CacheService;
+use App\Services\DashboardCache;
 use App\Services\LiquidationService;
 use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
@@ -609,16 +611,8 @@ class LiquidationController extends Controller
         $this->liquidationService->getCachedRcNoteStatuses();
         $this->cacheService->getPrograms();
 
-        // Pre-load all existing control numbers for fast duplicate checks
-        // Flatten to individual ledger tokens so multi-ledger control_no strings
-        // (e.g. "TDP-200910699 / TDP-200910700") collide with single-ledger
-        // re-imports of the same numbers. Splitting on the same separators the
-        // import parser uses keeps the lookup symmetric.
-        $existingControlNos = Liquidation::pluck('control_no')
-            ->filter()
-            ->flatMap(fn ($s) => preg_split(self::TOKEN_SEPARATORS, (string) $s, -1, PREG_SPLIT_NO_EMPTY) ?: [])
-            ->flip()
-            ->all();
+        // Pre-load all reserved ledger numbers for fast duplicate checks
+        $existingControlNos = $this->existingLedgerTokens();
 
         // Pre-load academic years keyed by code for in-memory lookup
         $academicYearsMap = \App\Models\AcademicYear::all()->keyBy(fn ($ay) => trim($ay->code));
@@ -677,26 +671,7 @@ class LiquidationController extends Controller
             $parsed['row'] = $index + 1;
             $parsed['seq'] = $seq;
 
-            // Within-file duplicate control_no detection — checked per-token so
-            // multi-ledger rows can't smuggle a duplicate ledger past validation.
-            // (DB check only catches existing records, not duplicates within the
-            // same uploaded file.)
-            $controlNoInFile = $parsed['control_no'] ?? '';
-            if (!empty($controlNoInFile)) {
-                $tokensInRow = preg_split(self::TOKEN_SEPARATORS, $controlNoInFile, -1, PREG_SPLIT_NO_EMPTY) ?: [];
-                foreach ($tokensInRow as $token) {
-                    if (isset($seenControlNos[$token])) {
-                        $parsed['valid'] = false;
-                        $parsed['errors'][] = "Control / Ledger No '{$token}' (col J) appears more than once in this file (first seen at row {$seenControlNos[$token]}).";
-                        break;
-                    }
-                }
-                if ($parsed['valid']) {
-                    foreach ($tokensInRow as $token) {
-                        $seenControlNos[$token] = $parsed['row'];
-                    }
-                }
-            }
+            $this->flagDuplicateLedgers($parsed, $seenControlNos);
 
             // Separate importable data from display data before sending to frontend
             $importable = $parsed['valid'] ? $parsed['importable'] : null;
@@ -723,7 +698,7 @@ class LiquidationController extends Controller
 
         // Cache pre-resolved rows server-side — import step uses token, not file
         $token = Str::uuid()->toString();
-        $fileCache->put("liquidation_import_{$token}", [
+        $fileCache->put($this->importCacheKey($token, $user->id), [
             'user_id'   => $user->id,
             'file_name' => $file->getClientOriginalName(),
             'rows'      => $importableRows,
@@ -734,6 +709,7 @@ class LiquidationController extends Controller
             'token'          => $token,
             'validate_token' => $validateToken,
             'rows'           => $validatedRows,
+            'row_count'      => count($importableRows),
             'summary'        => [
                 'total'  => count($validatedRows),
                 'valid'  => $validCount,
@@ -777,40 +753,48 @@ class LiquidationController extends Controller
         $inputRows = $request->input('rows');
         $fileName  = $request->input('file_name', 'import.xlsx');
 
+        // ── Resolve the cross-chunk import session ────────────────────────────
+        // Chunk 1 sends no token and opens a new session; every later chunk must
+        // present the token it was given and append to that same entry.
+        $fileCache = Cache::store('file');
+        $token     = $request->input('import_token');
+
+        if ($token !== null && $token !== '') {
+            if (!Str::isUuid($token)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid import session. Please re-validate your file.',
+                ], 422);
+            }
+
+            // A miss here means the session expired mid-upload. Silently starting a
+            // fresh bucket would discard every chunk validated so far and let the
+            // import run on a partial file — fail loudly instead.
+            if (!$fileCache->has($this->importCacheKey($token, $user->id))) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Import session expired. Please re-validate your file.',
+                ], 422);
+            }
+        } else {
+            $token = Str::uuid()->toString();
+        }
+
         // Pre-load all lookup data into memory (no per-row I/O)
         $this->liquidationService->getCachedSemesters();
         $this->liquidationService->getCachedRcNoteStatuses();
         $this->cacheService->getPrograms();
 
-        $heiMap             = HEI::all()->keyBy(fn ($h) => strtolower(trim($h->uii)));
-        // Flatten to individual ledger tokens so multi-ledger control_no strings
-        // (e.g. "TDP-200910699 / TDP-200910700") collide with single-ledger
-        // re-imports of the same numbers. Splitting on the same separators the
-        // import parser uses keeps the lookup symmetric.
-        $existingControlNos = Liquidation::pluck('control_no')
-            ->filter()
-            ->flatMap(fn ($s) => preg_split(self::TOKEN_SEPARATORS, (string) $s, -1, PREG_SPLIT_NO_EMPTY) ?: [])
-            ->flip()
-            ->all();
-        $academicYearsMap   = \App\Models\AcademicYear::all()->keyBy(fn ($ay) => trim($ay->code));
+        $heiMap           = HEI::all()->keyBy(fn ($h) => strtolower(trim($h->uii)));
+        $academicYearsMap = \App\Models\AcademicYear::all()->keyBy(fn ($ay) => trim($ay->code));
 
-        $existingFingerprints = DB::table('liquidations')
-            ->join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
-            ->select(
-                'liquidations.hei_id', 'liquidations.program_id', 'liquidations.academic_year_id',
-                'liquidations.semester_id', 'liquidations.batch_no', 'liquidations.control_no',
-                'liquidation_financials.date_fund_released'
-            )
-            ->whereNull('liquidations.deleted_at')
-            ->get()
-            ->map(fn ($r) => $r->hei_id . '|' . $r->program_id . '|' . $r->academic_year_id . '|' .
-                ($r->date_fund_released ?? '') . '|' . ($r->semester_id ?? '') . '|' . ($r->batch_no ?? ''))
-            ->flip()
-            ->all();
+        // Both of the lookups below used to sweep the whole liquidations table on
+        // every chunk — nine full sweeps for a 4,300-row file, growing with the
+        // table. They are now loaded once per session / scoped to the chunk.
+        $existingControlNos   = $this->sessionLedgerTokens($token, $user->id, $inputRows);
+        $existingFingerprints = $this->existingFingerprints($heiMap, $inputRows);
 
-        // Cross-chunk state: reuse token & seen control numbers from previous chunks
-        $fileCache     = Cache::store('file');
-        $token         = $request->input('import_token') ?: Str::uuid()->toString();
+        // Cross-chunk state: seen ledger numbers round-trip through the client
         $seenControlNos = $request->input('seen_control_nos', []);
 
         $validatedRows  = [];
@@ -823,25 +807,7 @@ class LiquidationController extends Controller
             $parsed['row'] = (int) ($parsedRow['row'] ?? 0);
             $parsed['seq'] = (string) ($parsedRow['seq'] ?? '');
 
-            // Cross-chunk duplicate control_no detection — per-token so a
-            // ledger inside a multi-ledger row collides with the same ledger
-            // appearing as a single value (or in another multi-ledger row).
-            $controlNoInFile = $parsed['control_no'] ?? '';
-            if (!empty($controlNoInFile)) {
-                $tokensInRow = preg_split(self::TOKEN_SEPARATORS, $controlNoInFile, -1, PREG_SPLIT_NO_EMPTY) ?: [];
-                foreach ($tokensInRow as $token) {
-                    if (isset($seenControlNos[$token])) {
-                        $parsed['valid']    = false;
-                        $parsed['errors'][] = "Control / Ledger No '{$token}' (col J) appears more than once in this file (first seen at row {$seenControlNos[$token]}).";
-                        break;
-                    }
-                }
-                if ($parsed['valid']) {
-                    foreach ($tokensInRow as $token) {
-                        $seenControlNos[$token] = $parsed['row'];
-                    }
-                }
-            }
+            $this->flagDuplicateLedgers($parsed, $seenControlNos);
 
             $importable = $parsed['valid'] ? $parsed['importable'] : null;
             if ($importable !== null) {
@@ -862,7 +828,7 @@ class LiquidationController extends Controller
         $errorCount = collect($validatedRows)->where('valid', false)->count();
 
         // Append importable rows to cached data (supports multi-chunk accumulation)
-        $cacheKey      = "liquidation_import_{$token}";
+        $cacheKey      = $this->importCacheKey($token, $user->id);
         $existingCache = $fileCache->get($cacheKey, ['user_id' => $user->id, 'file_name' => $fileName, 'rows' => []]);
         $existingCache['rows'] = array_merge($existingCache['rows'], $importableRows);
         $fileCache->put($cacheKey, $existingCache, now()->addMinutes(self::IMPORT_TOKEN_TTL));
@@ -872,12 +838,175 @@ class LiquidationController extends Controller
             'token'            => $token,
             'rows'             => $validatedRows,
             'seen_control_nos' => $seenControlNos,
+            // Running total held server-side. The client reconciles this against
+            // the valid rows it has accumulated so a lost chunk surfaces during
+            // validation rather than as a short import.
+            'row_count'        => count($existingCache['rows']),
             'summary'          => [
                 'total'  => count($validatedRows),
                 'valid'  => $validCount,
                 'errors' => $errorCount,
             ],
         ]);
+    }
+
+    /**
+     * Cache key for a validated-import payload.
+     *
+     * Namespaced by user so two operators can never address the same entry, even
+     * if a token were guessed or replayed. The ownership check at import time is
+     * kept as well — this makes the collision structurally impossible rather than
+     * merely detected.
+     */
+    private function importCacheKey(string $token, string $userId): string
+    {
+        return "liquidation_import_{$userId}_{$token}";
+    }
+
+    /**
+     * All ledger tokens already reserved in the database, as a lookup map.
+     *
+     * Includes soft-deleted rows: `control_no` carries a unique index that covers
+     * them, so a trashed record still owns its number and insertImportRow() will
+     * reject a re-use. Validating against the same set is what keeps the preview
+     * honest — anything the import can refuse is refused here first.
+     *
+     * Multi-ledger strings (e.g. "TDP-200910699 / TDP-200910700") are flattened to
+     * individual tokens so they collide with single-ledger re-imports of the same
+     * numbers. Splitting on the separators the import parser uses keeps the lookup
+     * symmetric.
+     *
+     * @return array<string, int>
+     */
+    private function existingLedgerTokens(): array
+    {
+        return Liquidation::withTrashed()
+            ->pluck('control_no')
+            ->filter()
+            ->flatMap(fn ($s) => preg_split(self::TOKEN_SEPARATORS, (string) $s, -1, PREG_SPLIT_NO_EMPTY) ?: [])
+            ->flip()
+            ->all();
+    }
+
+    /**
+     * Reserved ledger tokens for a validation session, loaded at most once.
+     *
+     * Two savings over calling existingLedgerTokens() per chunk:
+     *
+     *  - Files with no Control / Ledger No column skip the query entirely. There
+     *    is nothing to collide with, and pulling every control number in the
+     *    database to check nothing is the common case for auto-numbered imports.
+     *  - When it is needed, the flattened token map is cached beside the import
+     *    rows so chunks 2..N reuse it. It is a plain string array, so it costs a
+     *    fraction of what re-running the query and re-splitting every number does.
+     *
+     * Staleness is a non-issue: the map only ever needs to be a superset check,
+     * and insertImportRow() re-verifies any explicit number under lockForUpdate().
+     *
+     * @param  array<int, array<string, mixed>>  $inputRows
+     * @return array<string, int>
+     */
+    private function sessionLedgerTokens(string $token, string $userId, array $inputRows): array
+    {
+        $chunkHasControlNos = collect($inputRows)
+            ->contains(fn ($row) => trim((string) ($row['control_no'] ?? '')) !== '');
+
+        if (!$chunkHasControlNos) {
+            return [];
+        }
+
+        return Cache::store('file')->remember(
+            $this->importCacheKey($token, $userId) . '_ledgers',
+            now()->addMinutes(self::IMPORT_TOKEN_TTL),
+            fn () => $this->existingLedgerTokens(),
+        );
+    }
+
+    /**
+     * Fingerprints of existing records, scoped to the HEIs present in this chunk.
+     *
+     * The fingerprint check only ever compares a row against records for its own
+     * HEI, so joining the entire liquidations table was wasted work. A 500-row
+     * chunk touches on the order of a hundred HEIs, which keeps this query flat
+     * as the table grows.
+     *
+     * Soft-deleted records are excluded deliberately — unlike control_no there is
+     * no unique index here, and a deleted record must not block a re-import.
+     *
+     * @param  \Illuminate\Support\Collection  $heiMap  uii => HEI
+     * @param  array<int, array<string, mixed>>  $inputRows
+     * @return array<string, int>
+     */
+    private function existingFingerprints($heiMap, array $inputRows): array
+    {
+        $heiIds = collect($inputRows)
+            ->map(fn ($row) => $heiMap->get(strtolower(trim((string) ($row['uii'] ?? ''))))?->id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($heiIds->isEmpty()) {
+            return [];
+        }
+
+        return DB::table('liquidations')
+            ->join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
+            ->select(
+                'liquidations.hei_id', 'liquidations.program_id', 'liquidations.academic_year_id',
+                'liquidations.semester_id', 'liquidations.batch_no', 'liquidations.control_no',
+                'liquidation_financials.date_fund_released'
+            )
+            ->whereNull('liquidations.deleted_at')
+            ->whereIn('liquidations.hei_id', $heiIds)
+            ->get()
+            ->map(fn ($r) => $r->hei_id . '|' . $r->program_id . '|' . $r->academic_year_id . '|' .
+                ($r->date_fund_released ?? '') . '|' . ($r->semester_id ?? '') . '|' . ($r->batch_no ?? ''))
+            ->flip()
+            ->all();
+    }
+
+    /**
+     * Flag a parsed row whose ledger tokens already appeared earlier in the same file.
+     *
+     * Checked per token so a ledger buried in a multi-ledger row still collides with
+     * the same ledger appearing on its own (or in another multi-ledger row). The DB
+     * check only catches existing records, not duplicates within the upload itself.
+     *
+     * Mutates $parsed (valid/errors) and records this row's tokens in $seenLedgers.
+     * $seenLedgers carries across chunks, so callers must pass it back and forth.
+     *
+     * Only rows that are otherwise valid claim their tokens: an unimportable row
+     * must not reserve a ledger and turn a later, importable row into a false
+     * duplicate.
+     *
+     * @param  array<string, mixed>  $parsed
+     * @param  array<string, int>  $seenLedgers  ledger token => row number first seen
+     */
+    private function flagDuplicateLedgers(array &$parsed, array &$seenLedgers): void
+    {
+        $controlNo = $parsed['control_no'] ?? '';
+        if ($controlNo === '') {
+            return;
+        }
+
+        $ledgers = preg_split(self::TOKEN_SEPARATORS, $controlNo, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        foreach ($ledgers as $ledger) {
+            if (isset($seenLedgers[$ledger])) {
+                $parsed['valid']    = false;
+                $parsed['errors'][] = "Control / Ledger No '{$ledger}' (col J) appears more than once in this file (first seen at row {$seenLedgers[$ledger]}).";
+
+                return;
+            }
+        }
+
+        if (!$parsed['valid']) {
+            return;
+        }
+
+        foreach ($ledgers as $ledger) {
+            $seenLedgers[$ledger] = $parsed['row'];
+        }
     }
 
     /**
@@ -915,15 +1044,13 @@ class LiquidationController extends Controller
      * small and resilient (a failure in one chunk does not roll back others).
      */
     /**
-     * Import a chunk of validated rows from the cache.
+     * Queue a validated import and return immediately.
      *
-     * Designed for chunked importing — the frontend calls this multiple times:
-     * - First call: no batch_id → creates ImportBatch, returns batch_id.
-     * - Subsequent calls: pass batch_id → appends to existing batch.
-     * - Last call: pass is_last=true → logs activity & sends notification.
-     *
-     * Each request processes `offset` to `offset + limit` rows from the cache,
-     * returns in ~1-2 seconds, and gives the frontend real progress.
+     * Previously the browser drove the insert with ~22 sequential requests, so a
+     * refresh or a closed tab left the batch half written. Now the ImportBatch is
+     * created here with status `processing`, the work is handed to
+     * {@see BulkImportLiquidationsJob}, and the client polls importProgress().
+     * Because progress lives on the batch row, a refresh resumes it.
      */
     public function bulkImportLiquidations(Request $request): JsonResponse
     {
@@ -933,6 +1060,11 @@ class LiquidationController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
+        $request->validate([
+            'import_token'  => ['nullable', 'string'],
+            'expected_rows' => ['nullable', 'integer', 'min:0'],
+        ]);
+
         $token = $request->input('import_token');
         if (!$token) {
             return response()->json([
@@ -941,8 +1073,15 @@ class LiquidationController extends Controller
             ], 422);
         }
 
+        if (!Str::isUuid($token)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid import session. Please re-validate your file.',
+            ], 422);
+        }
+
         $fileCache = Cache::store('file');
-        $cacheKey  = "liquidation_import_{$token}";
+        $cacheKey  = $this->importCacheKey($token, $user->id);
         $cached    = $fileCache->get($cacheKey);
 
         if (!$cached) {
@@ -956,196 +1095,127 @@ class LiquidationController extends Controller
             abort(403, 'Import token does not belong to the current user.');
         }
 
-        $allRows   = $cached['rows'];
-        $totalRows = count($allRows);
-        $offset    = (int) $request->input('offset', 0);
-        $limit     = (int) $request->input('limit', 200);
-        $isLast    = (bool) $request->input('is_last', false);
-        $batchId   = $request->input('batch_id');
+        $totalRows = count($cached['rows']);
 
-        // Frontend signals on the first chunk that it intends to send the source
-        // Excel. Used to detect when PHP silently drops the file due to upload
-        // size limits (post_max_size / upload_max_filesize).
+        // ── Preflight: the import must match the preview the user approved ────
+        // Checked before the batch is created and before any insert, so a mismatch
+        // costs nothing. Without this the user approves N rows and silently gets a
+        // different set — the failure mode this endpoint shipped with.
+        $expectedRows = $request->input('expected_rows');
+        if ($expectedRows !== null && (int) $expectedRows !== $totalRows) {
+            return response()->json([
+                'success' => false,
+                'message' => "Import aborted — the validated data no longer matches the preview (previewed {$expectedRows} rows, found {$totalRows}). Please re-validate the file.",
+            ], 422);
+        }
+
+        // One import at a time per user. Two concurrent batches would race on
+        // control-number allocation and make the progress UI ambiguous.
+        //
+        // Reconcile first: a batch abandoned by a dead worker must not block the
+        // user out of importing for good.
+        $inFlight = ImportBatch::where('user_id', $user->id)
+            ->where('status', ImportBatch::STATUS_PROCESSING)
+            ->get()
+            ->reject(fn (ImportBatch $b) => $b->reconcileIfStalled());
+
+        if ($inFlight->isNotEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Another import is still running. Please wait for it to finish.',
+            ], 422);
+        }
+
+        // The client signals that it intends to send the source Excel, so we can
+        // tell "no file wanted" apart from "PHP silently dropped it" (post_max_size
+        // / upload_max_filesize).
         $expectsSourceFile = $request->boolean('expects_source_file');
 
-        // Validate the optional source_file upload (only present on the first chunk).
-        // Rejecting here is safer than silently uploading a malicious or oversized file to S3.
+        // Rejecting here is safer than uploading a malicious or oversized file to S3.
         if ($request->hasFile('source_file')) {
             $request->validate([
                 'source_file' => ['file', 'mimes:xlsx,xls', 'max:51200'], // 50 MB, matches BulkImportRequest
             ]);
         }
 
-        // Slice the chunk to import
-        $chunk = array_slice($allRows, $offset, $limit);
+        [$sourceFilePath, $sourceFileSize, $sourceFileWarning] = $this->storeImportSourceFile($request, $user, $expectsSourceFile);
 
-        // Tracks why the source file wasn't persisted, for surfacing back to the
-        // client. Stays null on success or when no upload was attempted.
-        $sourceFileWarning = null;
+        $batch = ImportBatch::create([
+            'user_id'        => $user->id,
+            'file_name'      => $cached['file_name'] ?? 'unknown.xlsx',
+            'file_path'      => $sourceFilePath,
+            'file_size'      => $sourceFileSize,
+            'total_rows'     => $totalRows,
+            'imported_count' => 0,
+            'status'         => ImportBatch::STATUS_PROCESSING,
+        ]);
 
-        // Create or retrieve the import batch
-        if ($batchId) {
-            $batch = ImportBatch::find($batchId);
-            if (!$batch || $batch->user_id !== $user->id) {
-                abort(403, 'Invalid batch.');
-            }
-        } else {
-            // Persist the original Excel file to S3 for audit/traceability.
-            // Only attempted on the first chunk (when no batch_id is provided yet).
-            // Storage failure degrades gracefully — the import still succeeds without a source file.
-            $sourceFilePath = null;
-            $sourceFileSize = null;
-            if ($request->hasFile('source_file')) {
-                try {
-                    $sourceFile = $request->file('source_file');
-                    $timestamp  = now()->format('Ymd-His');
-                    $rand       = Str::lower(Str::random(8));
-                    $extension  = strtolower($sourceFile->getClientOriginalExtension() ?: 'xlsx');
-                    $filename   = "{$timestamp}-{$rand}.{$extension}";
-                    $directory  = "liquidation_imports/{$user->id}";
+        BulkImportLiquidationsJob::dispatch($user->id, $token, $batch->id, $cacheKey);
 
-                    // storeAs handles streams + cleanup automatically and returns
-                    // the stored path or false on failure.
-                    $stored = $sourceFile->storeAs(
-                        $directory,
-                        $filename,
-                        ['disk' => config('filesystems.default'), 'visibility' => 'private']
-                    );
-
-                    if ($stored === false) {
-                        throw new \RuntimeException('Storage driver returned false for putFileAs.');
-                    }
-
-                    $sourceFilePath = $stored;
-                    $sourceFileSize = $sourceFile->getSize() ?: null;
-                } catch (\Throwable $e) {
-                    Log::warning('Bulk import source file upload failed; proceeding without persisted source.', [
-                        'user_id' => $user->id,
-                        'disk'    => config('filesystems.default'),
-                        'error'   => $e->getMessage(),
-                    ]);
-                    $sourceFileWarning = 'The original Excel file could not be saved to storage. The import succeeded but the source file is not available for download.';
-                }
-            } elseif ($expectsSourceFile) {
-                // Client tried to send a file but PHP didn't receive it — usually
-                // due to upload_max_filesize / post_max_size being smaller than the
-                // file. Surface this clearly so the operator knows to raise limits.
-                Log::warning('Bulk import source file expected but missing; check PHP upload limits.', [
-                    'user_id'              => $user->id,
-                    'upload_max_filesize'  => ini_get('upload_max_filesize'),
-                    'post_max_size'        => ini_get('post_max_size'),
-                ]);
-                $sourceFileWarning = 'The original Excel file could not be uploaded (it may exceed the server upload size limit). The import succeeded but the source file is not available for download.';
-            }
-
-            $batch = ImportBatch::create([
-                'user_id'        => $user->id,
-                'file_name'      => $cached['file_name'] ?? 'unknown.xlsx',
-                'file_path'      => $sourceFilePath,
-                'file_size'      => $sourceFileSize,
-                'total_rows'     => $totalRows,
-                'imported_count' => 0,
-                'status'         => 'active',
-            ]);
-        }
-
-        $imported = 0;
-        $errors   = [];
-
-        // Bulk imports are audited through ImportBatch plus one summary
-        // activity log. Suppress per-row model logs to avoid flooding the
-        // activity timeline with duplicate Liquidation/Financial "created" rows.
-        $previousLiquidationLogging = Liquidation::$loggingEnabled;
-        $previousFinancialLogging   = LiquidationFinancial::$loggingEnabled;
-
-        Liquidation::$loggingEnabled          = false;
-        LiquidationFinancial::$loggingEnabled = false;
-
-        try {
-            DB::transaction(function () use ($chunk, $user, $batch, &$imported, &$errors) {
-                foreach ($chunk as $rowData) {
-                    try {
-                        $this->insertImportRow($rowData, $user, $batch->id);
-                        $imported++;
-                    } catch (\Illuminate\Database\QueryException $e) {
-                        $isDuplicate = ($e->errorInfo[1] ?? null) === 1062;
-                        $errors[] = [
-                            'row'      => $rowData['row_no'] ?? null,
-                            'seq'      => $rowData['seq'] ?? null,
-                            'program'  => $rowData['program_code'] ?? null,
-                            'uii'      => $rowData['uii'] ?? null,
-                            'hei_name' => $rowData['hei_name'] ?? '',
-                            'error'    => $isDuplicate
-                                ? 'Already exists — this record was likely imported in a previous batch.'
-                                : 'Database error — the record could not be saved.',
-                        ];
-                    } catch (\Exception $e) {
-                        $errors[] = [
-                            'row'      => $rowData['row_no'] ?? null,
-                            'seq'      => $rowData['seq'] ?? null,
-                            'program'  => $rowData['program_code'] ?? null,
-                            'uii'      => $rowData['uii'] ?? null,
-                            'hei_name' => $rowData['hei_name'] ?? '',
-                            'error'    => $e->getMessage(),
-                        ];
-                    }
-                }
-            });
-        } finally {
-            Liquidation::$loggingEnabled          = $previousLiquidationLogging;
-            LiquidationFinancial::$loggingEnabled = $previousFinancialLogging;
-        }
-
-        // Update batch count
-        $batch->increment('imported_count', $imported);
-
-        // On last chunk: clean up cache, log activity, send notification
-        if ($isLast) {
-            $fileCache->forget($cacheKey);
-
-            $totalImported = $batch->fresh()->imported_count;
-            if ($totalImported > 0) {
-                ActivityLog::log('bulk_imported', "Bulk imported {$totalImported} liquidation(s) (batch: {$batch->id})", $batch, 'Liquidation');
-
-                $description = "{$user->name} bulk imported {$totalImported} liquidation record(s) from {$batch->file_name}";
-                $now = now();
-
-                $recipients = User::whereHas('role', fn ($q) => $q->whereIn('name', ['Admin', 'Super Admin']))
-                    ->where('status', 'active')
-                    ->where('id', '!=', $user->id)
-                    ->get();
-
-                if ($recipients->isNotEmpty()) {
-                    Notification::insert($recipients->map(fn ($recipient) => [
-                        'id'           => Str::uuid()->toString(),
-                        'user_id'      => $recipient->id,
-                        'actor_id'     => $user->id,
-                        'actor_name'   => $user->name,
-                        'action'       => 'bulk_imported',
-                        'description'  => $description,
-                        'subject_type' => null,
-                        'subject_id'   => null,
-                        'subject_label' => null,
-                        'module'       => 'Liquidation',
-                        'created_at'   => $now,
-                        'updated_at'   => $now,
-                    ])->toArray());
-                }
-            }
-        }
-
-        $errorCount = count($errors);
         return response()->json([
             'success'             => true,
             'batch_id'            => $batch->id,
-            'imported'            => $imported,
-            'errors'              => $errors,
             'total_rows'          => $totalRows,
             'source_file_warning' => $sourceFileWarning,
-            'message'             => $isLast
-                ? "Imported {$batch->fresh()->imported_count} liquidation(s)."
-                : null,
+            'message'             => "Importing {$totalRows} record(s) in the background.",
         ]);
+    }
+
+    /**
+     * Persist the uploaded source Excel for audit/traceability.
+     *
+     * Failure degrades gracefully — the import still runs, the batch just has no
+     * downloadable source. The returned warning is surfaced to the operator so a
+     * misconfigured upload limit doesn't fail silently.
+     *
+     * @return array{0: ?string, 1: ?int, 2: ?string} [path, size, warning]
+     */
+    private function storeImportSourceFile(Request $request, $user, bool $expectsSourceFile): array
+    {
+        if ($request->hasFile('source_file')) {
+            try {
+                $sourceFile = $request->file('source_file');
+                $timestamp  = now()->format('Ymd-His');
+                $rand       = Str::lower(Str::random(8));
+                $extension  = strtolower($sourceFile->getClientOriginalExtension() ?: 'xlsx');
+
+                // storeAs handles streams + cleanup automatically and returns
+                // the stored path or false on failure.
+                $stored = $sourceFile->storeAs(
+                    "liquidation_imports/{$user->id}",
+                    "{$timestamp}-{$rand}.{$extension}",
+                    ['disk' => config('filesystems.default'), 'visibility' => 'private']
+                );
+
+                if ($stored === false) {
+                    throw new \RuntimeException('Storage driver returned false for putFileAs.');
+                }
+
+                return [$stored, $sourceFile->getSize() ?: null, null];
+            } catch (\Throwable $e) {
+                Log::warning('Bulk import source file upload failed; proceeding without persisted source.', [
+                    'user_id' => $user->id,
+                    'disk'    => config('filesystems.default'),
+                    'error'   => $e->getMessage(),
+                ]);
+
+                return [null, null, 'The original Excel file could not be saved to storage. The import will still run, but the source file will not be available for download.'];
+            }
+        }
+
+        if ($expectsSourceFile) {
+            // Client tried to send a file but PHP didn't receive it — usually
+            // upload_max_filesize / post_max_size being smaller than the file.
+            Log::warning('Bulk import source file expected but missing; check PHP upload limits.', [
+                'user_id'             => $user->id,
+                'upload_max_filesize' => ini_get('upload_max_filesize'),
+                'post_max_size'       => ini_get('post_max_size'),
+            ]);
+
+            return [null, null, 'The original Excel file could not be uploaded (it may exceed the server upload size limit). The import will still run, but the source file will not be available for download.'];
+        }
+
+        return [null, null, null];
     }
 
     /**
@@ -1167,22 +1237,51 @@ class LiquidationController extends Controller
     }
 
     /**
-     * Return the current progress of an in-flight bulk import.
-     * The frontend polls this every second while the import is running.
+     * Progress of a background import, read straight off the ImportBatch row.
+     *
+     * With no `batch_id` this returns the caller's currently-processing batch, if
+     * any. That is what lets the dialog re-attach after a page refresh: the state
+     * lives in the database, not in the browser.
      */
     public function importProgress(Request $request): JsonResponse
     {
-        $token = $request->input('token');
-        if (!$token) {
-            return response()->json(['found' => false], 422);
+        $user = $request->user();
+
+        $request->validate([
+            'batch_id' => ['nullable', 'string'],
+        ]);
+
+        $query = ImportBatch::query()->where('user_id', $user->id);
+
+        if ($batchId = $request->input('batch_id')) {
+            $batch = $query->where('id', $batchId)->first();
+        } else {
+            $batch = $query->where('status', ImportBatch::STATUS_PROCESSING)
+                ->orderByDesc('created_at')
+                ->first();
         }
 
-        $progress = Cache::store('file')->get("import_progress_{$token}");
-        if (!$progress) {
+        if (!$batch) {
             return response()->json(['found' => false]);
         }
 
-        return response()->json(['found' => true, ...$progress]);
+        // Close out a batch whose worker died, so `done` can never be permanently
+        // false and the client can never poll an end that will not arrive.
+        $batch->reconcileIfStalled();
+
+        return response()->json([
+            'found'         => true,
+            'batch_id'      => $batch->id,
+            'file_name'     => $batch->file_name,
+            'status'        => $batch->status,
+            'processed'     => $batch->imported_count,
+            'imported'      => $batch->imported_count,
+            'total'         => $batch->total_rows,
+            'percent'       => $batch->progressPercent(),
+            'done'          => !$batch->isProcessing(),
+            'failed'        => $batch->isFailed(),
+            'failed_reason' => $batch->failed_reason,
+        ]);
     }
 
     /**
@@ -1225,6 +1324,7 @@ class LiquidationController extends Controller
         $batches = $batches
             ->unique('id')
             ->values()
+            ->each(fn (ImportBatch $b) => $b->reconcileIfStalled())
             ->map(fn (ImportBatch $b) => [
                 'id'             => $b->id,
                 'file_name'      => $b->file_name,
@@ -1232,12 +1332,16 @@ class LiquidationController extends Controller
                 'total_rows'     => $b->total_rows,
                 'imported_count' => $b->imported_count,
                 'status'         => $b->status,
+                'failed_reason'  => $b->failed_reason,
                 'created_at'     => $b->created_at->format('M d, Y h:i A'),
                 'undone_at'      => $b->undone_at?->format('M d, Y h:i A'),
                 'imported_by'    => $b->user?->name ?? 'Unknown',
                 // Source file is removed from S3 when a batch is undone, so
                 // restrict downloads to active batches with a stored path.
                 'can_download'   => $b->file_path !== null && $b->isActive(),
+                // A batch still being written can't be reversed — the worker
+                // would keep inserting rows behind the undo.
+                'can_undo'       => !$b->isProcessing() && !$b->isUndone(),
             ]);
 
         return response()->json(['batches' => $batches]);
@@ -1260,6 +1364,18 @@ class LiquidationController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'This import batch has already been undone.',
+            ], 422);
+        }
+
+        // Rows are still being inserted — undoing now would race the worker and
+        // leave records behind that no longer belong to any reversible batch.
+        // Reconcile first so a batch abandoned by a dead worker stays undoable.
+        $batch->reconcileIfStalled();
+
+        if ($batch->isProcessing()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This import is still running. Please wait for it to finish before undoing it.',
             ], 422);
         }
 
@@ -2661,9 +2777,9 @@ class LiquidationController extends Controller
         // Per-token uniqueness — multi-ledger strings can't be checked as a
         // whole (the joined form rarely repeats). Check each individual ledger
         // against the flat token map and surface the first collision.
-        foreach ($ledgerTokens as $token) {
-            if (isset($existingControlNos[$token])) {
-                $errors[] = "Control / Ledger No '{$token}' (col J) already exists.";
+        foreach ($ledgerTokens as $ledger) {
+            if (isset($existingControlNos[$ledger])) {
+                $errors[] = "Control / Ledger No '{$ledger}' (col J) already exists.";
                 break;
             }
         }
@@ -2814,56 +2930,6 @@ class LiquidationController extends Controller
             'liquidation_status'  => $liquidationStatus,
             'importable'          => $importable,
         ];
-    }
-
-    /**
-     * Insert a single pre-validated import row into the database.
-     * Must be called within a DB::transaction().
-     *
-     * @throws \RuntimeException if an explicit control number was taken between validate and import.
-     */
-    private function insertImportRow(array $data, $user, ?string $batchId = null): void
-    {
-        $controlNo = $data['explicit_control_no'];
-
-        if (!$controlNo) {
-            $fundYear  = !empty($data['date_fund_released'])
-                ? (int) substr($data['date_fund_released'], 0, 4)
-                : null;
-            $controlNo = $this->liquidationService->generateControlNo($data['program_id'], $fundYear);
-        } else {
-            // Re-check: another import may have taken this number since validate step
-            // Include soft-deleted records — MySQL unique constraint covers all rows
-            if (Liquidation::withTrashed()->where('control_no', $controlNo)->lockForUpdate()->exists()) {
-                throw new \RuntimeException("Control / Ledger No '{$controlNo}' was already taken. Please re-validate.");
-            }
-        }
-
-        $liquidation = Liquidation::create([
-            'control_no'            => $controlNo,
-            'hei_id'                => $data['hei_id'],
-            'program_id'            => $data['program_id'],
-            'academic_year_id'      => $data['academic_year_id'],
-            'semester_id'           => $data['semester_id'],
-            'batch_no'              => $data['batch_no'],
-            'document_status_id'    => $data['document_status_id'],
-            'rc_note_status_id'     => $data['rc_note_status_id'],
-            'liquidation_status_id' => $data['liquidation_status_id'],
-            'created_by'            => $user->id,
-            'import_batch_id'       => $batchId,
-        ]);
-
-        $liquidation->createOrUpdateFinancial([
-            'date_fund_released' => $data['date_fund_released'],
-            'due_date'           => $data['due_date'],
-            'number_of_grantees' => $data['number_of_grantees'],
-            'ledger_breakdown'   => $data['ledger_breakdown'] ?? null,
-            'amount_received'    => $data['amount_received'],
-            'amount_disbursed'   => $data['amount_disbursed'],
-            'amount_liquidated'  => $data['amount_liquidated'],
-        ]);
-
-        // Notification is sent once per batch (not per row) to avoid 1,200+ queries during bulk import
     }
 
     /**
