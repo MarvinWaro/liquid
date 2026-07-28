@@ -942,6 +942,27 @@ class LiquidationService
      */
     public function generateControlNo(string $programId, ?int $year = null): string
     {
+        return $this->generateControlNos($programId, $year, 1)[0];
+    }
+
+    /**
+     * Allocate $count consecutive available control numbers for a program + year.
+     *
+     * Bulk import needs thousands of numbers in one pass; calling generateControlNo()
+     * per row costs one locking prefix scan each, which degrades quadratically as the
+     * table grows. This runs the scan once and fills the gaps in memory.
+     *
+     * Same lock and gap-filling semantics as the single-number case — it IS the
+     * single-number case, with $count = 1.
+     *
+     * @return array<int, string> $count numbers, ascending
+     */
+    public function generateControlNos(string $programId, ?int $year, int $count): array
+    {
+        if ($count < 1) {
+            return [];
+        }
+
         $year = $year ?? now()->year;
         $programCode = Program::where('id', $programId)->value('code');
 
@@ -963,17 +984,34 @@ class LiquidationService
             ->pluck('seq')
             ->toArray();
 
-        // Find the first available gap starting from 1
-        $next = 1;
+        // Walk the occupied sequence once, emitting every gap until $count are found.
+        $numbers = [];
+        $next    = 1;
+
         foreach ($occupied as $seq) {
-            if ($seq == $next) {
-                $next++;
-            } elseif ($seq > $next) {
-                break; // Found a gap
+            if (count($numbers) === $count) {
+                break;
+            }
+
+            // Every value between $next and this occupied seq is a free gap.
+            while ($next < $seq && count($numbers) < $count) {
+                $numbers[] = $next++;
+            }
+
+            if ($seq >= $next) {
+                $next = $seq + 1;
             }
         }
 
-        return $prefix . str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+        // Past the highest occupied number, keep counting up.
+        while (count($numbers) < $count) {
+            $numbers[] = $next++;
+        }
+
+        return array_map(
+            fn (int $seq) => $prefix . str_pad((string) $seq, 4, '0', STR_PAD_LEFT),
+            $numbers,
+        );
     }
 
     /**

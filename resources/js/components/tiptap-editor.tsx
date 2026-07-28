@@ -138,7 +138,7 @@ export function TipTapEditor({ value, onChange, placeholder, className }: TipTap
         if (value !== editor.getHTML()) {
             editor.commands.setContent(value || '', { emitUpdate: false });
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+         
     }, [value, editor]);
 
     if (!editor) return null;
