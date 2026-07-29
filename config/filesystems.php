@@ -16,6 +16,13 @@ return [
     'default' => env('FILESYSTEM_DISK', 'local'),
 
     /*
+    | Temporary report exports are isolated from the application's upload disk.
+    | This keeps print/Excel/CSV available in local or single-server installs
+    | even when the optional S3 upload disk has not been configured.
+    */
+    'reports' => env('REPORT_FILESYSTEM_DISK', 'local'),
+
+    /*
     |--------------------------------------------------------------------------
     | Filesystem Disks
     |--------------------------------------------------------------------------

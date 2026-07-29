@@ -237,6 +237,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // notification that fires when it's ready. Survives page refresh; uses the
     // existing notification dropdown to surface "report ready" to the user.
     Route::post('reports/queue', [\App\Http\Controllers\ReportJobController::class, 'queue'])->name('reports.queue');
+    Route::get('reports/status/{requestId}', [\App\Http\Controllers\ReportJobController::class, 'status'])
+        ->whereUuid('requestId')
+        ->name('reports.status');
     Route::get('reports/download/{notification}', [\App\Http\Controllers\ReportJobController::class, 'download'])->name('reports.download');
     Route::post('reports/notifications/{notification}/claim-delivery', [\App\Http\Controllers\ReportJobController::class, 'claimDelivery'])->name('reports.claim-delivery');
 

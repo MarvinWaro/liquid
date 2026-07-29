@@ -7,6 +7,7 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useInitials } from '@/hooks/use-initials';
+import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import type { AppNotification } from '@/types';
 import { router } from '@inertiajs/react';
@@ -136,18 +137,30 @@ export function NotificationItem({ notification, onUpdate }: NotificationItemPro
     const dotColor = actionColors[notification.action] || 'bg-gray-500';
 
     const handleClick = async () => {
+        // Open completed reports synchronously from the user's click. Waiting
+        // for the read-state request first can make browsers block the new tab.
+        if (notification.action === 'report_ready') {
+            if (notification.metadata?.file_path) {
+                const reportWindow = window.open(`/reports/download/${notification.id}`, '_blank');
+                if (reportWindow) {
+                    reportWindow.opener = null;
+                } else {
+                    toast.error('The report was blocked. Please allow pop-ups and try again.');
+                }
+            } else {
+                toast.error('This report is no longer available. Please generate a new one.');
+            }
+
+            if (isUnread) {
+                await axios.patch(`/notifications/${notification.id}/read`);
+                onUpdate?.();
+            }
+            return;
+        }
+
         if (isUnread) {
             await axios.patch(`/notifications/${notification.id}/read`);
             onUpdate?.();
-        }
-
-        // Generated report — open the download endpoint in a new tab so print
-        // HTML can auto-fire its print dialog and downloads don't navigate away.
-        if (notification.action === 'report_ready') {
-            if (notification.metadata?.file_path) {
-                window.open(`/reports/download/${notification.id}`, '_blank');
-            }
-            return;
         }
 
         if (notification.action === 'report_failed') {

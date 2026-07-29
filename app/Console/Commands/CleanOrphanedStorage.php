@@ -125,27 +125,29 @@ class CleanOrphanedStorage extends Command
         $this->info('Scanning liquidation_reports/ (files older than 7 days)...');
 
         $cutoff = now()->subDays(7);
-        $reportFiles = Storage::disk('s3')->allFiles('liquidation_reports');
+        $reportDiskName = (string) config('filesystems.reports', 'local');
+        $reportDisk = Storage::disk($reportDiskName);
+        $reportFiles = $reportDisk->allFiles('liquidation_reports');
 
         foreach ($reportFiles as $file) {
-            $lastModified = Storage::disk('s3')->lastModified($file);
+            $lastModified = $reportDisk->lastModified($file);
             if ($lastModified > $cutoff->timestamp) {
                 continue;
             }
 
-            $size = Storage::disk('s3')->size($file);
+            $size = $reportDisk->size($file);
             $totalSize += $size;
             $totalDeleted++;
 
             $this->line("  <fg=red>expired:</> {$file} (" . $this->formatBytes($size) . ')');
 
             if (!$dryRun) {
-                Storage::disk('s3')->delete($file);
+                $reportDisk->delete($file);
             }
         }
 
         if (!$dryRun) {
-            $this->pruneEmptyDirs('liquidation_reports');
+            $this->pruneEmptyDirs('liquidation_reports', $reportDiskName);
         }
 
         // --- 5. User avatars ---
@@ -279,9 +281,9 @@ class CleanOrphanedStorage extends Command
     /**
      * Remove empty directories inside a given storage path.
      */
-    private function pruneEmptyDirs(string $directory): void
+    private function pruneEmptyDirs(string $directory, string $diskName = 's3'): void
     {
-        $disk = Storage::disk('s3');
+        $disk = Storage::disk($diskName);
         foreach ($disk->directories($directory) as $dir) {
             if (empty($disk->allFiles($dir))) {
                 $disk->deleteDirectory($dir);
