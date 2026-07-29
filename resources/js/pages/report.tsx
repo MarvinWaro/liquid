@@ -316,7 +316,7 @@ export default function Report({
                                     className="gap-1.5"
                                 >
                                     <Printer className="h-4 w-4" />
-                                    {exportKind === 'print' ? 'Queuing…' : 'Print'}
+                                    {exportKind === 'print' ? 'Preparing…' : 'Print'}
                                 </Button>
                                 <Button
                                     onClick={handleExportExcel}
@@ -325,7 +325,7 @@ export default function Report({
                                     className="gap-1.5"
                                 >
                                     <FileSpreadsheet className="h-4 w-4" />
-                                    {exportKind === 'excel' ? 'Queuing…' : 'Excel'}
+                                    {exportKind === 'excel' ? 'Preparing…' : 'Excel'}
                                 </Button>
                                 <Button
                                     onClick={handleExportCsv}
@@ -334,7 +334,7 @@ export default function Report({
                                     className="gap-1.5"
                                 >
                                     <FileText className="h-4 w-4" />
-                                    {exportKind === 'csv' ? 'Queuing…' : 'CSV'}
+                                    {exportKind === 'csv' ? 'Preparing…' : 'CSV'}
                                 </Button>
                             </div>
                         )}

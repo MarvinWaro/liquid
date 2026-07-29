@@ -1,4 +1,5 @@
 import InputError from '@/components/input-error';
+import { HeroBackdrop } from '@/components/landing/hero-backdrop';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,8 +9,6 @@ import { home } from '@/routes';
 import { store } from '@/routes/login';
 import { Form, Head, Link } from '@inertiajs/react';
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
-import Particles, { initParticlesEngine } from '@tsparticles/react';
-import { loadSlim } from '@tsparticles/slim';
 import {
     ArrowLeft,
     Check,
@@ -18,7 +17,7 @@ import {
     Moon,
     Sun,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface LoginProps {
     status?: string;
@@ -41,8 +40,8 @@ export default function Login({
     googleAuthError,
     turnstile = { enabled: false, siteKey: null },
 }: LoginProps) {
-    const { appearance, updateAppearance } = useAppearance();
-    const [init, setInit] = useState(false);
+    const { appearance, resolvedAppearance, updateAppearance } =
+        useAppearance();
     const [themeMenuOpen, setThemeMenuOpen] = useState(false);
     const [turnstileToken, setTurnstileToken] = useState('');
     const [turnstileResetSignal, setTurnstileResetSignal] = useState(0);
@@ -60,14 +59,6 @@ export default function Login({
         setTurnstileResetSignal((value) => value + 1);
     }, []);
 
-    useEffect(() => {
-        initParticlesEngine(async (engine) => {
-            await loadSlim(engine);
-        }).then(() => {
-            setInit(true);
-        });
-    }, []);
-
     // Close theme menu on outside click
     useEffect(() => {
         if (!themeMenuOpen) return;
@@ -75,56 +66,6 @@ export default function Login({
         document.addEventListener('click', close);
         return () => document.removeEventListener('click', close);
     }, [themeMenuOpen]);
-
-    const particlesOptions = useMemo(
-        () => ({
-            background: { color: { value: 'transparent' } },
-            fpsLimit: 120,
-            interactivity: {
-                events: {
-                    onClick: { enable: true, mode: 'push' as const },
-                    onHover: { enable: true, mode: 'repulse' as const },
-                },
-                modes: {
-                    push: { quantity: 3 },
-                    repulse: { distance: 80, duration: 0.4 },
-                },
-            },
-            particles: {
-                color: { value: appearance === 'dark' ? '#444444' : '#c0c0c0' },
-                links: {
-                    color: appearance === 'dark' ? '#333333' : '#d4d4d4',
-                    distance: 140,
-                    enable: true,
-                    opacity: 0.35,
-                    width: 1,
-                },
-                move: {
-                    enable: true,
-                    speed: 1,
-                    direction: 'none' as const,
-                    outModes: { default: 'bounce' as const },
-                    random: true,
-                    straight: false,
-                },
-                number: {
-                    density: { enable: true },
-                    value: 40,
-                },
-                opacity: {
-                    value: 0.4,
-                    animation: { enable: true, speed: 0.8, minimumValue: 0.15 },
-                },
-                shape: { type: 'circle' },
-                size: {
-                    value: { min: 1, max: 2.5 },
-                    animation: { enable: true, speed: 1.5, minimumValue: 0.5 },
-                },
-            },
-            detectRetina: true,
-        }),
-        [appearance],
-    );
 
     const themeOptions = [
         { value: 'light' as const, icon: Sun, label: 'Light' },
@@ -151,15 +92,16 @@ export default function Login({
                 .anim-form   { animation: fadeSlideUp 0.7s cubic-bezier(.25,.46,.45,.94) 0.5s both; }
             `}</style>
 
-            {/* Particles Background */}
-            {init && (
-                <Particles
-                    id="tsparticles-login"
-                    key={appearance}
-                    options={particlesOptions}
-                    className="pointer-events-none absolute inset-0 z-0"
-                />
-            )}
+            {/* Same backdrop as the landing page. It replaced a tsparticles node
+                network — running both would have put two unrelated decorative
+                systems on one screen, which is the exact problem the landing page
+                was cut back from. The scrim is centred here because the card is,
+                rather than sitting high like the landing hero. */}
+            <HeroBackdrop
+                isDark={resolvedAppearance === 'dark'}
+                scrimY="50%"
+                scrimOpacity={0.4}
+            />
 
             {/* Back to landing — top left (mirrors theme toggle on the right) */}
             <div className="absolute top-6 left-6 z-50">
@@ -222,7 +164,26 @@ export default function Login({
 
             {/* Login Card */}
             <div className="anim-card relative z-10 w-full max-w-md">
-                <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-2xl dark:shadow-none">
+                {/* Deliberately NOT `bg-card`. That token is oklch(0.1 0 0) in
+                    dark — pure neutral black, zero chroma — which on a saturated
+                    ground reads as a hole cut in the page rather than a surface
+                    resting on it. And at 90% opacity the translucency was doing
+                    no visible work; the composite was still flat black.
+
+                    So: an explicit navy-black, mixed a step *lighter* than the
+                    ground behind it, at an opacity low enough that the blur
+                    actually carries the backdrop's colour through. Lifted, tinted
+                    and lit — glass on the artwork instead of a slab over it. The
+                    token is left alone because it is shared with every card in
+                    the app; this treatment belongs to this page. */}
+                <div className="relative overflow-hidden rounded-2xl border border-border/70 bg-white/75 shadow-2xl ring-1 shadow-blue-950/10 ring-white/60 backdrop-blur-2xl ring-inset dark:border-white/[0.08] dark:bg-[#141a33]/75 dark:shadow-black/40 dark:ring-white/[0.07]">
+                    {/* Light catching the top edge — the one detail that reads as
+                        a physical pane rather than a rectangle. Dark only: a white
+                        highlight on a white card is invisible. */}
+                    <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-x-10 top-0 hidden h-px bg-gradient-to-r from-transparent via-white/25 to-transparent dark:block"
+                    />
                     <div className="flex flex-col justify-center px-5 py-8 sm:p-10">
                         {/* Logos — also act as a home link */}
                         <Link
@@ -307,7 +268,13 @@ export default function Login({
                                                 tabIndex={1}
                                                 autoComplete="email"
                                                 placeholder="email@example.com"
-                                                className="border-border bg-muted/50"
+                                                /* Transparent black rather than
+                                                   the neutral `muted` token: it
+                                                   deepens the card's own navy
+                                                   instead of dropping grey onto
+                                                   it. Every dark token in
+                                                   app.css is chroma 0. */
+                                                className="border-border/70 bg-black/[0.03] dark:border-white/10 dark:bg-black/25"
                                             />
                                             <InputError
                                                 message={errors.email}
@@ -329,7 +296,13 @@ export default function Login({
                                                 tabIndex={2}
                                                 autoComplete="current-password"
                                                 placeholder="Password"
-                                                className="border-border bg-muted/50"
+                                                /* Transparent black rather than
+                                                   the neutral `muted` token: it
+                                                   deepens the card's own navy
+                                                   instead of dropping grey onto
+                                                   it. Every dark token in
+                                                   app.css is chroma 0. */
+                                                className="border-border/70 bg-black/[0.03] dark:border-white/10 dark:bg-black/25"
                                             />
                                             <InputError
                                                 message={errors.password}
@@ -399,7 +372,7 @@ export default function Login({
 
                                         <Button
                                             variant="outline"
-                                            className="w-full border-border bg-background text-foreground hover:bg-accent"
+                                            className="w-full border-border/70 bg-transparent text-foreground hover:bg-black/[0.04] dark:border-white/10 dark:hover:bg-white/[0.06]"
                                             asChild
                                         >
                                             <a
@@ -425,7 +398,7 @@ export default function Login({
             </div>
 
             {/* Footer */}
-            <p className="relative z-10 mt-8 text-xs text-muted-foreground/50">
+            <p className="relative z-10 mt-8 text-xs text-muted-foreground/75">
                 &copy; {new Date().getFullYear()} Commission on Higher Education
             </p>
         </div>

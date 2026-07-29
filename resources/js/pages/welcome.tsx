@@ -1,30 +1,33 @@
-import { dashboard, login } from '@/routes';
-import { type SharedData } from '@/types';
-import { useAppearance } from '@/hooks/use-appearance';
-import { Head, Link, router, usePage } from '@inertiajs/react';
+import { HeroBackdrop } from '@/components/landing/hero-backdrop';
+import { HeroContent } from '@/components/landing/hero-content';
 import {
-    AlertTriangle, Check, CheckCircle2, Filter, Monitor, Moon,
-    Search, Sun, TrendingDown, Trophy,
-} from 'lucide-react';
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Particles, { initParticlesEngine } from '@tsparticles/react';
-import { loadSlim } from '@tsparticles/slim';
+    LiquidationStatusPanel,
+    type HEIBoardItem,
+} from '@/components/landing/liquidation-status-panel';
 import {
-    Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue,
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectLabel,
+    SelectSeparator,
+    SelectTrigger,
+    SelectValue,
 } from '@/components/ui/select';
+import { useAppearance } from '@/hooks/use-appearance';
+import { type SharedData } from '@/types';
+import { Head, router, usePage } from '@inertiajs/react';
+import { Check, Filter, Monitor, Moon, Sun } from 'lucide-react';
+import {
+    Fragment,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface HEIBoardItem {
-    hei_id: string;
-    hei_name: string;
-    hei_uii: string;
-    region_name?: string;
-    total_disbursements: number;
-    total_liquidated: number;
-    pct_liquidation: number;
-    liquidation_count: number;
-}
 
 interface FilterOption {
     id: string;
@@ -44,201 +47,9 @@ interface Props {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ALL = '__all__';
-const ROW_HEIGHT_EST = 44;
-const AUTO_SCROLL_SPEED = 18;
 
-// ─── Board Panel ──────────────────────────────────────────────────────────────
-
-function BoardPanel({
-    title,
-    items,
-    variant,
-    emptyLabel,
-}: {
-    title: string;
-    items: HEIBoardItem[];
-    variant: 'honor' | 'shame';
-    emptyLabel: string;
-}) {
-    const [search, setSearch] = useState('');
-    const [hovered, setHovered] = useState(false);
-    const scrollRef = useRef<HTMLDivElement | null>(null);
-    const [containerH, setContainerH] = useState(0);
-    const isHonor = variant === 'honor';
-
-    // Callback ref: re-runs whenever the scrollable div mounts/unmounts, so the
-    // ResizeObserver always tracks the current DOM node. A single `[]`-dep effect
-    // would stop observing after the empty-state branch swaps the element out —
-    // leaving `containerH` stale and auto-scroll permanently disabled.
-    const observerRef = useRef<ResizeObserver | null>(null);
-    const setScrollEl = useCallback((el: HTMLDivElement | null) => {
-        observerRef.current?.disconnect();
-        observerRef.current = null;
-        scrollRef.current = el;
-
-        if (!el) {
-            setContainerH(0);
-            return;
-        }
-        setContainerH(el.clientHeight);
-        const ro = new ResizeObserver(() => setContainerH(el.clientHeight));
-        ro.observe(el);
-        observerRef.current = ro;
-    }, []);
-
-    // Search filter
-    const filtered = useMemo(() => {
-        if (!search.trim()) return items;
-        const q = search.toLowerCase();
-        return items.filter(
-            r => r.hei_name.toLowerCase().includes(q) || r.hei_uii?.toLowerCase().includes(q),
-        );
-    }, [items, search]);
-
-    const isSearching = search.trim().length > 0;
-
-    // Only auto-scroll when items genuinely overflow the visible area
-    const overflows = containerH > 0 && filtered.length * ROW_HEIGHT_EST > containerH;
-    const shouldAutoScroll = overflows && !isSearching && filtered.length > 0;
-    const copies = shouldAutoScroll ? 2 : 1;
-    const copiesRef = useRef(copies);
-    copiesRef.current = copies;
-
-    const displayItems = useMemo(() => {
-        if (filtered.length === 0) return [];
-        const arr: HEIBoardItem[] = [];
-        for (let i = 0; i < copies; i++) arr.push(...filtered);
-        return arr;
-    }, [filtered, copies]);
-
-    // Reset scroll when data or search changes
-    useEffect(() => {
-        if (scrollRef.current) scrollRef.current.scrollTop = 0;
-    }, [items, search]);
-
-    // Smooth auto-scroll via rAF — restarts when items change (e.g. after filter)
-    useEffect(() => {
-        const el = scrollRef.current;
-        if (!el || hovered || !shouldAutoScroll) return;
-
-        let accum = 0;
-        let raf: number;
-        let last = 0;
-
-        const tick = (now: number) => {
-            if (last === 0) { last = now; }
-            const dt = Math.min((now - last) / 1000, 0.05);
-            last = now;
-            accum += AUTO_SCROLL_SPEED * dt;
-            el.scrollTop = accum;
-
-            if (copiesRef.current > 1) {
-                const half = el.scrollHeight / copiesRef.current;
-                if (half > 0 && accum >= half) {
-                    accum -= half;
-                    el.scrollTop = accum;
-                }
-            }
-            raf = requestAnimationFrame(tick);
-        };
-
-        raf = requestAnimationFrame(tick);
-        return () => cancelAnimationFrame(raf);
-    }, [hovered, shouldAutoScroll, items]);
-
-    // ── Styles ──
-
-    const panelCls = isHonor
-        ? 'border-emerald-200/70 dark:border-emerald-700/30 bg-emerald-50/70 dark:bg-emerald-950/30'
-        : 'border-red-200/70 dark:border-red-700/30 bg-red-50/70 dark:bg-red-950/30';
-    const headerBorderCls = isHonor
-        ? 'border-emerald-200/70 dark:border-emerald-700/30'
-        : 'border-red-200/70 dark:border-red-700/30';
-    const iconCls  = isHonor ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400';
-    const titleCls = isHonor ? 'text-emerald-800 dark:text-emerald-300' : 'text-red-800 dark:text-red-300';
-    const countCls = isHonor ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400';
-    const rowBorderCls = isHonor
-        ? 'border-b border-emerald-100/70 dark:border-emerald-800/30'
-        : 'border-b border-red-100/70 dark:border-red-800/30';
-    const pctCls = isHonor ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400';
-    const fadeFrom = isHonor
-        ? 'from-[#ecfdf5b3] dark:from-[#022c2299]'
-        : 'from-[#fef2f2b3] dark:from-[#450a0a99]';
-    const searchBorderCls = isHonor
-        ? 'border-emerald-200/60 dark:border-emerald-700/40 focus:border-emerald-400 dark:focus:border-emerald-600'
-        : 'border-red-200/60 dark:border-red-700/40 focus:border-red-400 dark:focus:border-red-600';
-
-    const RowIcon   = isHonor ? CheckCircle2 : TrendingDown;
-    const EmptyIcon = isHonor ? Trophy : AlertTriangle;
-
-    return (
-        <div className={`board-panel flex-1 flex flex-col rounded-xl border overflow-hidden backdrop-blur-sm min-h-0 min-w-0 ${panelCls}`}>
-            {/* Header */}
-            <div className={`px-3 py-2 border-b shrink-0 space-y-1.5 ${headerBorderCls}`}>
-                <div className="flex items-center gap-2">
-                    {isHonor
-                        ? <Trophy className={`h-3.5 w-3.5 shrink-0 ${iconCls}`} />
-                        : <AlertTriangle className={`h-3.5 w-3.5 shrink-0 ${iconCls}`} />}
-                    <span className={`text-[11px] font-semibold tracking-wide ${titleCls}`}>{title}</span>
-                    <span className={`ml-auto text-[10px] font-medium tabular-nums ${countCls}`}>
-                        {filtered.length} {filtered.length === 1 ? 'HEI' : 'HEIs'}
-                    </span>
-                </div>
-                <div className="relative">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
-                    <input
-                        type="text"
-                        placeholder="SEARCH HEI name or UII..."
-                        value={search}
-                        onChange={e => setSearch(e.target.value)}
-                        className={`w-full pl-7 pr-2 py-1 text-[11px] rounded-md border bg-white/60 dark:bg-black/20 placeholder:text-muted-foreground/60 focus:outline-none focus:ring-0 transition-colors ${searchBorderCls}`}
-                    />
-                </div>
-            </div>
-
-            {/* Body */}
-            {filtered.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center gap-2 text-muted-foreground py-6">
-                    <EmptyIcon className="h-5 w-5 opacity-20" />
-                    <p className="text-[10px] text-center px-4">
-                        {isSearching ? 'No matching HEIs found.' : emptyLabel}
-                    </p>
-                </div>
-            ) : (
-                <div className="relative flex-1 min-h-0">
-                    {shouldAutoScroll && (
-                        <>
-                            <div className={`absolute top-0 inset-x-0 h-4 bg-gradient-to-b ${fadeFrom} to-transparent z-10 pointer-events-none`} />
-                            <div className={`absolute bottom-0 inset-x-0 h-4 bg-gradient-to-t ${fadeFrom} to-transparent z-10 pointer-events-none`} />
-                        </>
-                    )}
-                    <div
-                        ref={setScrollEl}
-                        className="h-full overflow-y-auto"
-                        onMouseEnter={() => setHovered(true)}
-                        onMouseLeave={() => setHovered(false)}
-                        style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(120,120,120,0.25) transparent' }}
-                    >
-                        {displayItems.map((item, i) => (
-                            <div key={`${item.hei_id}-${i}`} className={`flex items-center gap-2 px-3 py-2 ${rowBorderCls}`}>
-                                <RowIcon className={`h-3 w-3 shrink-0 ${iconCls}`} />
-                                <div className="flex-1 min-w-0">
-                                    <div className="text-[11px] font-medium leading-tight truncate">{item.hei_name}</div>
-                                    {item.hei_uii && (
-                                        <div className="text-[9px] text-muted-foreground font-mono leading-tight">{item.hei_uii}</div>
-                                    )}
-                                </div>
-                                <span className={`text-[10px] font-bold font-mono shrink-0 ${pctCls}`}>
-                                    {isHonor ? '100%' : `${Number(item.pct_liquidation).toFixed(1)}%`}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
+const PAGE_DESCRIPTION =
+    'Public transparency dashboard tracking TES, TDP and STuFAPs fund liquidation across higher education institutions in CHED Region XII — SOCCSKSARGEN.';
 
 // ─── Welcome Page ─────────────────────────────────────────────────────────────
 
@@ -250,15 +61,12 @@ export default function Welcome({
     filters = {},
 }: Props) {
     const { auth } = usePage<SharedData>().props;
-    const { appearance, updateAppearance } = useAppearance();
-    const [init, setInit] = useState(false);
+    const { appearance, resolvedAppearance, updateAppearance } =
+        useAppearance();
     const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+    const themeButtonRef = useRef<HTMLButtonElement | null>(null);
 
-    useEffect(() => {
-        initParticlesEngine(async (engine) => {
-            await loadSlim(engine);
-        }).then(() => setInit(true));
-    }, []);
+    const isDark = resolvedAppearance === 'dark';
 
     // Always land on the hero on (re)load. Modern browsers preserve scroll
     // position on F5; for a single-screen landing page we want a fresh top.
@@ -270,11 +78,23 @@ export default function Welcome({
         window.scrollTo(0, 0);
     }, []);
 
+    // Click-outside and Escape both dismiss. Escape was missing: a keyboard user
+    // who opened the menu could only close it by tabbing through every item.
     useEffect(() => {
         if (!themeMenuOpen) return;
         const close = () => setThemeMenuOpen(false);
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setThemeMenuOpen(false);
+                themeButtonRef.current?.focus();
+            }
+        };
         document.addEventListener('click', close);
-        return () => document.removeEventListener('click', close);
+        document.addEventListener('keydown', onKeyDown);
+        return () => {
+            document.removeEventListener('click', close);
+            document.removeEventListener('keydown', onKeyDown);
+        };
     }, [themeMenuOpen]);
 
     // ── Filters ──
@@ -285,7 +105,10 @@ export default function Welcome({
             const next = { ...filters, [key]: value === ALL ? '' : value };
             if (next.region) params.region = next.region;
             if (next.program) params.program = next.program;
-            router.get('/', params, { preserveState: true, preserveScroll: true });
+            router.get('/', params, {
+                preserveState: true,
+                preserveScroll: true,
+            });
         },
         [filters],
     );
@@ -293,55 +116,33 @@ export default function Welcome({
     const hasActiveFilter = Boolean(filters.region || filters.program);
 
     // Group programs into UniFAST (TES/TDP) and STuFAPs (everything else) for the dropdown.
-    const { unifastPrograms, stufapsParents, stufapsChildrenByParent } = useMemo(() => {
-        const unifastCodes = new Set(['TES', 'TDP']);
-        const parents = programs.filter(p => !p.parent_id);
-        const children = programs.filter(p => p.parent_id);
+    const { unifastPrograms, stufapsParents, stufapsChildrenByParent } =
+        useMemo(() => {
+            const unifastCodes = new Set(['TES', 'TDP']);
+            const parents = programs.filter((p) => !p.parent_id);
+            const children = programs.filter((p) => p.parent_id);
 
-        const childrenByParent = new Map<string, FilterOption[]>();
-        children.forEach(c => {
-            const list = childrenByParent.get(c.parent_id!) ?? [];
-            list.push(c);
-            childrenByParent.set(c.parent_id!, list);
-        });
+            const childrenByParent = new Map<string, FilterOption[]>();
+            children.forEach((c) => {
+                const list = childrenByParent.get(c.parent_id!) ?? [];
+                list.push(c);
+                childrenByParent.set(c.parent_id!, list);
+            });
 
-        return {
-            unifastPrograms: parents.filter(p => unifastCodes.has((p.code ?? '').toUpperCase())),
-            stufapsParents: parents.filter(p => !unifastCodes.has((p.code ?? '').toUpperCase())),
-            stufapsChildrenByParent: childrenByParent,
-        };
-    }, [programs]);
+            return {
+                unifastPrograms: parents.filter((p) =>
+                    unifastCodes.has((p.code ?? '').toUpperCase()),
+                ),
+                stufapsParents: parents.filter(
+                    (p) => !unifastCodes.has((p.code ?? '').toUpperCase()),
+                ),
+                stufapsChildrenByParent: childrenByParent,
+            };
+        }, [programs]);
 
     const clearFilters = useCallback(() => {
         router.get('/', {}, { preserveState: true, preserveScroll: true });
     }, []);
-
-    // ── Particles ──
-
-    const particlesOptions = useMemo(
-        () => ({
-            background: { color: { value: 'transparent' } },
-            fpsLimit: 120,
-            interactivity: {
-                events: {
-                    onClick: { enable: true, mode: 'push' as const },
-                    onHover: { enable: true, mode: 'repulse' as const },
-                },
-                modes: { push: { quantity: 4 }, repulse: { distance: 80, duration: 0.4 } },
-            },
-            particles: {
-                color: { value: appearance === 'dark' ? '#555555' : '#c0c0c0' },
-                links: { color: appearance === 'dark' ? '#444444' : '#d0d0d0', distance: 140, enable: true, opacity: 0.4, width: 1 },
-                move: { enable: true, speed: 1, direction: 'none' as const, outModes: { default: 'bounce' as const }, random: true, straight: false },
-                number: { density: { enable: true }, value: 50 },
-                opacity: { value: 0.5, animation: { enable: true, speed: 0.8, minimumValue: 0.2 } },
-                shape: { type: 'circle' },
-                size: { value: { min: 1, max: 3 }, animation: { enable: true, speed: 2, minimumValue: 0.5 } },
-            },
-            detectRetina: true,
-        }),
-        [appearance],
-    );
 
     const themeOptions = [
         { value: 'light' as const, icon: Sun, label: 'Light' },
@@ -351,9 +152,27 @@ export default function Welcome({
 
     return (
         <>
-            <Head title="Welcome">
+            {/* "Welcome" was the browser-tab label and the search-result title
+                for a public transparency site. It should say what the site is. */}
+            <Head title="Liquidation Management System">
+                <meta name="description" content={PAGE_DESCRIPTION} />
+                <meta
+                    property="og:title"
+                    content="CHED Region XII — Liquidation Management System"
+                />
+                <meta property="og:description" content={PAGE_DESCRIPTION} />
+                <meta property="og:type" content="website" />
+                <meta name="twitter:card" content="summary" />
                 <link rel="preconnect" href="https://fonts.bunny.net" />
-                <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet" />
+                <link
+                    rel="preconnect"
+                    href="https://fonts.bunny.net"
+                    crossOrigin=""
+                />
+                <link
+                    href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600"
+                    rel="stylesheet"
+                />
             </Head>
 
             <style>{`
@@ -391,42 +210,107 @@ export default function Welcome({
                     background-size: 200% 100%;
                     animation: shimmer 3s ease-in-out infinite 2s;
                 }
-                /* Side-by-side hover expand: hovered panel grows, sibling shrinks naturally.
-                   Scoped to screens where panels sit in a row (sm and up). */
+                /* Boards sizing.
+                   Mobile stacks the two panels vertically, so a single fixed
+                   height has to be split between them and each list ends up a
+                   few rows tall. Below sm the stack is left to grow and each
+                   panel gets a floor instead.
+                   From sm up the panels sit side by side and a bounded height
+                   keeps the page to one screen. clamp() rather than min(): the
+                   old min(480px, 100vh - 20rem) goes to zero (and below) on a
+                   short window, collapsing the boards entirely. */
+                .board-stack { height: auto; }
+                .board-stack .board-panel { min-height: 17.5rem; }
+
                 @media (min-width: 640px) {
-                    .board-panel {
+                    .board-stack {
+                        height: clamp(20rem, calc(100vh - 20rem), 30rem);
+                    }
+                    .board-stack .board-panel {
+                        min-height: 0;
+                        /* Hover expand: hovered panel grows, sibling shrinks. */
                         transition: flex-grow 500ms cubic-bezier(.25,.46,.45,.94);
                     }
                     .board-panels-row .board-panel:hover {
                         flex-grow: 2;
                     }
                 }
+
+                /* Someone who asked for less motion still gets the full page —
+                   entrance animations resolve to their final state rather than
+                   being skipped, so nothing is left invisible. */
+                @media (prefers-reduced-motion: reduce) {
+                    .anim-logos, .anim-region, .anim-title, .anim-subtitle,
+                    .anim-line, .anim-desc, .anim-cta, .anim-nav, .anim-boards {
+                        animation: none !important;
+                        opacity: 1;
+                        transform: none;
+                    }
+                    .shimmer-line {
+                        animation: none;
+                        background: currentColor;
+                        opacity: 0.35;
+                    }
+                    /* Matches the specificity of the sm+ rule above, which would
+                       otherwise reinstate the transition. */
+                    .board-stack .board-panel { transition: none; }
+                    /* The live-data pulse is decorative and loops forever. */
+                    .animate-ping { animation: none; }
+                }
             `}</style>
 
-            <div className="relative flex min-h-screen flex-col bg-background text-foreground overflow-hidden font-sans transition-colors duration-300">
-                {init && (
-                    <Particles id="tsparticles" key={appearance} options={particlesOptions} className="absolute inset-0 z-0 pointer-events-none" />
-                )}
+            <div className="relative flex min-h-screen flex-col overflow-hidden bg-background font-sans text-foreground transition-colors duration-300">
+                {/* All decorative layers: artwork, wash, horizon, network, glyphs. */}
+                <HeroBackdrop isDark={isDark} />
 
                 {/* Theme toggle */}
-                <div className="anim-nav absolute top-6 right-6 sm:right-10 z-20">
+                <div className="anim-nav absolute top-6 right-6 z-20 sm:right-10">
                     <div className="relative">
                         <button
-                            onClick={e => { e.stopPropagation(); setThemeMenuOpen(!themeMenuOpen); }}
-                            className="flex items-center justify-center h-9 w-9 rounded-full border border-border bg-background/80 backdrop-blur-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-all"
-                            title="Switch theme"
+                            ref={themeButtonRef}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setThemeMenuOpen(!themeMenuOpen);
+                            }}
+                            className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background/80 text-muted-foreground backdrop-blur-sm transition-all hover:border-foreground/30 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
+                            aria-label={`Switch theme (currently ${appearance})`}
+                            aria-haspopup="menu"
+                            aria-expanded={themeMenuOpen}
                         >
-                            {appearance === 'light' && <Sun className="h-4 w-4" />}
-                            {appearance === 'dark' && <Moon className="h-4 w-4" />}
-                            {appearance === 'system' && <Monitor className="h-4 w-4" />}
+                            {appearance === 'light' && (
+                                <Sun className="h-4 w-4" />
+                            )}
+                            {appearance === 'dark' && (
+                                <Moon className="h-4 w-4" />
+                            )}
+                            {appearance === 'system' && (
+                                <Monitor className="h-4 w-4" />
+                            )}
                         </button>
                         {themeMenuOpen && (
-                            <div className="absolute right-0 top-11 w-36 rounded-lg border border-border bg-popover shadow-lg py-1 z-50" onClick={e => e.stopPropagation()}>
-                                {themeOptions.map(opt => (
-                                    <button key={opt.value} onClick={() => { updateAppearance(opt.value); setThemeMenuOpen(false); }} className="flex items-center gap-2 w-full px-3 py-2 text-sm text-popover-foreground hover:bg-accent transition-colors">
+                            <div
+                                role="menu"
+                                aria-label="Theme"
+                                className="absolute top-11 right-0 z-50 w-36 rounded-lg border border-border bg-popover py-1 shadow-lg"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                {themeOptions.map((opt) => (
+                                    <button
+                                        key={opt.value}
+                                        role="menuitemradio"
+                                        aria-checked={appearance === opt.value}
+                                        onClick={() => {
+                                            updateAppearance(opt.value);
+                                            setThemeMenuOpen(false);
+                                            themeButtonRef.current?.focus();
+                                        }}
+                                        className="flex w-full items-center gap-2 px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+                                    >
                                         <opt.icon className="h-3.5 w-3.5 text-muted-foreground" />
                                         <span>{opt.label}</span>
-                                        {appearance === opt.value && <Check className="ml-auto h-3.5 w-3.5 text-foreground" />}
+                                        {appearance === opt.value && (
+                                            <Check className="ml-auto h-3.5 w-3.5 text-foreground" />
+                                        )}
                                     </button>
                                 ))}
                             </div>
@@ -435,151 +319,164 @@ export default function Welcome({
                 </div>
 
                 {/* ── Main: hero on top, boards below (shadcn-style stacked layout) ── */}
-                <main className="relative z-10 flex flex-1 flex-col items-center w-full max-w-7xl mx-auto px-6 sm:px-10 md:px-14 pt-12 sm:pt-14 md:pt-16 xl:pt-10 pb-6 sm:pb-8 gap-6 sm:gap-8">
-
-                    {/* Hero — centered above the boards */}
-                    <div className="w-full max-w-2xl flex flex-col items-center text-center space-y-4 sm:space-y-5">
-
-                        <div className="anim-logos flex items-center justify-center gap-2.5 sm:gap-3">
-                            <img src="/assets/img/ched-logo.png"        alt="CHED"            className="h-9 sm:h-11 xl:h-12 w-auto drop-shadow-sm" />
-                            <img src="/assets/img/unifast.png"          alt="UniFAST"         className="h-9 sm:h-10 xl:h-11 w-auto drop-shadow-sm" />
-                            <img src="/assets/img/bagong-pilipinas.png" alt="Bagong Pilipinas" className="h-9 sm:h-11 xl:h-12 w-auto drop-shadow-sm" />
-                            <img src="/assets/img/achieve.png"          alt="ACHIEVE"          className="h-11 sm:h-13 xl:h-16 w-auto drop-shadow-sm pt-2" />
-                        </div>
-
-                        <div className="space-y-1">
-                            <p className="anim-region text-[9px] sm:text-[10px] font-semibold tracking-[0.35em] uppercase text-muted-foreground">
-                                CHED Region XII — SOCCSKSARGEN
-                            </p>
-                            <h1
-                                className="anim-title text-3xl sm:text-4xl xl:text-[2.75rem] font-light tracking-[0.08em] leading-none text-foreground"
-                                style={{ fontFamily: '"Copperplate Gothic", "Copperplate", "Copperplate Gothic Bold", serif' }}
-                            >
-                                Liquidation
-                            </h1>
-                            <p
-                                className="anim-subtitle text-xl sm:text-2xl xl:text-[1.75rem] font-normal italic tracking-[0.05em] leading-tight text-foreground/60"
-                                style={{ fontFamily: '"Canvas Sans", "Georgia", serif' }}
-                            >
-                                Management System
-                            </p>
-                        </div>
-
-                        <p className="anim-desc text-[10px] sm:text-[11px] leading-snug text-muted-foreground max-w-sm mx-auto">
-                            Public transparency dashboard tracking <span className="font-medium text-foreground/80">TES, TDP &amp; STuFAPs</span> fund liquidation across HEIs in Region&nbsp;XII.
-                        </p>
-
-                        <div className="anim-line">
-                            <div className="h-px w-20 shimmer-line text-border mx-auto" />
-                        </div>
-
-                        <div className="anim-cta me-3 flex flex-col items-center gap-1.5">
-                            <Link
-                                href={auth.user ? dashboard() : login()}
-                                className="group inline-flex items-center gap-2 rounded-lg bg-foreground px-5 sm:px-6 py-2.5 sm:py-3 text-[11px] sm:text-xs font-bold text-background shadow-sm transition-all hover:bg-foreground/90 active:scale-[0.97]"
-                            >
-                                <span className="tracking-[0.2em] uppercase">
-                                    {auth.user ? 'Go to Dashboard' : 'Get Started'}
-                                </span>
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 sm:h-3.5 w-3 sm:w-3.5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                                </svg>
-                            </Link>
-                            <p className="text-[10px] sm:text-[11px] text-muted-foreground/80">
-                                {auth.user
-                                    ? 'Continue to your dashboard.'
-                                    : "Sign in to manage your institution's liquidations."}
-                            </p>
-                        </div>
-                    </div>
+                <main className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 flex-col items-center gap-6 px-6 pt-12 pb-6 sm:gap-8 sm:px-10 sm:pt-14 sm:pb-8 md:px-14 md:pt-16 xl:pt-10">
+                    {/* Hero — centred above the boards */}
+                    <HeroContent isAuthenticated={Boolean(auth.user)} />
 
                     {/* Boards — below hero, full width with max cap for ultra-wide screens */}
-                    <div
-                        className="anim-boards flex flex-col gap-2 w-full min-w-0"
-                        style={{ height: 'min(480px, calc(100vh - 20rem))' }}
-                    >
+                    <div className="anim-boards board-stack flex w-full min-w-0 flex-col gap-2">
                         {/* Filters */}
-                        <div className="flex flex-wrap items-center gap-2 shrink-0">
-                            <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <div className="flex shrink-0 flex-wrap items-center gap-2">
+                            <Filter className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                             <Select
                                 value={filters.region ?? ALL}
-                                onValueChange={v => onFilterChange('region', v)}
+                                onValueChange={(v) =>
+                                    onFilterChange('region', v)
+                                }
                             >
-                                <SelectTrigger className="h-7 w-auto min-w-[130px] text-[11px] gap-1 border-border/60 bg-background/70 backdrop-blur-sm shadow-none">
+                                <SelectTrigger className="h-7 w-auto min-w-[130px] gap-1 border-border/60 bg-background/70 text-[11px] shadow-none backdrop-blur-sm">
                                     <SelectValue placeholder="All Regions" />
                                 </SelectTrigger>
-                                <SelectContent className="text-xs max-h-60">
-                                    <SelectItem value={ALL} className="text-xs">All Regions</SelectItem>
-                                    {regions.map(r => (
-                                        <SelectItem key={r.id} value={r.id} className="text-xs">{r.name}</SelectItem>
+                                <SelectContent className="max-h-60 text-xs">
+                                    <SelectItem value={ALL} className="text-xs">
+                                        All Regions
+                                    </SelectItem>
+                                    {regions.map((r) => (
+                                        <SelectItem
+                                            key={r.id}
+                                            value={r.id}
+                                            className="text-xs"
+                                        >
+                                            {r.name}
+                                        </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                             <Select
                                 value={filters.program ?? ALL}
-                                onValueChange={v => onFilterChange('program', v)}
+                                onValueChange={(v) =>
+                                    onFilterChange('program', v)
+                                }
                             >
-                                <SelectTrigger className="h-7 w-auto min-w-[130px] text-[11px] gap-1 border-border/60 bg-background/70 backdrop-blur-sm shadow-none">
+                                <SelectTrigger className="h-7 w-auto min-w-[130px] gap-1 border-border/60 bg-background/70 text-[11px] shadow-none backdrop-blur-sm">
                                     <SelectValue placeholder="All Programs" />
                                 </SelectTrigger>
-                                <SelectContent className="text-xs max-h-72">
-                                    <SelectItem value={ALL} className="text-xs">All Programs</SelectItem>
+                                <SelectContent className="max-h-72 text-xs">
+                                    <SelectItem value={ALL} className="text-xs">
+                                        All Programs
+                                    </SelectItem>
                                     <SelectSeparator />
                                     <SelectGroup>
-                                        <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">UniFAST</SelectLabel>
-                                        <SelectItem value="unifast" className="text-xs">All UniFAST</SelectItem>
-                                        {unifastPrograms.map(p => (
-                                            <SelectItem key={p.id} value={p.id} className="text-xs pl-6">{p.code}</SelectItem>
+                                        <SelectLabel className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+                                            UniFAST
+                                        </SelectLabel>
+                                        <SelectItem
+                                            value="unifast"
+                                            className="text-xs"
+                                        >
+                                            All UniFAST
+                                        </SelectItem>
+                                        {unifastPrograms.map((p) => (
+                                            <SelectItem
+                                                key={p.id}
+                                                value={p.id}
+                                                className="pl-6 text-xs"
+                                            >
+                                                {p.code}
+                                            </SelectItem>
                                         ))}
                                     </SelectGroup>
                                     <SelectSeparator />
                                     <SelectGroup>
-                                        <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">STuFAPs</SelectLabel>
-                                        <SelectItem value="stufaps" className="text-xs">All STuFAPs</SelectItem>
-                                        {stufapsParents.map(parent => {
-                                            const children = stufapsChildrenByParent.get(parent.id) ?? [];
+                                        <SelectLabel className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+                                            STuFAPs
+                                        </SelectLabel>
+                                        <SelectItem
+                                            value="stufaps"
+                                            className="text-xs"
+                                        >
+                                            All STuFAPs
+                                        </SelectItem>
+                                        {stufapsParents.map((parent) => {
+                                            const children =
+                                                stufapsChildrenByParent.get(
+                                                    parent.id,
+                                                ) ?? [];
                                             if (children.length > 0) {
                                                 return (
                                                     <Fragment key={parent.id}>
-                                                        <SelectItem value={parent.id} className="text-xs pl-6 font-medium">{parent.code}</SelectItem>
-                                                        {children.map(child => (
-                                                            <SelectItem key={child.id} value={child.id} className="text-[11px] pl-10">{child.code}</SelectItem>
-                                                        ))}
+                                                        <SelectItem
+                                                            value={parent.id}
+                                                            className="pl-6 text-xs font-medium"
+                                                        >
+                                                            {parent.code}
+                                                        </SelectItem>
+                                                        {children.map(
+                                                            (child) => (
+                                                                <SelectItem
+                                                                    key={
+                                                                        child.id
+                                                                    }
+                                                                    value={
+                                                                        child.id
+                                                                    }
+                                                                    className="pl-10 text-[11px]"
+                                                                >
+                                                                    {child.code}
+                                                                </SelectItem>
+                                                            ),
+                                                        )}
                                                     </Fragment>
                                                 );
                                             }
-                                            return <SelectItem key={parent.id} value={parent.id} className="text-xs pl-6">{parent.code}</SelectItem>;
+                                            return (
+                                                <SelectItem
+                                                    key={parent.id}
+                                                    value={parent.id}
+                                                    className="pl-6 text-xs"
+                                                >
+                                                    {parent.code}
+                                                </SelectItem>
+                                            );
                                         })}
                                     </SelectGroup>
                                 </SelectContent>
                             </Select>
                             {hasActiveFilter && (
-                                <button onClick={clearFilters} className="text-[10px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
+                                <button
+                                    onClick={clearFilters}
+                                    className="text-[10px] text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
+                                >
                                     Clear
                                 </button>
                             )}
 
                             {/* Data-freshness indicator — right-aligned on wide screens, wraps under filters on mobile */}
-                            <div className="flex items-center gap-1.5 ml-auto text-[10px] text-muted-foreground">
+                            <div className="ml-auto flex items-center gap-1.5 text-[10px] text-muted-foreground">
                                 <span className="relative inline-flex h-1.5 w-1.5">
-                                    <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-60 animate-ping" />
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
                                     <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
                                 </span>
                                 <span>
-                                    Live data &middot; as of {new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                                    Live data &middot; as of{' '}
+                                    {new Date().toLocaleDateString(undefined, {
+                                        year: 'numeric',
+                                        month: 'short',
+                                        day: 'numeric',
+                                    })}
                                 </span>
                             </div>
                         </div>
 
                         {/* Panels — stack on mobile, side-by-side with hover-expand on sm+ */}
-                        <div className="board-panels-row flex flex-col sm:flex-row gap-3 flex-1 min-h-0">
-                            <BoardPanel
+                        <div className="board-panels-row flex min-h-0 flex-1 flex-col gap-3 sm:flex-row">
+                            <LiquidationStatusPanel
                                 title="Honor Roll — Fully Liquidated"
                                 items={honorBoard}
                                 variant="honor"
                                 emptyLabel="No HEIs have reached 100% liquidation yet."
                             />
-                            <BoardPanel
+                            <LiquidationStatusPanel
                                 title="For Action — Unliquidated"
                                 items={shameBoard}
                                 variant="shame"
@@ -587,11 +484,13 @@ export default function Welcome({
                             />
                         </div>
                     </div>
-
                 </main>
 
-                <footer className="relative z-10 w-full py-6 sm:py-8 px-6 text-center text-xs sm:text-sm font-medium text-muted-foreground/50">
-                    &copy; {new Date().getFullYear()} Commission on Higher Education
+                {/* /50 on an already-muted token lands under 4.5:1 on both
+                    themes; /75 keeps the recessive feel and stays legible. */}
+                <footer className="relative z-10 w-full px-6 py-6 text-center text-xs font-medium text-muted-foreground/75 sm:py-8 sm:text-sm">
+                    &copy; {new Date().getFullYear()} Commission on Higher
+                    Education
                 </footer>
             </div>
         </>

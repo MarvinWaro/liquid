@@ -527,7 +527,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                                         {isQueueingReport ? (
                                             <>
                                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                                Queuing…
+                                                Preparing report…
                                             </>
                                         ) : (
                                             <>

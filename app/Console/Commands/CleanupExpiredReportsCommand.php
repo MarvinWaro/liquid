@@ -7,6 +7,7 @@ namespace App\Console\Commands;
 use App\Models\Notification;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 /**
  * Removes generated report files past their `expires_at` and flags the matching
@@ -23,7 +24,6 @@ class CleanupExpiredReportsCommand extends Command
     public function handle(): int
     {
         $dryRun = (bool) $this->option('dry-run');
-        $disk = Storage::disk(config('filesystems.default'));
 
         // Only cursor over notifications that (a) have an expires_at, (b) haven't
         // been marked expired yet, and (c) whose expiry timestamp is in the past.
@@ -42,17 +42,28 @@ class CleanupExpiredReportsCommand extends Command
             $meta = $notification->metadata ?? [];
             $path = $meta['file_path'] ?? null;
 
-            // Guard: file_path missing means no S3 object to delete (edge case).
+            // Guard: file_path missing means there is no stored report to delete.
             if (!$path) {
                 $skipped++;
                 continue;
             }
 
+            // Use the disk captured when the report was generated. The fallback
+            // preserves cleanup for reports created before disk metadata existed.
+            $storageDisk = $meta['storage_disk'] ?? config('filesystems.reports', 'local');
+
             $this->line(($dryRun ? '[DRY] ' : '') . "Expiring {$path}");
 
             if (!$dryRun) {
-                if ($disk->exists($path)) {
-                    $disk->delete($path);
+                // An unreachable disk still leaves the row to expire — one dead
+                // disk must not abort cleanup for every other report.
+                try {
+                    $disk = Storage::disk($storageDisk);
+                    if ($disk->exists($path)) {
+                        $disk->delete($path);
+                    }
+                } catch (Throwable $e) {
+                    $this->warn("  could not reach [{$storageDisk}]: {$e->getMessage()}");
                 }
                 // Strip the file pointer so download() returns 410 immediately,
                 // but keep the row so the user still sees the historical entry.
