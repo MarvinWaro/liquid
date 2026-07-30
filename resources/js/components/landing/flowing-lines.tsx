@@ -374,6 +374,10 @@ export function FlowingLines({ isDark }: { isDark: boolean }) {
         };
 
         resize();
+        // Paint a complete frame synchronously. This keeps the new theme's
+        // View Transition snapshot from capturing an empty canvas while its
+        // regular animation loop is intentionally paused.
+        draw(0);
 
         const resizeObserver = new ResizeObserver(() => {
             resize();
@@ -410,7 +414,15 @@ export function FlowingLines({ isDark }: { isDark: boolean }) {
         // optimisations, which all stay: Path2D reuse, zero per-frame
         // allocation, the IntersectionObserver pause, and mobile skipping bloom.
         const tick = (time: number) => {
-            draw((time - startedAt) / 1000);
+            // View Transitions snapshot this full-viewport canvas. Continuing to
+            // rebuild thousands of path samples underneath that GPU animation
+            // competes for the same frame budget, especially in dark mode.
+            // Keep the last complete frame still for the short reveal.
+            if (
+                !document.documentElement.classList.contains('theme-transition')
+            ) {
+                draw((time - startedAt) / 1000);
+            }
             animationFrame = requestAnimationFrame(tick);
         };
 

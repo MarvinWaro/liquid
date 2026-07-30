@@ -1,3 +1,4 @@
+import { AppearanceToggle } from '@/components/appearance-toggle';
 import { HeroBackdrop } from '@/components/landing/hero-backdrop';
 import { HeroContent } from '@/components/landing/hero-content';
 import {
@@ -17,15 +18,8 @@ import {
 import { useAppearance } from '@/hooks/use-appearance';
 import { type SharedData } from '@/types';
 import { Head, router, usePage } from '@inertiajs/react';
-import { Check, Filter, Monitor, Moon, Sun } from 'lucide-react';
-import {
-    Fragment,
-    useCallback,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-} from 'react';
+import { Filter } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo } from 'react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -61,10 +55,7 @@ export default function Welcome({
     filters = {},
 }: Props) {
     const { auth } = usePage<SharedData>().props;
-    const { appearance, resolvedAppearance, updateAppearance } =
-        useAppearance();
-    const [themeMenuOpen, setThemeMenuOpen] = useState(false);
-    const themeButtonRef = useRef<HTMLButtonElement | null>(null);
+    const { resolvedAppearance } = useAppearance();
 
     const isDark = resolvedAppearance === 'dark';
 
@@ -77,25 +68,6 @@ export default function Welcome({
         }
         window.scrollTo(0, 0);
     }, []);
-
-    // Click-outside and Escape both dismiss. Escape was missing: a keyboard user
-    // who opened the menu could only close it by tabbing through every item.
-    useEffect(() => {
-        if (!themeMenuOpen) return;
-        const close = () => setThemeMenuOpen(false);
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
-                setThemeMenuOpen(false);
-                themeButtonRef.current?.focus();
-            }
-        };
-        document.addEventListener('click', close);
-        document.addEventListener('keydown', onKeyDown);
-        return () => {
-            document.removeEventListener('click', close);
-            document.removeEventListener('keydown', onKeyDown);
-        };
-    }, [themeMenuOpen]);
 
     // ── Filters ──
 
@@ -143,12 +115,6 @@ export default function Welcome({
     const clearFilters = useCallback(() => {
         router.get('/', {}, { preserveState: true, preserveScroll: true });
     }, []);
-
-    const themeOptions = [
-        { value: 'light' as const, icon: Sun, label: 'Light' },
-        { value: 'dark' as const, icon: Moon, label: 'Dark' },
-        { value: 'system' as const, icon: Monitor, label: 'System' },
-    ];
 
     return (
         <>
@@ -259,63 +225,13 @@ export default function Welcome({
                 }
             `}</style>
 
-            <div className="relative flex min-h-screen flex-col overflow-hidden bg-background font-sans text-foreground transition-colors duration-300">
+            <div className="landing-theme-surface relative flex min-h-screen flex-col overflow-hidden bg-background font-sans text-foreground transition-colors duration-300">
                 {/* All decorative layers: artwork, wash, horizon, network, glyphs. */}
                 <HeroBackdrop isDark={isDark} />
 
                 {/* Theme toggle */}
                 <div className="anim-nav absolute top-6 right-6 z-20 sm:right-10">
-                    <div className="relative">
-                        <button
-                            ref={themeButtonRef}
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setThemeMenuOpen(!themeMenuOpen);
-                            }}
-                            className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background/80 text-muted-foreground backdrop-blur-sm transition-all hover:border-foreground/30 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
-                            aria-label={`Switch theme (currently ${appearance})`}
-                            aria-haspopup="menu"
-                            aria-expanded={themeMenuOpen}
-                        >
-                            {appearance === 'light' && (
-                                <Sun className="h-4 w-4" />
-                            )}
-                            {appearance === 'dark' && (
-                                <Moon className="h-4 w-4" />
-                            )}
-                            {appearance === 'system' && (
-                                <Monitor className="h-4 w-4" />
-                            )}
-                        </button>
-                        {themeMenuOpen && (
-                            <div
-                                role="menu"
-                                aria-label="Theme"
-                                className="absolute top-11 right-0 z-50 w-36 rounded-lg border border-border bg-popover py-1 shadow-lg"
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                {themeOptions.map((opt) => (
-                                    <button
-                                        key={opt.value}
-                                        role="menuitemradio"
-                                        aria-checked={appearance === opt.value}
-                                        onClick={() => {
-                                            updateAppearance(opt.value);
-                                            setThemeMenuOpen(false);
-                                            themeButtonRef.current?.focus();
-                                        }}
-                                        className="flex w-full items-center gap-2 px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-                                    >
-                                        <opt.icon className="h-3.5 w-3.5 text-muted-foreground" />
-                                        <span>{opt.label}</span>
-                                        {appearance === opt.value && (
-                                            <Check className="ml-auto h-3.5 w-3.5 text-foreground" />
-                                        )}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
+                    <AppearanceToggle className="h-9 w-9 rounded-full border border-border bg-background/80 text-muted-foreground shadow-none backdrop-blur-sm hover:border-foreground/30 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background" />
                 </div>
 
                 {/* ── Main: hero on top, boards below (shadcn-style stacked layout) ── */}
