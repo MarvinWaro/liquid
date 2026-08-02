@@ -12,8 +12,6 @@ import { useAppearance } from '@/hooks/use-appearance';
 import { dashboard, login } from '@/routes';
 import { type SharedData } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import Particles, { initParticlesEngine } from '@tsparticles/react';
-import { loadSlim } from '@tsparticles/slim';
 import {
     AlertTriangle,
     Check,
@@ -320,14 +318,7 @@ export default function Welcome({
 }: Props) {
     const { auth } = usePage<SharedData>().props;
     const { appearance, updateAppearance } = useAppearance();
-    const [init, setInit] = useState(false);
     const [themeMenuOpen, setThemeMenuOpen] = useState(false);
-
-    useEffect(() => {
-        initParticlesEngine(async (engine) => {
-            await loadSlim(engine);
-        }).then(() => setInit(true));
-    }, []);
 
     // Always land on the hero on (re)load. Modern browsers preserve scroll
     // position on F5; for a single-screen landing page we want a fresh top.
@@ -393,55 +384,6 @@ export default function Welcome({
         router.get('/', {}, { preserveState: true, preserveScroll: true });
     }, []);
 
-    // ── Particles ──
-
-    const particlesOptions = useMemo(
-        () => ({
-            background: { color: { value: 'transparent' } },
-            fpsLimit: 120,
-            interactivity: {
-                events: {
-                    onClick: { enable: true, mode: 'push' as const },
-                    onHover: { enable: true, mode: 'repulse' as const },
-                },
-                modes: {
-                    push: { quantity: 4 },
-                    repulse: { distance: 80, duration: 0.4 },
-                },
-            },
-            particles: {
-                color: { value: appearance === 'dark' ? '#555555' : '#c0c0c0' },
-                links: {
-                    color: appearance === 'dark' ? '#444444' : '#d0d0d0',
-                    distance: 140,
-                    enable: true,
-                    opacity: 0.4,
-                    width: 1,
-                },
-                move: {
-                    enable: true,
-                    speed: 1,
-                    direction: 'none' as const,
-                    outModes: { default: 'bounce' as const },
-                    random: true,
-                    straight: false,
-                },
-                number: { density: { enable: true }, value: 50 },
-                opacity: {
-                    value: 0.5,
-                    animation: { enable: true, speed: 0.8, minimumValue: 0.2 },
-                },
-                shape: { type: 'circle' },
-                size: {
-                    value: { min: 1, max: 3 },
-                    animation: { enable: true, speed: 2, minimumValue: 0.5 },
-                },
-            },
-            detectRetina: true,
-        }),
-        [appearance],
-    );
-
     const themeOptions = [
         { value: 'light' as const, icon: Sun, label: 'Light' },
         { value: 'dark' as const, icon: Moon, label: 'Dark' },
@@ -506,15 +448,6 @@ export default function Welcome({
             `}</style>
 
             <div className="relative flex min-h-screen flex-col overflow-hidden bg-background font-sans text-foreground transition-colors duration-300">
-                {init && (
-                    <Particles
-                        id="tsparticles"
-                        key={appearance}
-                        options={particlesOptions}
-                        className="pointer-events-none absolute inset-0 z-0"
-                    />
-                )}
-
                 {/* Theme toggle */}
                 <div className="anim-nav absolute top-6 right-6 z-20 sm:right-10">
                     <div className="relative">

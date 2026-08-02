@@ -8,8 +8,6 @@ import { home } from '@/routes';
 import { store } from '@/routes/login';
 import { Form, Head, Link } from '@inertiajs/react';
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
-import Particles, { initParticlesEngine } from '@tsparticles/react';
-import { loadSlim } from '@tsparticles/slim';
 import {
     ArrowLeft,
     Check,
@@ -18,7 +16,7 @@ import {
     Moon,
     Sun,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface LoginProps {
     status?: string;
@@ -42,7 +40,6 @@ export default function Login({
     turnstile = { enabled: false, siteKey: null },
 }: LoginProps) {
     const { appearance, updateAppearance } = useAppearance();
-    const [particlesReady, setParticlesReady] = useState(false);
     const [themeMenuOpen, setThemeMenuOpen] = useState(false);
     const [turnstileToken, setTurnstileToken] = useState('');
     const [turnstileResetSignal, setTurnstileResetSignal] = useState(0);
@@ -60,12 +57,6 @@ export default function Login({
         setTurnstileResetSignal((value) => value + 1);
     }, []);
 
-    useEffect(() => {
-        initParticlesEngine(async (engine) => {
-            await loadSlim(engine);
-        }).then(() => setParticlesReady(true));
-    }, []);
-
     // Close theme menu on outside click
     useEffect(() => {
         if (!themeMenuOpen) return;
@@ -73,63 +64,6 @@ export default function Login({
         document.addEventListener('click', close);
         return () => document.removeEventListener('click', close);
     }, [themeMenuOpen]);
-
-    const particlesOptions = useMemo(
-        () => ({
-            background: { color: { value: 'transparent' } },
-            fpsLimit: 120,
-            interactivity: {
-                events: {
-                    onClick: { enable: true, mode: 'push' as const },
-                    onHover: { enable: true, mode: 'repulse' as const },
-                },
-                modes: {
-                    push: { quantity: 4 },
-                    repulse: { distance: 80, duration: 0.4 },
-                },
-            },
-            particles: {
-                color: {
-                    value: appearance === 'dark' ? '#555555' : '#c0c0c0',
-                },
-                links: {
-                    color: appearance === 'dark' ? '#444444' : '#d0d0d0',
-                    distance: 140,
-                    enable: true,
-                    opacity: 0.4,
-                    width: 1,
-                },
-                move: {
-                    enable: true,
-                    speed: 1,
-                    direction: 'none' as const,
-                    outModes: { default: 'bounce' as const },
-                    random: true,
-                    straight: false,
-                },
-                number: { density: { enable: true }, value: 50 },
-                opacity: {
-                    value: 0.5,
-                    animation: {
-                        enable: true,
-                        speed: 0.8,
-                        minimumValue: 0.2,
-                    },
-                },
-                shape: { type: 'circle' },
-                size: {
-                    value: { min: 1, max: 3 },
-                    animation: {
-                        enable: true,
-                        speed: 2,
-                        minimumValue: 0.5,
-                    },
-                },
-            },
-            detectRetina: true,
-        }),
-        [appearance],
-    );
 
     const themeOptions = [
         { value: 'light' as const, icon: Sun, label: 'Light' },
@@ -155,16 +89,6 @@ export default function Login({
                 .anim-header { animation: fadeSlideUp 0.7s cubic-bezier(.25,.46,.45,.94) 0.3s both; }
                 .anim-form   { animation: fadeSlideUp 0.7s cubic-bezier(.25,.46,.45,.94) 0.5s both; }
             `}</style>
-
-            {/* Match the landing page's lightweight particle background. */}
-            {particlesReady && (
-                <Particles
-                    id="tsparticles-login"
-                    key={appearance}
-                    options={particlesOptions}
-                    className="pointer-events-none absolute inset-0 z-0"
-                />
-            )}
 
             {/* Back to landing — top left (mirrors theme toggle on the right) */}
             <div className="absolute top-6 left-6 z-50">
