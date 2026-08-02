@@ -142,46 +142,6 @@
     --sidebar-ring: oklch(0.4 0 0);
 }
 
-/*
- * Circular theme reveal. The shared appearance hook supplies the circle origin
- * and radius through the View Transitions API. Removing the built-in crossfade
- * keeps the old page still while the new color scheme expands over it.
- */
-html.theme-transition::view-transition-old(root),
-html.theme-transition::view-transition-new(root) {
-    animation: none;
-    mix-blend-mode: normal;
-}
-
-html.theme-transition::view-transition-old(root) {
-    z-index: 0;
-}
-
-html.theme-transition::view-transition-new(root) {
-    z-index: 1;
-}
-
-/*
- * The landing page has a full-viewport canvas and several decorative
- * animations. Freeze CSS-driven work while View Transitions animates its
- * captured frames; otherwise the browser performs two visual transitions at
- * once and dark mode can stutter on integrated GPUs.
- */
-html.theme-transition .landing-theme-surface,
-html.theme-transition .landing-theme-surface *,
-html.theme-transition .landing-theme-surface *::before,
-html.theme-transition .landing-theme-surface *::after {
-    animation-play-state: paused !important;
-    transition-duration: 0s !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-    html.theme-transition::view-transition-old(root),
-    html.theme-transition::view-transition-new(root) {
-        animation-duration: 0.001ms;
-    }
-}
-
 @layer base {
     * {
         @apply border-border;

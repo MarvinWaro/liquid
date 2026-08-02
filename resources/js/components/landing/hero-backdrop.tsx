@@ -1,29 +1,35 @@
 import { useIsMobile } from '@/hooks/use-mobile';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 import { useEffect, useRef } from 'react';
-import { FlowingLines } from './flowing-lines';
 
 /**
- * The page backdrop: a wash, one flowing line field, and the light shaping on
- * top of it.
+ * The page backdrop: the artwork, and the light shaping on top of it.
  *
  * Deliberately few layers. An earlier pass stacked five decorative systems here
  * — photo illustration, horizon silhouette, node network, floating icons, wash —
  * and the result was muddy: each layer competed with the others and with the
  * heading. One well-executed idea is what reads as premium.
  *
- * The layers above the ribbon are shaping, not decoration. A vignette pulls the
- * eye inward and keeps the brightest part of the field off the page edges; a
- * scrim sits only under the hero column so the type has contrast without
- * flattening the artwork everywhere; grain breaks up banding in the large
- * gradients, which is most of the difference between "gradient" and "finished".
+ * The artwork used to be generated at runtime: a canvas engine stroking 156
+ * bezier strands every animation frame, forever. It was replaced by a static
+ * image of the same composition because the animation was never actually the
+ * point — the field reads as still at a glance — and rebuilding it 60 times a
+ * second cost real main-thread time on every visitor's device for motion almost
+ * nobody noticed. The wash that used to sit under the strands is baked into the
+ * artwork, so layer 1 covers both.
+ *
+ * The layers above it are shaping, not decoration. A vignette pulls the eye
+ * inward and keeps the brightest part of the field off the page edges; a scrim
+ * sits only under the hero column so the type has contrast without flattening
+ * the artwork everywhere; grain breaks up banding in the large gradients, which
+ * is most of the difference between "gradient" and "finished".
  *
  * ── Tuning ───────────────────────────────────────────────────────────────────
- * Line behaviour lives in flowing-lines.tsx. Parallax travel is
- * PARALLAX_STRENGTH below. The wash is the gradient stops on layer 1.
+ * Parallax travel is PARALLAX_STRENGTH below. The artwork itself is
+ * public/assets/img/{light,dark}.webp.
  */
 
-/** Max px the line field shifts at full pointer deflection. */
+/** Max px the artwork shifts at full pointer deflection. */
 const PARALLAX_STRENGTH = 12;
 
 /**
@@ -109,43 +115,52 @@ export function HeroBackdrop({
                 ['--scrim-y' as string]: scrimY,
             }}
         >
-            {/* 1 — Wash. Cool tint low on the page for the ribbon to sit in,
-                   resolving to plain white (or plain dark) behind the hero. */}
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_74%_8%,rgba(254,215,170,0.7),transparent_34%),linear-gradient(145deg,#ffffff_0%,#fdfaf7_58%,#fff4e8_100%)] dark:hidden" />
-            {/* Deep navy, and it has to stay deep. The bands composite
-                additively, so this ground is a floor under every strand: at a
-                mid navy its blue channel survives into the warm strands and
-                pulls them to a peachy tan (~0.39 saturation), while at this
-                depth they hold as orange (~0.63). It still reads as navy — the
-                hue is blue, it is simply dark. The 52% mid-stop is the value
-                that governs it; darken that first if the orange looks washed.
+            {/* 1 — The artwork. Scaled slightly so parallax translation never
+                   exposes an edge.
 
-                The radial is warm on purpose: it puts a source of light in the
-                composition, which is what keeps a flat ground from reading as
-                a black rectangle. */}
-            <div className="absolute inset-0 hidden bg-[radial-gradient(circle_at_72%_6%,rgba(190,95,30,0.18),transparent_38%),linear-gradient(150deg,#060a18_0%,#0b1026_52%,#050814_100%)] dark:block" />
-
-            {/* 2 — The ribbon. Scaled slightly so parallax translation never
-                   exposes an edge. */}
-            <div className="parallax-layer absolute inset-0">
-                <FlowingLines isDark={isDark} />
+                   A flat colour sits underneath matching each theme's artwork:
+                   it is what shows during the image's first paint and behind the
+                   crop on very tall viewports, so it has to be the artwork's own
+                   ground rather than the page background, or the seam shows. */}
+            <div
+                className="parallax-layer absolute inset-0"
+                style={{ backgroundColor: isDark ? '#0b1026' : '#fdfaf7' }}
+            >
+                <img
+                    src={isDark ? '/assets/img/dark.webp' : '/assets/img/light.webp'}
+                    alt=""
+                    width={1672}
+                    height={941}
+                    // Decoded off the main thread, and fetched early: this is the
+                    // largest thing on screen, so letting it arrive late is what
+                    // would read as a flash of empty background.
+                    decoding="async"
+                    fetchPriority="high"
+                    draggable={false}
+                    // `cover` keeps only a narrow vertical slice of this 16:9
+                    // artwork on a phone. That is fine here: at that width the
+                    // hero and the boards cover almost the whole viewport, so
+                    // the backdrop reads as a soft ground either way — biasing
+                    // the crop was tried and changed nothing visible.
+                    className="h-full w-full object-cover"
+                />
             </div>
 
-            {/* 3 — Vignette. Darkens (light: cools) the edges so the field's
+            {/* 2 — Vignette. Darkens (light: cools) the edges so the field's
                    brightest passages read as interior light rather than as
                    artwork running off the page. */}
             <div className="absolute inset-0 bg-[radial-gradient(ellipse_120%_86%_at_50%_32%,transparent_42%,rgba(170,150,125,0.18)_100%)] dark:bg-[radial-gradient(ellipse_125%_92%_at_50%_34%,transparent_48%,rgba(2,4,14,0.44)_100%)]" />
 
-            {/* 4 — Readability scrim, sized and placed to sit under the hero
-                   column only. The previous pass used a viewport-wide blur that
-                   also fell across the largest ribbon and desaturated it; the
-                   type needs contrast in one place, not everywhere. */}
+            {/* 3 — Readability scrim, sized and placed to sit under the hero
+                   column only. An earlier pass used a viewport-wide blur that
+                   also fell across the artwork and desaturated it; the type needs
+                   contrast in one place, not everywhere. */}
             <div
                 className="absolute inset-0 bg-[radial-gradient(ellipse_44%_32%_at_50%_var(--scrim-y),rgba(255,255,255,0.82),transparent_72%)] dark:bg-[radial-gradient(ellipse_46%_34%_at_50%_var(--scrim-y),rgba(7,11,26,0.62),transparent_72%)]"
                 style={{ opacity: scrimOpacity }}
             />
 
-            {/* 5 — Grain. */}
+            {/* 4 — Grain. */}
             <div
                 className="absolute inset-0 opacity-[0.035] mix-blend-overlay dark:opacity-[0.05]"
                 style={{ backgroundImage: GRAIN }}
