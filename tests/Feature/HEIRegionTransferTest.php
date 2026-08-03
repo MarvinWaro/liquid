@@ -297,16 +297,18 @@ test('both current and original processing RCs can manage historical records whi
 
     $liquidationService = app(LiquidationService::class);
     $formerOperationalQuery = Liquidation::query();
-    $formerReportingQuery = Liquidation::query();
-    $currentReportingQuery = Liquidation::query();
+    $formerLookupQuery = Liquidation::query();
+    $currentLookupQuery = Liquidation::query();
 
     $liquidationService->applyOperationalRoleScope($formerOperationalQuery, $formerRc);
-    $liquidationService->applyRoleScope($formerReportingQuery, $formerRc);
-    $liquidationService->applyRoleScope($currentReportingQuery, $currentRc);
+    $liquidationService->applyRoleScope($formerLookupQuery, $formerRc);
+    $liquidationService->applyRoleScope($currentLookupQuery, $currentRc);
 
+    // Exact-record lookup follows the policy, not report attribution: both sides
+    // of the transfer can still resolve the shared historical record.
     expect($formerOperationalQuery->pluck('id')->all())->toBe([$historical->id])
-        ->and($formerReportingQuery->exists())->toBeFalse()
-        ->and($currentReportingQuery->pluck('id')->sort()->values()->all())
+        ->and($formerLookupQuery->pluck('id')->all())->toBe([$historical->id])
+        ->and($currentLookupQuery->pluck('id')->sort()->values()->all())
         ->toBe(collect([$historical->id, $current->id])->sort()->values()->all());
 });
 

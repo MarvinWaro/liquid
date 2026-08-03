@@ -279,6 +279,30 @@ class DashboardController extends Controller
     }
 
     /**
+     * Restrict a dashboard query to the given regions, operationally.
+     *
+     * A region keeps the records it processed before an HEI was transferred
+     * away, and also picks up every record of the HEIs currently assigned to
+     * it. Both sides of a transfer therefore keep seeing the shared history,
+     * which is what the dashboard is for.
+     *
+     * Official reports deliberately use a narrower, non-overlapping scope so
+     * regional figures still sum to the correct national total — see
+     * LiquidationService::applyReportingRoleFilter().
+     *
+     * Callers must have joined `heis` before calling this.
+     *
+     * @param  list<string>  $regionIds
+     */
+    private function applyOperationalRegionFilter($query, array $regionIds): void
+    {
+        $query->where(function ($scope) use ($regionIds) {
+            $scope->whereIn('liquidations.processing_region_id', $regionIds)
+                ->orWhereIn('heis.region_id', $regionIds);
+        });
+    }
+
+    /**
      * Get program IDs grouped by fund source (UniFAST vs STuFAPs).
      * UniFAST: TES, TDP (top-level programs)
      * STuFAPs: all other programs
@@ -354,8 +378,8 @@ class DashboardController extends Controller
         }
 
         if ($regionIds) {
-            $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
-                ->whereIn('heis.region_id', $regionIds);
+            $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id');
+            $this->applyOperationalRegionFilter($query, $regionIds);
         }
 
         if ($programIds) {
@@ -416,7 +440,7 @@ class DashboardController extends Controller
         }
 
         if ($regionIds) {
-            $query->whereIn('heis.region_id', $regionIds);
+            $this->applyOperationalRegionFilter($query, $regionIds);
         }
 
         if ($programIds) {
@@ -496,8 +520,8 @@ class DashboardController extends Controller
         }
 
         if ($regionIds) {
-            $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
-                ->whereIn('heis.region_id', $regionIds);
+            $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id');
+            $this->applyOperationalRegionFilter($query, $regionIds);
         }
 
         if ($programIds) {
@@ -640,8 +664,8 @@ class DashboardController extends Controller
             ->whereNull('liquidations.deleted_at');
 
         if ($regionIds) {
-            $programStats->join('heis', 'liquidations.hei_id', '=', 'heis.id')
-                ->whereIn('heis.region_id', $regionIds);
+            $programStats->join('heis', 'liquidations.hei_id', '=', 'heis.id');
+            $this->applyOperationalRegionFilter($programStats, $regionIds);
         }
 
         if ($programIds) {
@@ -733,8 +757,8 @@ class DashboardController extends Controller
         $this->applyBaseExclusions($query);
 
         if ($regionIds) {
-            $query->join('heis', 'liquidations.hei_id', '=', 'heis.id')
-                ->whereIn('heis.region_id', $regionIds);
+            $query->join('heis', 'liquidations.hei_id', '=', 'heis.id');
+            $this->applyOperationalRegionFilter($query, $regionIds);
         }
         if ($programIds) {
             $query->whereIn('liquidations.program_id', $programIds);
@@ -849,8 +873,8 @@ class DashboardController extends Controller
         $query->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id');
 
         if ($user->region_id) {
-            $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id')
-                ->where('heis.region_id', $user->region_id);
+            $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id');
+            $this->applyOperationalRegionFilter($query, [$user->region_id]);
         }
 
         $stats = $query->where(function ($q) use ($user) {

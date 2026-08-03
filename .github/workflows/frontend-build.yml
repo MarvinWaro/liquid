@@ -1,0 +1,53 @@
+name: Frontend Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Install Laravel dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+        env:
+          VITE_APP_NAME: Liquidation
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v5
+        with:
+          name: frontend-build
+          path: public/build/
+          if-no-files-found: error
+          retention-days: 7
