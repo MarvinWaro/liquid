@@ -89,7 +89,7 @@ function officialAttributionScenario(): array
     return compact('formerRc', 'currentRc');
 }
 
-test('operational table totals retain historical access while official report totals follow current ownership', function () {
+test('operational table totals overlap across a transfer while official report totals stay non-overlapping', function () {
     $scenario = officialAttributionScenario();
     $service = app(LiquidationService::class);
 
@@ -110,40 +110,58 @@ test('operational table totals retain historical access while official report to
         'total_disbursed' => 3000.0,
         'total_liquidated' => 1900.0,
         'total_unliquidated' => 1100.0,
-    ])->and($formerOfficial['totals'])->toMatchArray([
-        'grantees' => 0,
-        'disbursements' => 0.0,
-        'liquidated' => 0.0,
-        'unliquidated' => 0.0,
-    ])->and($formerOfficial['programSummary'])->toBeEmpty()
+    ])
+        // Official reporting credits each record to the region that processed it:
+        // the former region keeps its own work, the current region reports only
+        // what it processed, and the two sum to the true national total.
+        ->and($formerOfficial['totals'])->toMatchArray([
+            'grantees' => 10,
+            'disbursements' => 1000.0,
+            'liquidated' => 400.0,
+            'unliquidated' => 600.0,
+        ])->and($formerOfficial['programSummary'])->toHaveCount(1)
+        ->and($formerOfficial['programSummary'][0])->toMatchArray([
+            'program_code' => 'ATTR-TES',
+            'count' => 1,
+            'grantees' => 10,
+            'disbursements' => 1000.0,
+            'liquidated' => 400.0,
+            'unliquidated' => 600.0,
+        ])
         ->and($currentOfficial['totals'])->toMatchArray([
-            'grantees' => 30,
-            'disbursements' => 3000.0,
-            'liquidated' => 1900.0,
-            'unliquidated' => 1100.0,
+            'grantees' => 20,
+            'disbursements' => 2000.0,
+            'liquidated' => 1500.0,
+            'unliquidated' => 500.0,
         ])->and($currentOfficial['programSummary'])->toHaveCount(1)
         ->and($currentOfficial['programSummary'][0])->toMatchArray([
             'program_code' => 'ATTR-TES',
-            'count' => 2,
-            'grantees' => 30,
-            'disbursements' => 3000.0,
-            'liquidated' => 1900.0,
-            'unliquidated' => 1100.0,
+            'count' => 1,
+            'grantees' => 20,
+            'disbursements' => 2000.0,
+            'liquidated' => 1500.0,
+            'unliquidated' => 500.0,
         ]);
+
+    // The defining property of the reporting scope: no record is counted twice.
+    expect($formerOfficial['totals']['disbursements'] + $currentOfficial['totals']['disbursements'])
+        ->toBe(3000.0);
 });
 
-test('regional dashboard totals attribute both historical and new records only to the current HEI region', function () {
+test('regional dashboard totals keep the former region its processed history while the current region sees everything', function () {
     $scenario = officialAttributionScenario();
 
+    // The former region processed one record before the transfer and must keep
+    // seeing it, rather than dropping to zero the moment the HEI moves away.
     $this->actingAs($scenario['formerRc'])
         ->get(route('dashboard'))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('dashboard')
-            ->where('totalStats', fn ($stats): bool =>
-                (int) $stats['total_liquidations'] === 0
-                && (float) $stats['total_disbursed'] === 0.0
-                && (float) $stats['total_liquidated'] === 0.0
+            ->where('totalStats', fn ($stats): bool => (int) $stats['total_liquidations'] === 1
+                && (float) $stats['total_disbursed'] === 1000.0
+                && (float) $stats['total_liquidated'] === 400.0
+                && (float) $stats['total_unliquidated'] === 600.0
             )
         );
 
@@ -152,8 +170,7 @@ test('regional dashboard totals attribute both historical and new records only t
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('dashboard')
-            ->where('totalStats', fn ($stats): bool =>
-                (int) $stats['total_liquidations'] === 2
+            ->where('totalStats', fn ($stats): bool => (int) $stats['total_liquidations'] === 2
                 && (float) $stats['total_disbursed'] === 3000.0
                 && (float) $stats['total_liquidated'] === 1900.0
                 && (float) $stats['total_unliquidated'] === 1100.0

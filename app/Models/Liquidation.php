@@ -673,12 +673,36 @@ class Liquidation extends Model
 
     /**
      * Operational scope for an RC. Official reports intentionally do not use it.
+     *
+     * Deliberately overlapping: after an HEI transfer both the former and the
+     * current region keep seeing the shared history so neither loses access to
+     * work in progress.
      */
     public function scopeManagedByRegion(Builder $query, string $regionId): Builder
     {
         return $query->where(function (Builder $scope) use ($regionId) {
             $scope->where('liquidations.processing_region_id', $regionId)
                 ->orWhereHas('hei', fn (Builder $hei) => $hei->where('region_id', $regionId));
+        });
+    }
+
+    /**
+     * Official reporting scope: credit each record to the region that processed
+     * it. Unlike managedByRegion() the result never overlaps across regions, so
+     * regional report figures still sum to the correct national total.
+     *
+     * Rows predating the processing-region backfill (and imports that could not
+     * resolve one) fall back to the HEI's current region so they are still
+     * reported somewhere rather than silently dropped.
+     */
+    public function scopeProcessedByRegion(Builder $query, string $regionId): Builder
+    {
+        return $query->where(function (Builder $scope) use ($regionId) {
+            $scope->where('liquidations.processing_region_id', $regionId)
+                ->orWhere(fn (Builder $legacy) => $legacy
+                    ->whereNull('liquidations.processing_region_id')
+                    ->whereHas('hei', fn (Builder $hei) => $hei->where('region_id', $regionId))
+                );
         });
     }
 

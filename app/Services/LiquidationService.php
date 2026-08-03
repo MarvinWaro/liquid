@@ -419,10 +419,15 @@ class LiquidationService
      * status filters. Use this for exact-record lookups (e.g. find by control
      * number) where the caller intends to surface the record regardless of its
      * liquidation status, but still bounded by the user's access scope.
+     *
+     * This is an access question, not an attribution one, so it uses the same
+     * operational scope as LiquidationPolicy: after an HEI transfer both the
+     * former and the current region can still look the record up. Using the
+     * reporting scope here would hide records the policy grants access to.
      */
     public function applyRoleScope(Builder $query, User $user): void
     {
-        $this->applyReportingRoleFilter($query, $user);
+        $this->applyOperationalRoleFilter($query, $user);
     }
 
     /**
@@ -462,14 +467,16 @@ class LiquidationService
         if ($roleName === 'HEI' && $user->hei_id) {
             $query->where('hei_id', $user->hei_id);
         } elseif ($roleName === 'Regional Coordinator' && $user->region_id) {
-            // Operational screens include legacy records originally processed by this RC region.
-            // Official reporting remains based solely on the HEI's current region.
+            // Operational screens are deliberately overlapping: both sides of an
+            // HEI transfer keep working on the shared history.
+            //
+            // Official reporting credits each record to the region that actually
+            // processed it, so a transfer neither erases the former region's work
+            // nor double-counts it when regional figures are summed nationally.
             if ($includeHistoricalProcessing) {
                 $query->managedByRegion($user->region_id);
             } else {
-                $query->whereHas('hei', function (Builder $q) use ($user) {
-                    $q->where('region_id', $user->region_id);
-                });
+                $query->processedByRegion($user->region_id);
             }
             $query->whereDoesntHave('program', function (Builder $q) {
                 $q->whereNotNull('parent_id');
