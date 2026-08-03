@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import AppLayout from '@/layouts/app-layout';
 import { Deferred, Head, router, usePage } from '@inertiajs/react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 import { type ShowPageProps, type TrackingEntry, type RunningDataEntry, parseNames, joinNames } from '@/types/liquidation';
 
@@ -25,6 +26,7 @@ import {
     ReturnToRCModal,
     EditLiquidationModal,
 } from '@/components/liquidations/endorsement-modals';
+import { History } from 'lucide-react';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Liquidation Management', href: route('liquidation.index') },
@@ -33,7 +35,6 @@ const breadcrumbs: BreadcrumbItem[] = [
 
 export default function Show({
     liquidation,
-    userHei,
     regionalCoordinators,
     accountants,
     documentLocations,
@@ -119,7 +120,7 @@ export default function Show({
         const onHashChange = () => scrollAndHighlight(window.location.hash);
         window.addEventListener('hashchange', onHashChange);
         return () => window.removeEventListener('hashchange', onHashChange);
-    }, []);
+    }, [initialHash]);
 
     // ── Modal state ──
     const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
@@ -308,6 +309,26 @@ export default function Show({
                     onEndorseClick={() => setIsEndorseModalOpen(true)}
                     onEndorseToCOAClick={() => setIsEndorseToCOAModalOpen(true)}
                 />
+
+                {!isHEIUser && liquidation.region_context && (
+                    <Alert className="mb-6 border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30">
+                        <History className="text-amber-700 dark:text-amber-400" />
+                        <AlertTitle>Historical regional processing record</AlertTitle>
+                        <AlertDescription>
+                            <p>
+                                This liquidation was originally processed by{' '}
+                                <strong className="text-foreground">
+                                    {liquidation.region_context.processing_region.name} ({liquidation.region_context.processing_region.code})
+                                </strong>
+                                . The HEI is now officially assigned to{' '}
+                                <strong className="text-foreground">
+                                    {liquidation.region_context.current_region.name} ({liquidation.region_context.current_region.code})
+                                </strong>
+                                . Both regions retain operational access to this historical record.
+                            </p>
+                        </AlertDescription>
+                    </Alert>
+                )}
 
                 {/* Details + Workflow Stepper */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6 items-stretch">

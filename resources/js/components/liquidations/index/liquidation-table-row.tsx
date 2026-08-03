@@ -34,7 +34,6 @@ interface LiquidationTableRowProps {
 
 export const LiquidationTableRow = React.memo(function LiquidationTableRow({
     liquidation,
-    index,
     canVoid,
     canReview,
     isSelected,
@@ -109,6 +108,17 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
                     </TooltipContent>
                 </Tooltip>
                 <div className="text-xs text-muted-foreground font-mono">{liquidation.uii}</div>
+                {liquidation.region_context && (
+                    <Badge
+                        variant="outline"
+                        className="mt-1 max-w-full border-amber-300 bg-amber-50 px-1.5 py-0 text-[10px] font-normal text-amber-800 shadow-none dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                        title={`Originally processed by ${liquidation.region_context.processing_region.name}; current official region is ${liquidation.region_context.current_region.name}`}
+                    >
+                        <span className="truncate">
+                            Previously processed by {liquidation.region_context.processing_region.name}
+                        </span>
+                    </Badge>
+                )}
             </TableCell>
             {/* Combined: Academic Year + Semester */}
             <TableCell className="py-3">

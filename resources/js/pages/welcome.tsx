@@ -477,8 +477,8 @@ export default function Welcome({
                                 {themeOptions.map((opt) => (
                                     <button
                                         key={opt.value}
-                                        onClick={() => {
-                                            updateAppearance(opt.value);
+                                        onClick={(event) => {
+                                            updateAppearance(opt.value, { x: event.clientX, y: event.clientY });
                                             setThemeMenuOpen(false);
                                         }}
                                         className="flex w-full items-center gap-2 px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent"

@@ -14,7 +14,7 @@ export function AppearanceToggle({ className = '' }: { className?: string }) {
             type="button"
             variant="ghost"
             size="icon"
-            onClick={() => updateAppearance(nextAppearance)}
+            onClick={(event) => updateAppearance(nextAppearance, { x: event.clientX, y: event.clientY })}
             className={cn('h-8 w-8', className)}
             aria-label={label}
             title={label}

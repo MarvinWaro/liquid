@@ -39,6 +39,26 @@ class Region extends Model
         return $this->hasMany(User::class);
     }
 
+    public function heis(): HasMany
+    {
+        return $this->hasMany(HEI::class);
+    }
+
+    public function processedLiquidations(): HasMany
+    {
+        return $this->hasMany(Liquidation::class, 'processing_region_id');
+    }
+
+    public function outgoingHeiTransfers(): HasMany
+    {
+        return $this->hasMany(HEIRegionTransfer::class, 'from_region_id');
+    }
+
+    public function incomingHeiTransfers(): HasMany
+    {
+        return $this->hasMany(HEIRegionTransfer::class, 'to_region_id');
+    }
+
     /**
      * Check if region is active.
      */

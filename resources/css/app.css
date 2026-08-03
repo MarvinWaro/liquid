@@ -257,3 +257,25 @@ html.density-compact [data-slot="table-head"] {
     50% { transform: translateX(60%); width: 60%; }
     100% { transform: translateX(200%); width: 40%; }
 }
+
+/*
+ * Light/dark toggle reveal. `use-appearance.tsx` drives the actual
+ * circle via a Web Animations API clip-path on ::view-transition-new(root);
+ * this just turns off the browser's default cross-fade for that pseudo-tree
+ * so it doesn't fight the circle. Scoped to `.theme-transition` (added only
+ * for the toggle) so Inertia's own page-navigation view transitions, which
+ * target the same root pseudo-elements, are left untouched.
+ */
+html.theme-transition::view-transition-old(root),
+html.theme-transition::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+}
+
+html.theme-transition::view-transition-old(root) {
+    z-index: 0;
+}
+
+html.theme-transition::view-transition-new(root) {
+    z-index: 1;
+}

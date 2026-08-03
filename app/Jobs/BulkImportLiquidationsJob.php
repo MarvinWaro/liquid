@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Exceptions\LiquidationImportValidationException;
 use App\Models\ActivityLog;
 use App\Models\ImportBatch;
 use App\Models\Notification;
@@ -57,33 +58,32 @@ class BulkImportLiquidationsJob implements ShouldQueue
         public readonly string $importToken,
         public readonly string $batchId,
         public readonly string $cacheKey,
-    ) {
-    }
+    ) {}
 
     public function handle(LiquidationImportService $importer): void
     {
         $batch = ImportBatch::find($this->batchId);
-        $user  = User::find($this->userId);
+        $user = User::find($this->userId);
 
-        if (!$batch || !$user) {
+        if (! $batch || ! $user) {
             Log::warning('BulkImportLiquidationsJob: batch or user missing; nothing to do.', [
                 'batch_id' => $this->batchId,
-                'user_id'  => $this->userId,
+                'user_id' => $this->userId,
             ]);
 
             return;
         }
 
         $fileCache = Cache::store('file');
-        $cached    = $fileCache->get($this->cacheKey);
+        $cached = $fileCache->get($this->cacheKey);
 
-        if (!$cached || !isset($cached['rows'])) {
+        if (! $cached || ! isset($cached['rows'])) {
             $this->markFailed($batch, 'The validated rows expired before the import could start. Please re-validate the file.');
 
             return;
         }
 
-        $rows   = $cached['rows'];
+        $rows = $cached['rows'];
         $errors = [];
 
         try {
@@ -100,10 +100,19 @@ class BulkImportLiquidationsJob implements ShouldQueue
                     $batch->increment('imported_count', $result['imported']);
                 }
             });
+        } catch (LiquidationImportValidationException $e) {
+            Log::warning('Bulk import stopped because validated ownership changed.', [
+                'batch_id' => $batch->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            $this->markFailed($batch, $e->getMessage());
+
+            return;
         } catch (\Throwable $e) {
             Log::error('BulkImportLiquidationsJob failed.', [
                 'batch_id' => $batch->id,
-                'error'    => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
 
             $this->markFailed($batch, 'The import stopped unexpectedly. Any rows already imported are kept — undo the batch to roll them back.');
@@ -147,14 +156,14 @@ class BulkImportLiquidationsJob implements ShouldQueue
         // notifications — useful, but not worth leaving a batch stuck in
         // `processing` over, which is what an unguarded failure here would do.
         $batch->update([
-            'status'        => 'active',
+            'status' => 'active',
             'failed_reason' => $errors === [] ? null : $this->summariseErrors($errors),
         ]);
 
         try {
             $fileCache = Cache::store('file');
             $fileCache->forget($this->cacheKey);
-            $fileCache->forget($this->cacheKey . '_ledgers');
+            $fileCache->forget($this->cacheKey.'_ledgers');
 
             $totalImported = (int) $batch->fresh()->imported_count;
 
@@ -179,27 +188,27 @@ class BulkImportLiquidationsJob implements ShouldQueue
             }
 
             $description = "{$user->name} bulk imported {$totalImported} liquidation record(s) from {$batch->file_name}";
-            $now         = now();
+            $now = now();
 
             Notification::insert($recipients->map(fn ($recipient) => [
-                'id'            => Str::uuid()->toString(),
-                'user_id'       => $recipient->id,
-                'actor_id'      => $user->id,
-                'actor_name'    => $user->name,
-                'action'        => 'bulk_imported',
-                'description'   => $description,
-                'subject_type'  => null,
-                'subject_id'    => null,
+                'id' => Str::uuid()->toString(),
+                'user_id' => $recipient->id,
+                'actor_id' => $user->id,
+                'actor_name' => $user->name,
+                'action' => 'bulk_imported',
+                'description' => $description,
+                'subject_type' => null,
+                'subject_id' => null,
                 'subject_label' => null,
-                'module'        => 'Liquidation',
-                'created_at'    => $now,
-                'updated_at'    => $now,
+                'module' => 'Liquidation',
+                'created_at' => $now,
+                'updated_at' => $now,
             ])->toArray());
         } catch (\Throwable $e) {
             // The rows are in and the batch is closed; the user is unaffected.
             Log::warning('Bulk import finished but post-import bookkeeping failed.', [
                 'batch_id' => $batch->id,
-                'error'    => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
         }
     }
@@ -212,7 +221,7 @@ class BulkImportLiquidationsJob implements ShouldQueue
     private function markFailed(ImportBatch $batch, string $reason): void
     {
         $batch->update([
-            'status'        => 'failed',
+            'status' => 'failed',
             'failed_reason' => $reason,
         ]);
     }

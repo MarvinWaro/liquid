@@ -131,8 +131,8 @@ export default function Login({
                             {themeOptions.map((option) => (
                                 <button
                                     key={option.value}
-                                    onClick={() => {
-                                        updateAppearance(option.value);
+                                    onClick={(event) => {
+                                        updateAppearance(option.value, { x: event.clientX, y: event.clientY });
                                         setThemeMenuOpen(false);
                                     }}
                                     className="flex w-full items-center gap-2 px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent"

@@ -9,6 +9,7 @@ use App\Models\Notification;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 class NotificationService
 {
@@ -43,12 +44,12 @@ class NotificationService
         ?Model $subject = null,
         ?string $module = null,
     ): void {
-        if (!in_array($action, self::NOTIFIABLE_ACTIONS)) {
+        if (! in_array($action, self::NOTIFIABLE_ACTIONS)) {
             return;
         }
 
         $actor = auth()->user();
-        if (!$actor) {
+        if (! $actor) {
             return;
         }
 
@@ -62,7 +63,7 @@ class NotificationService
         $subjectLabel = $subject ? self::resolveSubjectLabel($subject) : null;
 
         $rows = $recipients->map(fn (User $user) => [
-            'id' => \Illuminate\Support\Str::uuid()->toString(),
+            'id' => Str::uuid()->toString(),
             'user_id' => $user->id,
             'actor_id' => $actor->id,
             'actor_name' => $actor->name,
@@ -117,7 +118,7 @@ class NotificationService
         // HEI users tied to this liquidation's institution
         // Skip internal workflow actions (endorsements between RC/Accountant/COA)
         $internalActions = ['endorsed_to_accounting', 'endorsed_to_coa', 'returned_to_rc'];
-        if ($liquidation->hei_id && !in_array($action, $internalActions)) {
+        if ($liquidation->hei_id && ! in_array($action, $internalActions)) {
             $heiUsers = User::whereHas('role', fn ($q) => $q->where('name', 'HEI'))
                 ->where('hei_id', $liquidation->hei_id)
                 ->where('status', 'active')
@@ -129,9 +130,14 @@ class NotificationService
 
         // Regional Coordinators — only for non-STUFAPS liquidations
         // STUFAPS sub-program liquidations are managed by STUFAPS Focals, not RCs
-        if (!$isSTUFAPSProgram && $liquidation->hei?->region_id) {
+        if (! $isSTUFAPSProgram && ($liquidation->hei?->region_id || $liquidation->processing_region_id)) {
+            $regionIds = collect([
+                $liquidation->hei?->region_id,
+                $liquidation->processing_region_id,
+            ])->filter()->unique()->values()->all();
+
             $rcs = User::whereHas('role', fn ($q) => $q->where('name', 'Regional Coordinator'))
-                ->where('region_id', $liquidation->hei->region_id)
+                ->whereIn('region_id', $regionIds)
                 ->where('status', 'active')
                 ->get();
             $recipients = $recipients->merge($rcs);
@@ -177,7 +183,7 @@ class NotificationService
      */
     public static function backfillForNewHEIUser(User $heiUser): void
     {
-        if (!$heiUser->hei_id) {
+        if (! $heiUser->hei_id) {
             return;
         }
 
@@ -195,7 +201,7 @@ class NotificationService
             $actorName = $actor?->name ?? 'System';
 
             $rows[] = [
-                'id' => \Illuminate\Support\Str::uuid()->toString(),
+                'id' => Str::uuid()->toString(),
                 'user_id' => $heiUser->id,
                 'actor_id' => $actor?->id,
                 'actor_name' => $actorName,
@@ -219,7 +225,7 @@ class NotificationService
     private static function resolveSubjectLabel(Model $subject): ?string
     {
         foreach (['control_no', 'name', 'email', 'uii', 'code', 'file_name'] as $attr) {
-            if (!empty($subject->$attr)) {
+            if (! empty($subject->$attr)) {
                 return (string) $subject->$attr;
             }
         }

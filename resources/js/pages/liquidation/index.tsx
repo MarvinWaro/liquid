@@ -41,6 +41,7 @@ import { type BreadcrumbItem, type SharedData } from '@/types';
 
 import type { Liquidation, Program, HEIOption, AcademicYearOption, RcNoteStatusOption } from '@/components/liquidations/index/types';
 import { useReportQueue } from '@/hooks/use-report-queue';
+import { useDeferredRevalidation } from '@/hooks/use-deferred-revalidation';
 
 interface RegionOption {
     id: string;
@@ -134,6 +135,9 @@ function useStaleWhileRevalidate<T>(value: T | undefined): T | undefined {
     return ref.current;
 }
 
+/** Deferred props whose in-flight refreshes drive the "Refreshing" indicator. */
+const REFRESHABLE_PROPS = ['liquidations', 'pinnedLiquidations', 'tableSummary'] as const;
+
 export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10, tableSummary, programs, createPrograms, academicYears, rcNoteStatuses, heis, regions, filters, permissions, userRole }: Props) {
     const toArr = (v: string | string[] | undefined): string[] =>
         !v ? [] : Array.isArray(v) ? v : v === 'all' ? [] : [v];
@@ -191,6 +195,10 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const cachedPinned = useStaleWhileRevalidate(pinnedLiquidations);
     const cachedSummary = useStaleWhileRevalidate(tableSummary);
     const isRevalidating = !!cachedLiquidations && !liquidations;
+    // A partial refresh (history restore, pin toggle) keeps the previous data
+    // defined, so it needs its own signal — a lighter dim plus a badge, without
+    // the interaction lock a cold revalidation applies.
+    const isRefreshing = useDeferredRevalidation(REFRESHABLE_PROPS) && !isRevalidating;
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -769,7 +777,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
 
                             {/* Summary stats bar */}
                             {cachedSummary ? (
-                                <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4 transition-opacity duration-150 ${isRevalidating ? 'opacity-60' : ''}`}>
+                                <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4 transition-opacity duration-150 ${isRevalidating ? 'opacity-60' : isRefreshing ? 'opacity-70' : ''}`}>
                                     <div className="rounded-lg border bg-card p-3">
                                         <div className="flex items-center gap-1.5 mb-1">
                                             <FileBarChart2 className="h-3.5 w-3.5 text-blue-600" />
@@ -838,26 +846,38 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
 
                             {/* Table with stale-while-revalidate loading */}
                             {cachedLiquidations ? (
-                                <div className={`transition-opacity duration-150 ${isRevalidating ? 'opacity-60 pointer-events-none' : ''}`}>
-                                    <LiquidationTable
-                                        liquidations={cachedLiquidations}
-                                        pinnedLiquidations={cachedPinned}
-                                        pinLimit={pinLimit}
-                                        permissions={permissions}
-                                        selectedIds={selectedIds}
-                                        onSelect={handleSelect}
-                                        onSelectAll={handleSelectAll}
-                                        onVoid={handleVoid}
-                                        onRestore={handleRestore}
-                                        onEndorse={handleEndorseSingle}
-                                        onCreateSupportTicket={can.canCreateTicket ? handleCreateSupportTicket : undefined}
-                                        onTogglePin={handleTogglePin}
-                                        lastImportCount={lastImportCount}
-                                        onDismissImport={() => setLastImportCount(null)}
-                                        sortKey={sortKey}
-                                        sortDir={sortDir}
-                                        onSort={handleSort}
-                                    />
+                                <div className="relative">
+                                    {/* Overlaid so the refresh never shifts the table. */}
+                                    <div
+                                        className={`pointer-events-none absolute right-3 top-3 z-10 transition-opacity duration-150 ${isRefreshing ? 'opacity-100' : 'opacity-0'}`}
+                                        aria-live="polite"
+                                    >
+                                        <span className="inline-flex items-center gap-1.5 rounded-full border bg-card/95 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur-sm">
+                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                            Refreshing
+                                        </span>
+                                    </div>
+                                    <div className={`transition-opacity duration-150 ${isRevalidating ? 'opacity-60 pointer-events-none' : isRefreshing ? 'opacity-70' : ''}`}>
+                                        <LiquidationTable
+                                            liquidations={cachedLiquidations}
+                                            pinnedLiquidations={cachedPinned}
+                                            pinLimit={pinLimit}
+                                            permissions={permissions}
+                                            selectedIds={selectedIds}
+                                            onSelect={handleSelect}
+                                            onSelectAll={handleSelectAll}
+                                            onVoid={handleVoid}
+                                            onRestore={handleRestore}
+                                            onEndorse={handleEndorseSingle}
+                                            onCreateSupportTicket={can.canCreateTicket ? handleCreateSupportTicket : undefined}
+                                            onTogglePin={handleTogglePin}
+                                            lastImportCount={lastImportCount}
+                                            onDismissImport={() => setLastImportCount(null)}
+                                            sortKey={sortKey}
+                                            sortDir={sortDir}
+                                            onSort={handleSort}
+                                        />
+                                    </div>
                                 </div>
                             ) : (
                                 <LiquidationTableSkeleton />

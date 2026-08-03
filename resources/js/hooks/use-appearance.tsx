@@ -1,7 +1,11 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { flushSync } from 'react-dom';
 
 export type ResolvedAppearance = 'light' | 'dark';
 export type Appearance = ResolvedAppearance | 'system';
+
+/** Screen point (usually the click) the reveal circle grows from. */
+export type ThemeTransitionOrigin = { x: number; y: number };
 
 const listeners = new Set<() => void>();
 let currentAppearance: Appearance = 'light';
@@ -10,6 +14,12 @@ const prefersDark = (): boolean => {
     if (typeof window === 'undefined') return false;
 
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
+};
+
+const prefersReducedMotion = (): boolean => {
+    if (typeof window === 'undefined') return false;
+
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 };
 
 const setCookie = (name: string, value: string, days = 365): void => {
@@ -71,6 +81,53 @@ export function initializeTheme(): void {
     mediaQuery()?.addEventListener('change', handleSystemThemeChange);
 }
 
+// Marks the document for the duration of the theme's view transition so
+// `app.css` can disable the browser's default cross-fade without touching
+// Inertia's own page-navigation transitions, which target the same root.
+const THEME_TRANSITION_CLASS = 'theme-transition';
+
+/**
+ * Plays a "circle grows from the clicked point" reveal via the View
+ * Transitions API, then applies the theme change inside it. Browsers without
+ * support, and users who asked for reduced motion, get the instant switch.
+ */
+function runThemeTransition(apply: () => void, origin?: ThemeTransitionOrigin): void {
+    if (typeof document === 'undefined' || typeof document.startViewTransition !== 'function' || prefersReducedMotion()) {
+        apply();
+        return;
+    }
+
+    const { x, y } = origin ?? { x: window.innerWidth / 2, y: 0 };
+    const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+
+    document.documentElement.classList.add(THEME_TRANSITION_CLASS);
+
+    // The DOM mutation must land before the browser captures the "after"
+    // snapshot; flushSync forces the React-driven parts of it (e.g. the
+    // toggle button's icon) to commit synchronously instead of on React's
+    // own schedule.
+    const transition = document.startViewTransition(() => flushSync(apply));
+
+    transition.ready
+        .then(() =>
+            document.documentElement.animate(
+                {
+                    clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`],
+                },
+                {
+                    duration: 500,
+                    easing: 'ease-in-out',
+                    pseudoElement: '::view-transition-new(root)',
+                },
+            ),
+        )
+        .catch(() => {});
+
+    transition.finished.catch(() => {}).finally(() => {
+        document.documentElement.classList.remove(THEME_TRANSITION_CLASS);
+    });
+}
+
 export function useAppearance() {
     const appearance: Appearance = useSyncExternalStore(
         subscribe,
@@ -83,17 +140,28 @@ export function useAppearance() {
         [appearance],
     );
 
-    const updateAppearance = useCallback((mode: Appearance): void => {
-        currentAppearance = mode;
+    const updateAppearance = useCallback((mode: Appearance, origin?: ThemeTransitionOrigin): void => {
+        const apply = () => {
+            currentAppearance = mode;
 
-        // Store in localStorage for client-side persistence...
-        localStorage.setItem('appearance', mode);
+            // Store in localStorage for client-side persistence...
+            localStorage.setItem('appearance', mode);
 
-        // Store in cookie for SSR...
-        setCookie('appearance', mode);
+            // Store in cookie for SSR...
+            setCookie('appearance', mode);
 
-        applyTheme(mode);
-        notify();
+            applyTheme(mode);
+            notify();
+        };
+
+        // Re-selecting the theme that's already showing (e.g. "system" while
+        // the OS is already dark) has nothing to reveal — skip the animation.
+        if (isDarkMode(mode) === isDarkMode(currentAppearance)) {
+            apply();
+            return;
+        }
+
+        runThemeTransition(apply, origin);
     }, []);
 
     return { appearance, resolvedAppearance, updateAppearance } as const;

@@ -112,7 +112,7 @@ export default function AppearanceTabs({
                     <button
                         key={value}
                         type="button"
-                        onClick={() => updateAppearance(value)}
+                        onClick={(event) => updateAppearance(value, { x: event.clientX, y: event.clientY })}
                         className={cn(
                             'relative flex flex-col rounded-xl border-2 p-4 text-left transition-all',
                             isActive

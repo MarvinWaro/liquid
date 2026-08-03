@@ -46,9 +46,9 @@ class SupportTicketController extends Controller
         $query = $this->visibleTicketsQuery($user)
             ->with([
                 'requester:id,name,avatar',
-                'liquidation:id,control_no,hei_id,program_id,liquidation_status_id,document_status_id,rc_note_status_id',
-                'liquidation.hei:id,name',
-                'liquidation.program:id,code,name',
+                'liquidation:id,control_no,hei_id,program_id,processing_region_id,liquidation_status_id,document_status_id,rc_note_status_id',
+                'liquidation.hei:id,name,region_id',
+                'liquidation.program:id,code,name,parent_id',
                 'liquidation.liquidationStatus:id,name,code',
             ])
             ->withCount('messages')
@@ -81,9 +81,9 @@ class SupportTicketController extends Controller
         $validated = $request->validated();
 
         $liquidation = null;
-        if (!empty($validated['liquidation_id'])) {
+        if (! empty($validated['liquidation_id'])) {
             $liquidation = Liquidation::find($validated['liquidation_id']);
-            if (!$liquidation || !$this->canAccessLiquidation($user, $liquidation)) {
+            if (! $liquidation || ! $this->canAccessLiquidation($user, $liquidation)) {
                 throw ValidationException::withMessages([
                     'liquidation_id' => 'The selected liquidation is not available to your account.',
                 ]);
@@ -129,12 +129,12 @@ class SupportTicketController extends Controller
     public function reply(ReplySupportTicketRequest $request, SupportTicket $supportTicket): RedirectResponse
     {
         $user = $request->user();
-        if (!$this->canViewTicket($user, $supportTicket)) {
+        if (! $this->canViewTicket($user, $supportTicket)) {
             abort(403, 'You cannot reply to this ticket.');
         }
 
         if ($supportTicket->status === SupportTicket::STATUS_RESOLVED
-            && !$this->canManageTicket($user, $supportTicket)) {
+            && ! $this->canManageTicket($user, $supportTicket)) {
             abort(403, 'This ticket has been resolved and is closed for replies.');
         }
 
@@ -169,14 +169,14 @@ class SupportTicketController extends Controller
     public function updateStatus(UpdateSupportTicketStatusRequest $request, SupportTicket $supportTicket): RedirectResponse
     {
         $user = $request->user();
-        if (!$this->canViewTicket($user, $supportTicket)) {
+        if (! $this->canViewTicket($user, $supportTicket)) {
             abort(403, 'You cannot update this ticket.');
         }
 
         $validated = $request->validated();
         $remarks = trim((string) ($validated['remarks'] ?? ''));
 
-        if (!$this->canManageTicket($user, $supportTicket)) {
+        if (! $this->canManageTicket($user, $supportTicket)) {
             abort(403, 'Only support staff can update this ticket\'s status.');
         }
 
@@ -240,9 +240,9 @@ class SupportTicketController extends Controller
                 'requester:id,name,avatar',
                 'assignee:id,name',
                 'resolver:id,name',
-                'liquidation:id,control_no,hei_id,program_id,liquidation_status_id,document_status_id,rc_note_status_id',
-                'liquidation.hei:id,name',
-                'liquidation.program:id,code,name',
+                'liquidation:id,control_no,hei_id,program_id,processing_region_id,liquidation_status_id,document_status_id,rc_note_status_id',
+                'liquidation.hei:id,name,region_id',
+                'liquidation.program:id,code,name,parent_id',
                 'liquidation.documentStatus:id,name,code',
                 'liquidation.rcNoteStatus:id,name,code',
                 'liquidation.liquidationStatus:id,name,code',
@@ -293,11 +293,11 @@ class SupportTicketController extends Controller
             $query->where('status', $status);
         }
 
-        if (!empty($filters['category']) && $filters['category'] !== 'all') {
+        if (! empty($filters['category']) && $filters['category'] !== 'all') {
             $query->where('category', $filters['category']);
         }
 
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $search = trim((string) $filters['search']);
             $query->where(function (Builder $q) use ($search) {
                 $q->where('ticket_number', 'like', "%{$search}%")
@@ -337,7 +337,7 @@ class SupportTicketController extends Controller
 
     private function canAccessLiquidation(User $user, ?Liquidation $liquidation): bool
     {
-        if (!$liquidation) {
+        if (! $liquidation) {
             return false;
         }
 
@@ -358,8 +358,7 @@ class SupportTicketController extends Controller
         if ($roleName === 'HEI' && $user->hei_id) {
             $query->where('hei_id', $user->hei_id);
         } elseif ($roleName === 'Regional Coordinator' && $user->region_id) {
-            $query->whereHas('hei', fn (Builder $q) => $q->where('region_id', $user->region_id))
-                ->whereDoesntHave('program', fn (Builder $q) => $q->whereNotNull('parent_id'));
+            $this->scopeRegionalCoordinatorLiquidations($query, $user->region_id);
         } elseif ($roleName === 'STUFAPS Focal') {
             $scopedProgramIds = $user->getParentScopedProgramIds();
             $scopedProgramIds
@@ -379,11 +378,11 @@ class SupportTicketController extends Controller
         $query = Liquidation::query()
             ->with([
                 'hei:id,name',
-                'program:id,code,name',
+                'program:id,code,name,parent_id',
                 'documentStatus:id,name',
                 'liquidationStatus:id,name',
             ])
-            ->select('id', 'control_no', 'hei_id', 'program_id', 'document_status_id', 'liquidation_status_id', 'updated_at')
+            ->select('id', 'control_no', 'hei_id', 'program_id', 'processing_region_id', 'document_status_id', 'liquidation_status_id', 'updated_at')
             ->orderByDesc('updated_at')
             ->limit(250);
 
@@ -498,7 +497,7 @@ class SupportTicketController extends Controller
         $ticket->loadMissing('requester.role');
         $requester = $ticket->requester;
 
-        if (!$requester || $requester->role?->name !== 'HEI' || !$requester->hei_id) {
+        if (! $requester || $requester->role?->name !== 'HEI' || ! $requester->hei_id) {
             return collect();
         }
 
@@ -517,7 +516,7 @@ class SupportTicketController extends Controller
 
         $ticket->loadMissing(['liquidation.hei', 'liquidation.program']);
         $liquidation = $ticket->liquidation;
-        if (!$liquidation) {
+        if (! $liquidation) {
             return $recipients;
         }
 
@@ -530,9 +529,10 @@ class SupportTicketController extends Controller
             return $recipients->merge($focals)->unique('id')->values();
         }
 
-        if ($liquidation->hei?->region_id) {
+        $regionIds = $this->operationalRegionIds($liquidation);
+        if ($regionIds !== []) {
             $rcs = User::whereHas('role', fn (Builder $q) => $q->where('name', 'Regional Coordinator'))
-                ->where('region_id', $liquidation->hei->region_id)
+                ->whereIn('region_id', $regionIds)
                 ->where('status', 'active')
                 ->get();
 
@@ -540,6 +540,26 @@ class SupportTicketController extends Controller
         }
 
         return $recipients;
+    }
+
+    /**
+     * Regional coordinators retain operational access to records originally
+     * processed by their region, while the HEI's current region gains access.
+     */
+    private function scopeRegionalCoordinatorLiquidations(Builder $query, string $regionId): void
+    {
+        $query->where(function (Builder $regionQuery) use ($regionId): void {
+            $regionQuery->where('processing_region_id', $regionId)
+                ->orWhereHas('hei', fn (Builder $heiQuery) => $heiQuery->where('region_id', $regionId));
+        })->whereDoesntHave('program', fn (Builder $programQuery) => $programQuery->whereNotNull('parent_id'));
+    }
+
+    private function operationalRegionIds(Liquidation $liquidation): array
+    {
+        return collect([
+            $liquidation->hei?->region_id,
+            $liquidation->processing_region_id,
+        ])->filter()->unique()->values()->all();
     }
 
     private function notifyTicketCreated(SupportTicket $ticket, User $actor): void
