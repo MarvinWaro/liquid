@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Models\AcademicYear;
 use App\Models\AcademicYearDocumentRequirement;
 use App\Models\ComplianceStatus;
 use App\Models\DocumentRequirement;
@@ -26,7 +27,9 @@ class CacheService
      * Default cache TTL in seconds (1 hour).
      */
     public const TTL_SHORT = 300;      // 5 minutes
+
     public const TTL_MEDIUM = 3600;    // 1 hour
+
     public const TTL_LONG = 86400;     // 24 hours
 
     /**
@@ -92,6 +95,7 @@ class CacheService
         // Mark each program as selectable (leaf) or group-only (parent)
         return $all->map(function ($program) {
             $program->is_selectable = ($program->children_count ?? 0) === 0;
+
             return $program;
         });
     }
@@ -113,7 +117,7 @@ class CacheService
      */
     public function getHEIByUII(string $uii): ?HEI
     {
-        $cacheKey = 'hei:uii:' . strtolower($uii);
+        $cacheKey = 'hei:uii:'.strtolower($uii);
 
         return Cache::remember($cacheKey, self::TTL_MEDIUM, function () use ($uii) {
             return HEI::where('uii', $uii)->first()
@@ -124,18 +128,24 @@ class CacheService
     /**
      * Get Regional Coordinators (cached).
      */
-    public function getRegionalCoordinators(?string $regionId = null): Collection
+    public function getRegionalCoordinators(string|array|null $regionIds = null): Collection
     {
         $all = Cache::remember('users:regional_coordinators', self::TTL_SHORT, function () {
             return User::whereHas('role', function ($q) {
                 $q->where('name', 'Regional Coordinator');
             })->where('status', 'active')
-              ->orderBy('name')
-              ->get(['id', 'name', 'avatar', 'region_id']);
+                ->orderBy('name')
+                ->get(['id', 'name', 'avatar', 'region_id']);
         });
 
-        if ($regionId) {
-            return $all->where('region_id', $regionId)->values();
+        if ($regionIds !== null) {
+            $regionIds = collect(is_array($regionIds) ? $regionIds : [$regionIds])
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            return $all->whereIn('region_id', $regionIds)->values();
         }
 
         return $all;
@@ -150,8 +160,8 @@ class CacheService
             return User::whereHas('role', function ($q) {
                 $q->where('name', 'Accountant');
             })->where('status', 'active')
-              ->orderBy('name')
-              ->get(['id', 'name', 'avatar']);
+                ->orderBy('name')
+                ->get(['id', 'name', 'avatar']);
         });
     }
 
@@ -206,7 +216,7 @@ class CacheService
      */
     public function getDocumentRequirementsForAY(string $programId, ?string $academicYearId): Collection
     {
-        if (!$academicYearId) {
+        if (! $academicYearId) {
             return $this->getDocumentRequirements($programId);
         }
 
@@ -236,9 +246,10 @@ class CacheService
                     $override = $overrides->get($req->id);
                     if ($override) {
                         $req->is_required = $override->is_required;
-                        $req->is_active   = $override->is_active;
-                        $req->sort_order  = $override->sort_order;
+                        $req->is_active = $override->is_active;
+                        $req->sort_order = $override->sort_order;
                     }
+
                     return $req;
                 })
                 ->filter(fn ($req) => $req->is_active)
@@ -267,7 +278,7 @@ class CacheService
         Cache::forget("lookup:document_requirements:{$programId}");
 
         // Clear AY-scoped caches for this program
-        $academicYearIds = \App\Models\AcademicYear::pluck('id');
+        $academicYearIds = AcademicYear::pluck('id');
         foreach ($academicYearIds as $ayId) {
             Cache::forget("lookup:document_requirements:{$programId}:ay:{$ayId}");
         }
@@ -304,7 +315,7 @@ class CacheService
         Cache::forget('lookup:heis');
 
         if ($uii) {
-            Cache::forget('hei:uii:' . strtolower($uii));
+            Cache::forget('hei:uii:'.strtolower($uii));
         }
     }
 

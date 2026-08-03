@@ -1,4 +1,5 @@
 import { HEIModal } from '@/components/hei/hei-modal';
+import type { HEIRegionTransfer } from '@/components/hei/hei-region-transfer-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DeletePopover } from '@/components/ui/delete-popover';
@@ -41,6 +42,7 @@ interface HEI {
         code: string;
         name: string;
     } | null;
+    region_transfers?: HEIRegionTransfer[];
     status: string;
     created_at: string;
 }
@@ -56,6 +58,7 @@ interface Props {
     regions: Region[];
     canCreate: boolean;
     canEdit: boolean;
+    canTransfer: boolean;
     canDelete: boolean;
 }
 
@@ -69,6 +72,7 @@ export default function Index({
     regions,
     canCreate,
     canEdit,
+    canTransfer,
     canDelete,
 }: Props) {
     const getInitials = useInitials();
@@ -129,7 +133,7 @@ export default function Index({
         currentPage * perPage,
     );
 
-    const getTypeBadgeColor = (_type: string) => {
+    const getTypeBadgeColor = () => {
         return 'border-border bg-muted text-foreground';
     };
 
@@ -170,6 +174,7 @@ export default function Index({
                     onClose={() => setIsModalOpen(false)}
                     hei={selectedHEI}
                     regions={regions}
+                    canTransfer={canTransfer}
                 />
 
                 <div className="w-full py-8">
@@ -346,7 +351,7 @@ export default function Index({
                                             <TableCell>
                                                 <Badge
                                                     variant="outline"
-                                                    className={`${getTypeBadgeColor(hei.type)} font-medium`}
+                                                    className={`${getTypeBadgeColor()} font-medium`}
                                                     title={getFullTypeName(
                                                         hei.type,
                                                     )}

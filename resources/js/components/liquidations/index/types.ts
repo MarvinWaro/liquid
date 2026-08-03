@@ -1,3 +1,5 @@
+import type { LiquidationRegionContext } from '@/types/liquidation';
+
 export interface Program {
     id: string;
     name: string;
@@ -30,6 +32,7 @@ export interface Liquidation {
     is_voided: boolean;
     is_endorsed: boolean;
     is_pinned: boolean;
+    region_context?: LiquidationRegionContext;
 }
 
 export interface HEIOption {

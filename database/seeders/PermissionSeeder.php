@@ -31,6 +31,7 @@ class PermissionSeeder extends Seeder
                 ['name' => 'view_hei', 'description' => 'View HEI list'],
                 ['name' => 'create_hei', 'description' => 'Create new HEI'],
                 ['name' => 'edit_hei', 'description' => 'Edit existing HEI'],
+                ['name' => 'transfer_hei_region', 'description' => 'Transfer an HEI to another region'],
                 ['name' => 'delete_hei', 'description' => 'Delete HEI'],
                 ['name' => 'sync_hei_api', 'description' => 'Sync HEI from API'],
             ],
@@ -130,7 +131,7 @@ class PermissionSeeder extends Seeder
         $this->createExampleRole('Admin', 'System administrator', [
             'view_roles', 'create_roles', 'edit_roles', 'delete_roles',
             'view_users', 'create_users', 'edit_users', 'delete_users', 'change_user_status',
-            'view_hei', 'create_hei', 'edit_hei', 'delete_hei', 'sync_hei_api',
+            'view_hei', 'create_hei', 'edit_hei', 'transfer_hei_region', 'delete_hei', 'sync_hei_api',
             'view_regions', 'create_regions', 'edit_regions', 'delete_regions',
             'view_liquidation', 'create_liquidation', 'edit_liquidation', 'delete_liquidation',
             'view_programs', 'create_programs', 'edit_programs', 'delete_programs',

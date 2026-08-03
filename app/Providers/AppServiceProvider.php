@@ -3,10 +3,13 @@
 namespace App\Providers;
 
 use App\Models\ImportBatch;
+use App\Models\Liquidation;
 use App\Models\LiquidationDocument;
 use App\Observers\ImportBatchObserver;
 use App\Observers\LiquidationDocumentObserver;
+use App\Policies\LiquidationPolicy;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -24,6 +27,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Gate::policy(Liquidation::class, LiquidationPolicy::class);
+
         // Auto-delete persisted S3 files when their owning row is deleted.
         // Catches deletes from any path: model->delete(), cascade, factory
         // tearDown, raw queries dispatched through Eloquent, etc.

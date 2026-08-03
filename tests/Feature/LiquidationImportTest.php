@@ -6,11 +6,15 @@ use App\Models\HEI;
 use App\Models\ImportBatch;
 use App\Models\Liquidation;
 use App\Models\LiquidationFinancial;
+use App\Models\Permission;
 use App\Models\Program;
 use App\Models\Region;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\DashboardCache;
+use App\Services\HEIRegionTransferService;
+use App\Services\LiquidationImportService;
+use App\Services\LiquidationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -43,21 +47,21 @@ function importReferenceData(): array
 
     return [
         'hei' => HEI::create([
-            'uii'       => '12345',
-            'code'      => 'TESTHEI',
-            'name'      => 'Test College',
-            'type'      => 'Private',
+            'uii' => '12345',
+            'code' => 'TESTHEI',
+            'name' => 'Test College',
+            'type' => 'Private',
             'region_id' => $region->id,
-            'status'    => 'active',
+            'status' => 'active',
         ]),
         'program' => Program::create(['code' => 'TES', 'name' => 'Tertiary Education Subsidy', 'status' => 'active']),
         'academicYear' => AcademicYear::create([
-            'code'       => '2025-2026',
-            'name'       => 'AY 2025-2026',
+            'code' => '2025-2026',
+            'name' => 'AY 2025-2026',
             'start_date' => '2025-08-01',
-            'end_date'   => '2026-07-31',
+            'end_date' => '2026-07-31',
             'sort_order' => 1,
-            'is_active'  => true,
+            'is_active' => true,
         ]),
     ];
 }
@@ -68,22 +72,22 @@ function importReferenceData(): array
 function importRow(int $row, string $controlNo = '', string $uii = '12345'): array
 {
     return [
-        'row'                => $row,
-        'seq'                => (string) $row,
-        'program'            => 'TES',
-        'uii'                => $uii,
-        'hei_name'           => 'Test College',
-        'academic_year'      => '2025-2026',
-        'semester'           => '1ST',
-        'batch_no'           => '1',
-        'control_no'         => $controlNo,
-        'grantees'           => '10',
-        'disbursements'      => '100000',
-        'amount_liquidated'  => '0',
+        'row' => $row,
+        'seq' => (string) $row,
+        'program' => 'TES',
+        'uii' => $uii,
+        'hei_name' => 'Test College',
+        'academic_year' => '2025-2026',
+        'semester' => '1ST',
+        'batch_no' => '1',
+        'control_no' => $controlNo,
+        'grantees' => '10',
+        'disbursements' => '100000',
+        'amount_liquidated' => '0',
         'date_fund_released' => '2026-05-28',
-        'due_date'           => '',
-        'doc_status'         => '',
-        'rc_notes'           => '',
+        'due_date' => '',
+        'doc_status' => '',
+        'rc_notes' => '',
     ];
 }
 
@@ -93,27 +97,27 @@ function importRow(int $row, string $controlNo = '', string $uii = '12345'): arr
 function importableRow(array $refs, int $row): array
 {
     return [
-        'hei_id'                => $refs['hei']->id,
-        'hei_name'              => 'Test College',
-        'program_id'            => $refs['program']->id,
-        'academic_year_id'      => $refs['academicYear']->id,
-        'semester_id'           => null,
-        'batch_no'              => '1',
-        'document_status_id'    => null,
-        'rc_note_status_id'     => null,
+        'hei_id' => $refs['hei']->id,
+        'hei_name' => 'Test College',
+        'program_id' => $refs['program']->id,
+        'academic_year_id' => $refs['academicYear']->id,
+        'semester_id' => null,
+        'batch_no' => '1',
+        'document_status_id' => null,
+        'rc_note_status_id' => null,
         'liquidation_status_id' => null,
-        'explicit_control_no'   => null,
-        'date_fund_released'    => '2026-05-28',
-        'due_date'              => '2026-08-26',
-        'number_of_grantees'    => 10,
-        'ledger_breakdown'      => null,
-        'amount_received'       => 100000,
-        'amount_disbursed'      => 100000,
-        'amount_liquidated'     => 0,
-        'row_no'                => $row + 1,
-        'seq'                   => (string) $row,
-        'program_code'          => 'TES',
-        'uii'                   => '12345',
+        'explicit_control_no' => null,
+        'date_fund_released' => '2026-05-28',
+        'due_date' => '2026-08-26',
+        'number_of_grantees' => 10,
+        'ledger_breakdown' => null,
+        'amount_received' => 100000,
+        'amount_disbursed' => 100000,
+        'amount_liquidated' => 0,
+        'row_no' => $row + 1,
+        'seq' => (string) $row,
+        'program_code' => 'TES',
+        'uii' => '12345',
     ];
 }
 
@@ -125,7 +129,7 @@ test('the import token stays a uuid when rows carry control numbers', function (
     $this->actingAs(importUser());
 
     $response = $this->postJson(route('liquidation.validate-parsed-import'), [
-        'rows'      => [importRow(2, 'TES-2026-0001')],
+        'rows' => [importRow(2, 'TES-2026-0001')],
         'file_name' => 'import.xlsx',
     ])->assertOk();
 
@@ -139,7 +143,7 @@ test('chunks accumulate under one token instead of overwriting each other', func
     importReferenceData();
 
     $first = $this->postJson(route('liquidation.validate-parsed-import'), [
-        'rows'      => [importRow(2, 'TES-2026-0001'), importRow(3, 'TES-2026-0002')],
+        'rows' => [importRow(2, 'TES-2026-0001'), importRow(3, 'TES-2026-0002')],
         'file_name' => 'import.xlsx',
     ])->assertOk();
 
@@ -148,9 +152,9 @@ test('chunks accumulate under one token instead of overwriting each other', func
         ->and($first->json('row_count'))->toBe(2);
 
     $second = $this->postJson(route('liquidation.validate-parsed-import'), [
-        'rows'             => [importRow(4, 'TES-2026-0003')],
-        'file_name'        => 'import.xlsx',
-        'import_token'     => $token,
+        'rows' => [importRow(4, 'TES-2026-0003')],
+        'file_name' => 'import.xlsx',
+        'import_token' => $token,
         'seen_control_nos' => $first->json('seen_control_nos'),
     ])->assertOk();
 
@@ -163,7 +167,7 @@ test('a continuation chunk with an unknown token is rejected', function () {
     $this->actingAs(importUser());
 
     $this->postJson(route('liquidation.validate-parsed-import'), [
-        'rows'         => [importRow(2)],
+        'rows' => [importRow(2)],
         'import_token' => Str::uuid()->toString(),
     ])
         ->assertStatus(422)
@@ -174,7 +178,7 @@ test('a non-uuid import token is rejected by both import endpoints', function ()
     $this->actingAs(importUser());
 
     $this->postJson(route('liquidation.validate-parsed-import'), [
-        'rows'         => [importRow(2)],
+        'rows' => [importRow(2)],
         'import_token' => 'TES-2026-0001',
     ])->assertStatus(422);
 
@@ -192,8 +196,8 @@ test('within-file duplicate ledgers are still flagged across chunks', function (
     ])->assertOk();
 
     $second = $this->postJson(route('liquidation.validate-parsed-import'), [
-        'rows'             => [importRow(3, 'TES-2026-0001')],
-        'import_token'     => $first->json('token'),
+        'rows' => [importRow(3, 'TES-2026-0001')],
+        'import_token' => $first->json('token'),
         'seen_control_nos' => $first->json('seen_control_nos'),
     ])->assertOk();
 
@@ -204,21 +208,21 @@ test('within-file duplicate ledgers are still flagged across chunks', function (
 // ── Preflight reconciliation ──────────────────────────────────────────────────
 
 test('the import aborts before writing when the cache no longer matches the preview', function () {
-    $user  = importUser();
+    $user = importUser();
     $token = Str::uuid()->toString();
 
     // Two cached rows, but the client approved a preview of five.
     Cache::store('file')->put("liquidation_import_{$user->id}_{$token}", [
-        'user_id'   => $user->id,
+        'user_id' => $user->id,
         'file_name' => 'import.xlsx',
-        'rows'      => [['row_no' => 2], ['row_no' => 3]],
+        'rows' => [['row_no' => 2], ['row_no' => 3]],
     ], now()->addMinutes(30));
 
     $this->actingAs($user)
         ->postJson(route('liquidation.bulk-import'), [
-            'import_token'  => $token,
-            'offset'        => 0,
-            'limit'         => 200,
+            'import_token' => $token,
+            'offset' => 0,
+            'limit' => 200,
             'expected_rows' => 5,
         ])
         ->assertStatus(422)
@@ -237,21 +241,23 @@ test('an import matching the preview is queued and completes', function () {
 
     $token = Str::uuid()->toString();
     Cache::store('file')->put("liquidation_import_{$user->id}_{$token}", [
-        'user_id'   => $user->id,
+        'user_id' => $user->id,
         'file_name' => 'import.xlsx',
-        'rows'      => [importableRow($refs, 1)],
+        'rows' => [importableRow($refs, 1)],
     ], now()->addMinutes(30));
 
     $response = $this->actingAs($user)
         ->postJson(route('liquidation.bulk-import'), [
-            'import_token'  => $token,
+            'import_token' => $token,
             'expected_rows' => 1,
         ])
         ->assertOk()
         ->assertJsonPath('success', true)
         ->assertJsonPath('total_rows', 1);
 
-    expect(Liquidation::count())->toBe(1);
+    $liquidation = Liquidation::sole();
+    expect(Liquidation::count())->toBe(1)
+        ->and($liquidation->processing_region_id)->toBe($refs['hei']->region_id);
 
     $batch = ImportBatch::find($response->json('batch_id'));
     expect($batch->status)->toBe(ImportBatch::STATUS_ACTIVE)
@@ -270,14 +276,14 @@ test('the import is dispatched to the queue rather than run in the request', fun
 
     $token = Str::uuid()->toString();
     Cache::store('file')->put("liquidation_import_{$user->id}_{$token}", [
-        'user_id'   => $user->id,
+        'user_id' => $user->id,
         'file_name' => 'import.xlsx',
-        'rows'      => [importableRow($refs, 1)],
+        'rows' => [importableRow($refs, 1)],
     ], now()->addMinutes(30));
 
     $response = $this->actingAs($user)
         ->postJson(route('liquidation.bulk-import'), [
-            'import_token'  => $token,
+            'import_token' => $token,
             'expected_rows' => 1,
         ])
         ->assertOk();
@@ -295,6 +301,76 @@ test('the import is dispatched to the queue rather than run in the request', fun
     );
 });
 
+test('a regional import is rejected when the hei transfers after validation but before the queued job runs', function () {
+    Queue::fake();
+
+    $refs = importReferenceData();
+    $barmm = Region::create([
+        'code' => 'BARMM',
+        'name' => 'Bangsamoro Autonomous Region in Muslim Mindanao',
+        'status' => 'active',
+    ]);
+    $role = Role::create([
+        'name' => 'Regional Coordinator',
+        'description' => 'Regional Coordinator',
+    ]);
+    $user = User::factory()->create([
+        'role_id' => $role->id,
+        'region_id' => $refs['hei']->region_id,
+        'status' => 'active',
+    ]);
+
+    $token = Str::uuid()->toString();
+    Cache::store('file')->put("liquidation_import_{$user->id}_{$token}", [
+        'user_id' => $user->id,
+        'file_name' => 'region-12-import.xlsx',
+        'rows' => [importableRow($refs, 1)],
+    ], now()->addMinutes(30));
+
+    $batchId = $this->actingAs($user)
+        ->postJson(route('liquidation.bulk-import'), [
+            'import_token' => $token,
+            'expected_rows' => 1,
+        ])
+        ->assertOk()
+        ->json('batch_id');
+
+    $queuedJob = null;
+    Queue::assertPushed(BulkImportLiquidationsJob::class, function (BulkImportLiquidationsJob $job) use (&$queuedJob) {
+        $queuedJob = $job;
+
+        return true;
+    });
+
+    // The preview was valid for Region XII, but ownership changed before a worker
+    // picked it up. The worker must re-check current ownership at insert time.
+    $adminRole = Role::create(['name' => 'Admin', 'description' => 'Admin']);
+    $adminRole->permissions()->attach(
+        Permission::where('name', 'transfer_hei_region')->value('id'),
+    );
+    $admin = User::factory()->create(['role_id' => $adminRole->id, 'status' => 'active']);
+
+    $this->actingAs($admin);
+    app(HEIRegionTransferService::class)->update(
+        $refs['hei'],
+        ['region_id' => $barmm->id],
+        $admin,
+        [
+            'effective_date' => now()->toDateString(),
+            'reason' => 'Ownership changed before the queued import executed.',
+            'memo_reference' => 'TEST-MEMO',
+        ],
+    );
+    $queuedJob->handle(app(LiquidationImportService::class));
+
+    $batch = ImportBatch::findOrFail($batchId);
+    expect(Liquidation::withTrashed()->count())->toBe(0)
+        ->and($batch->status)->toBe(ImportBatch::STATUS_FAILED)
+        ->and($batch->imported_count)->toBe(0)
+        ->and($batch->failed_reason)->toContain('transferred')
+        ->and($batch->failed_reason)->toContain('re-validate');
+});
+
 test('progress for an in-flight import is resumable without knowing the batch id', function () {
     // This is what lets a refreshed page re-attach to a running import.
     Queue::fake();
@@ -304,13 +380,13 @@ test('progress for an in-flight import is resumable without knowing the batch id
 
     $token = Str::uuid()->toString();
     Cache::store('file')->put("liquidation_import_{$user->id}_{$token}", [
-        'user_id'   => $user->id,
+        'user_id' => $user->id,
         'file_name' => 'import.xlsx',
-        'rows'      => [importableRow($refs, 1), importableRow($refs, 2)],
+        'rows' => [importableRow($refs, 1), importableRow($refs, 2)],
     ], now()->addMinutes(30));
 
     $this->actingAs($user)->postJson(route('liquidation.bulk-import'), [
-        'import_token'  => $token,
+        'import_token' => $token,
         'expected_rows' => 2,
     ])->assertOk();
 
@@ -331,14 +407,14 @@ test('a finished import is not rediscovered without a batch id', function () {
 
     $token = Str::uuid()->toString();
     Cache::store('file')->put("liquidation_import_{$user->id}_{$token}", [
-        'user_id'   => $user->id,
+        'user_id' => $user->id,
         'file_name' => 'import.xlsx',
-        'rows'      => [importableRow($refs, 1)],
+        'rows' => [importableRow($refs, 1)],
     ], now()->addMinutes(30));
 
     // Runs inline (QUEUE_CONNECTION=sync), so it is already complete.
     $batchId = $this->actingAs($user)->postJson(route('liquidation.bulk-import'), [
-        'import_token'  => $token,
+        'import_token' => $token,
         'expected_rows' => 1,
     ])->assertOk()->json('batch_id');
 
@@ -365,13 +441,13 @@ test('a second import is refused while one is still running', function () {
     foreach ([1, 2] as $attempt) {
         $token = Str::uuid()->toString();
         Cache::store('file')->put("liquidation_import_{$user->id}_{$token}", [
-            'user_id'   => $user->id,
+            'user_id' => $user->id,
             'file_name' => 'import.xlsx',
-            'rows'      => [importableRow($refs, $attempt)],
+            'rows' => [importableRow($refs, $attempt)],
         ], now()->addMinutes(30));
 
         $response = $this->actingAs($user)->postJson(route('liquidation.bulk-import'), [
-            'import_token'  => $token,
+            'import_token' => $token,
             'expected_rows' => 1,
         ]);
 
@@ -391,13 +467,13 @@ test('undo is refused while the batch is still importing', function () {
 
     $token = Str::uuid()->toString();
     Cache::store('file')->put("liquidation_import_{$user->id}_{$token}", [
-        'user_id'   => $user->id,
+        'user_id' => $user->id,
         'file_name' => 'import.xlsx',
-        'rows'      => [importableRow($refs, 1)],
+        'rows' => [importableRow($refs, 1)],
     ], now()->addMinutes(30));
 
     $batchId = $this->actingAs($user)->postJson(route('liquidation.bulk-import'), [
-        'import_token'  => $token,
+        'import_token' => $token,
         'expected_rows' => 1,
     ])->assertOk()->json('batch_id');
 
@@ -417,11 +493,11 @@ test('undo is refused while the batch is still importing', function () {
 function stalledBatch(User $user, int $imported, int $total): ImportBatch
 {
     $batch = ImportBatch::create([
-        'user_id'        => $user->id,
-        'file_name'      => 'import.xlsx',
-        'total_rows'     => $total,
+        'user_id' => $user->id,
+        'file_name' => 'import.xlsx',
+        'total_rows' => $total,
         'imported_count' => $imported,
-        'status'         => ImportBatch::STATUS_PROCESSING,
+        'status' => ImportBatch::STATUS_PROCESSING,
     ]);
 
     DB::table('import_batches')
@@ -434,7 +510,7 @@ function stalledBatch(User $user, int $imported, int $total): ImportBatch
 test('a stalled batch that finished inserting is completed, not left hanging', function () {
     // The exact production incident: all rows written, but the job died before it
     // could flip the status, so the client polled an end that never came.
-    $user  = importUser();
+    $user = importUser();
     $batch = stalledBatch($user, 4334, 4334);
 
     $this->actingAs($user)
@@ -450,7 +526,7 @@ test('a stalled batch that finished inserting is completed, not left hanging', f
 });
 
 test('a stalled batch that stopped part-way is marked failed with a reason', function () {
-    $user  = importUser();
+    $user = importUser();
     $batch = stalledBatch($user, 1200, 4334);
 
     $response = $this->actingAs($user)
@@ -465,13 +541,13 @@ test('a stalled batch that stopped part-way is marked failed with a reason', fun
 
 test('a batch that reported progress recently is left alone', function () {
     // Guards against declaring a healthy, actively-working import dead.
-    $user  = importUser();
+    $user = importUser();
     $batch = ImportBatch::create([
-        'user_id'        => $user->id,
-        'file_name'      => 'import.xlsx',
-        'total_rows'     => 4334,
+        'user_id' => $user->id,
+        'file_name' => 'import.xlsx',
+        'total_rows' => 4334,
         'imported_count' => 500,
-        'status'         => ImportBatch::STATUS_PROCESSING,
+        'status' => ImportBatch::STATUS_PROCESSING,
     ]);
 
     $this->actingAs($user)
@@ -486,13 +562,13 @@ test('a batch that reported progress recently is left alone', function () {
 test('a fully inserted batch reports 100 percent but is not yet done', function () {
     // The percentage stays honest; `done` is what separates "finalising" from
     // "finished". Capping this at 99 instead produced "4,334 of 4,334 · 99%".
-    $user  = importUser();
+    $user = importUser();
     $batch = ImportBatch::create([
-        'user_id'        => $user->id,
-        'file_name'      => 'import.xlsx',
-        'total_rows'     => 4334,
+        'user_id' => $user->id,
+        'file_name' => 'import.xlsx',
+        'total_rows' => 4334,
         'imported_count' => 4334,
-        'status'         => ImportBatch::STATUS_PROCESSING,
+        'status' => ImportBatch::STATUS_PROCESSING,
     ]);
 
     expect($batch->progressPercent())->toBe(100);
@@ -507,13 +583,13 @@ test('a fully inserted batch reports 100 percent but is not yet done', function 
 });
 
 test('insert progress is reported proportionally part-way through', function () {
-    $user  = importUser();
+    $user = importUser();
     $batch = ImportBatch::create([
-        'user_id'        => $user->id,
-        'file_name'      => 'import.xlsx',
-        'total_rows'     => 4000,
+        'user_id' => $user->id,
+        'file_name' => 'import.xlsx',
+        'total_rows' => 4000,
         'imported_count' => 1000,
-        'status'         => ImportBatch::STATUS_PROCESSING,
+        'status' => ImportBatch::STATUS_PROCESSING,
     ]);
 
     expect($batch->progressPercent())->toBe(25);
@@ -529,19 +605,19 @@ test('a stalled batch stops blocking undo and further imports', function () {
     // Previously this returned "Another import is still running" for good.
     $token = Str::uuid()->toString();
     Cache::store('file')->put("liquidation_import_{$user->id}_{$token}", [
-        'user_id'   => $user->id,
+        'user_id' => $user->id,
         'file_name' => 'import.xlsx',
-        'rows'      => [importableRow($refs, 1)],
+        'rows' => [importableRow($refs, 1)],
     ], now()->addMinutes(30));
 
     $this->actingAs($user)->postJson(route('liquidation.bulk-import'), [
-        'import_token'  => $token,
+        'import_token' => $token,
         'expected_rows' => 1,
     ])->assertOk();
 });
 
 test('undo becomes available once a stalled batch is reconciled', function () {
-    $user  = importUser();
+    $user = importUser();
     $batch = stalledBatch($user, 4334, 4334);
 
     // No longer rejected as "still running" — it reconciles to active and undoes.
@@ -561,15 +637,15 @@ test('generateControlNos allocates a run of numbers and fills gaps', function ()
     // Occupy 0001, 0002 and 0004, leaving 0003 as a gap.
     foreach (['TES-2026-0001', 'TES-2026-0002', 'TES-2026-0004'] as $controlNo) {
         Liquidation::create([
-            'control_no'       => $controlNo,
-            'hei_id'           => $refs['hei']->id,
-            'program_id'       => $refs['program']->id,
+            'control_no' => $controlNo,
+            'hei_id' => $refs['hei']->id,
+            'program_id' => $refs['program']->id,
             'academic_year_id' => $refs['academicYear']->id,
-            'created_by'       => $user->id,
+            'created_by' => $user->id,
         ]);
     }
 
-    $service = app(App\Services\LiquidationService::class);
+    $service = app(LiquidationService::class);
 
     expect($service->generateControlNos($refs['program']->id, 2026, 3))
         ->toBe(['TES-2026-0003', 'TES-2026-0005', 'TES-2026-0006']);
@@ -585,16 +661,16 @@ test('a bulk import chunk assigns a distinct control number to every row', funct
 
     $token = Str::uuid()->toString();
     Cache::store('file')->put("liquidation_import_{$user->id}_{$token}", [
-        'user_id'   => $user->id,
+        'user_id' => $user->id,
         'file_name' => 'import.xlsx',
-        'rows'      => collect(range(1, 5))
+        'rows' => collect(range(1, 5))
             ->map(fn (int $i) => importableRow($refs, $i))
             ->all(),
     ], now()->addMinutes(30));
 
     $this->actingAs($user)
         ->postJson(route('liquidation.bulk-import'), [
-            'import_token'  => $token,
+            'import_token' => $token,
             'expected_rows' => 5,
         ])
         ->assertOk();
@@ -609,13 +685,13 @@ test('a bulk import writes financials and links every row to the batch', functio
 
     $token = Str::uuid()->toString();
     Cache::store('file')->put("liquidation_import_{$user->id}_{$token}", [
-        'user_id'   => $user->id,
+        'user_id' => $user->id,
         'file_name' => 'import.xlsx',
-        'rows'      => collect(range(1, 3))->map(fn (int $i) => importableRow($refs, $i))->all(),
+        'rows' => collect(range(1, 3))->map(fn (int $i) => importableRow($refs, $i))->all(),
     ], now()->addMinutes(30));
 
     $batchId = $this->actingAs($user)->postJson(route('liquidation.bulk-import'), [
-        'import_token'  => $token,
+        'import_token' => $token,
         'expected_rows' => 3,
     ])->assertOk()->json('batch_id');
 
@@ -639,9 +715,9 @@ test('the dashboard cache is flushed once per import, not once per row', functio
 
     $token = Str::uuid()->toString();
     Cache::store('file')->put("liquidation_import_{$user->id}_{$token}", [
-        'user_id'   => $user->id,
+        'user_id' => $user->id,
         'file_name' => 'import.xlsx',
-        'rows'      => collect(range(1, 10))->map(fn (int $i) => importableRow($refs, $i))->all(),
+        'rows' => collect(range(1, 10))->map(fn (int $i) => importableRow($refs, $i))->all(),
     ], now()->addMinutes(30));
 
     // Seed the version key so flushes are increments we can count.
@@ -649,7 +725,7 @@ test('the dashboard cache is flushed once per import, not once per row', functio
     $before = (int) Cache::get('dashboard:version');
 
     $this->actingAs($user)->postJson(route('liquidation.bulk-import'), [
-        'import_token'  => $token,
+        'import_token' => $token,
         'expected_rows' => 10,
     ])->assertOk();
 
@@ -665,9 +741,9 @@ test('a bulk import stays within a bounded number of queries', function () {
 
     $token = Str::uuid()->toString();
     Cache::store('file')->put("liquidation_import_{$user->id}_{$token}", [
-        'user_id'   => $user->id,
+        'user_id' => $user->id,
         'file_name' => 'import.xlsx',
-        'rows'      => collect(range(1, 50))->map(fn (int $i) => importableRow($refs, $i))->all(),
+        'rows' => collect(range(1, 50))->map(fn (int $i) => importableRow($refs, $i))->all(),
     ], now()->addMinutes(30));
 
     $queries = 0;
@@ -676,7 +752,7 @@ test('a bulk import stays within a bounded number of queries', function () {
     });
 
     $this->actingAs($user)->postJson(route('liquidation.bulk-import'), [
-        'import_token'  => $token,
+        'import_token' => $token,
         'expected_rows' => 50,
     ])->assertOk();
 
@@ -693,11 +769,11 @@ test('a soft-deleted control number is flagged during validation, not at insert'
     $refs = importReferenceData();
 
     $liquidation = Liquidation::create([
-        'control_no'       => 'TES-2026-0001',
-        'hei_id'           => $refs['hei']->id,
-        'program_id'       => $refs['program']->id,
+        'control_no' => 'TES-2026-0001',
+        'hei_id' => $refs['hei']->id,
+        'program_id' => $refs['program']->id,
         'academic_year_id' => $refs['academicYear']->id,
-        'created_by'       => $user->id,
+        'created_by' => $user->id,
     ]);
     $liquidation->delete();
 

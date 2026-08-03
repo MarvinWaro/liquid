@@ -1,5 +1,4 @@
 import InputError from '@/components/input-error';
-import { HeroBackdrop } from '@/components/landing/hero-backdrop';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -40,8 +39,7 @@ export default function Login({
     googleAuthError,
     turnstile = { enabled: false, siteKey: null },
 }: LoginProps) {
-    const { appearance, resolvedAppearance, updateAppearance } =
-        useAppearance();
+    const { appearance, updateAppearance } = useAppearance();
     const [themeMenuOpen, setThemeMenuOpen] = useState(false);
     const [turnstileToken, setTurnstileToken] = useState('');
     const [turnstileResetSignal, setTurnstileResetSignal] = useState(0);
@@ -92,17 +90,6 @@ export default function Login({
                 .anim-form   { animation: fadeSlideUp 0.7s cubic-bezier(.25,.46,.45,.94) 0.5s both; }
             `}</style>
 
-            {/* Same backdrop as the landing page. It replaced a tsparticles node
-                network — running both would have put two unrelated decorative
-                systems on one screen, which is the exact problem the landing page
-                was cut back from. The scrim is centred here because the card is,
-                rather than sitting high like the landing hero. */}
-            <HeroBackdrop
-                isDark={resolvedAppearance === 'dark'}
-                scrimY="50%"
-                scrimOpacity={0.4}
-            />
-
             {/* Back to landing — top left (mirrors theme toggle on the right) */}
             <div className="absolute top-6 left-6 z-50">
                 <Link
@@ -144,8 +131,8 @@ export default function Login({
                             {themeOptions.map((option) => (
                                 <button
                                     key={option.value}
-                                    onClick={() => {
-                                        updateAppearance(option.value);
+                                    onClick={(event) => {
+                                        updateAppearance(option.value, { x: event.clientX, y: event.clientY });
                                         setThemeMenuOpen(false);
                                     }}
                                     className="flex w-full items-center gap-2 px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent"
@@ -164,26 +151,7 @@ export default function Login({
 
             {/* Login Card */}
             <div className="anim-card relative z-10 w-full max-w-md">
-                {/* Deliberately NOT `bg-card`. That token is oklch(0.1 0 0) in
-                    dark — pure neutral black, zero chroma — which on a saturated
-                    ground reads as a hole cut in the page rather than a surface
-                    resting on it. And at 90% opacity the translucency was doing
-                    no visible work; the composite was still flat black.
-
-                    So: an explicit navy-black, mixed a step *lighter* than the
-                    ground behind it, at an opacity low enough that the blur
-                    actually carries the backdrop's colour through. Lifted, tinted
-                    and lit — glass on the artwork instead of a slab over it. The
-                    token is left alone because it is shared with every card in
-                    the app; this treatment belongs to this page. */}
-                <div className="relative overflow-hidden rounded-2xl border border-border/70 bg-white/75 shadow-2xl ring-1 shadow-blue-950/10 ring-white/60 backdrop-blur-2xl ring-inset dark:border-white/[0.08] dark:bg-[#141a33]/75 dark:shadow-black/40 dark:ring-white/[0.07]">
-                    {/* Light catching the top edge — the one detail that reads as
-                        a physical pane rather than a rectangle. Dark only: a white
-                        highlight on a white card is invisible. */}
-                    <div
-                        aria-hidden="true"
-                        className="pointer-events-none absolute inset-x-10 top-0 hidden h-px bg-gradient-to-r from-transparent via-white/25 to-transparent dark:block"
-                    />
+                <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-2xl dark:shadow-none">
                     <div className="flex flex-col justify-center px-5 py-8 sm:p-10">
                         {/* Logos — also act as a home link */}
                         <Link
@@ -268,13 +236,7 @@ export default function Login({
                                                 tabIndex={1}
                                                 autoComplete="email"
                                                 placeholder="email@example.com"
-                                                /* Transparent black rather than
-                                                   the neutral `muted` token: it
-                                                   deepens the card's own navy
-                                                   instead of dropping grey onto
-                                                   it. Every dark token in
-                                                   app.css is chroma 0. */
-                                                className="border-border/70 bg-black/[0.03] dark:border-white/10 dark:bg-black/25"
+                                                className="border-border bg-muted/50"
                                             />
                                             <InputError
                                                 message={errors.email}
@@ -296,13 +258,7 @@ export default function Login({
                                                 tabIndex={2}
                                                 autoComplete="current-password"
                                                 placeholder="Password"
-                                                /* Transparent black rather than
-                                                   the neutral `muted` token: it
-                                                   deepens the card's own navy
-                                                   instead of dropping grey onto
-                                                   it. Every dark token in
-                                                   app.css is chroma 0. */
-                                                className="border-border/70 bg-black/[0.03] dark:border-white/10 dark:bg-black/25"
+                                                className="border-border bg-muted/50"
                                             />
                                             <InputError
                                                 message={errors.password}

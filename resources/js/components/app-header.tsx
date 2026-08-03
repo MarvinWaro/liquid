@@ -1,3 +1,4 @@
+import { AppearanceToggle } from '@/components/appearance-toggle';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Icon } from '@/components/icon';
 import { NotificationDropdown } from '@/components/notification-dropdown';
@@ -18,7 +19,6 @@ import {
 } from '@/components/ui/sheet';
 import { UserMenuContent } from '@/components/user-menu-content';
 import { useActiveUrl } from '@/hooks/use-active-url';
-import { useAppearance } from '@/hooks/use-appearance';
 import { useLayoutPreference } from '@/hooks/use-layout-preference';
 import { useInitials } from '@/hooks/use-initials';
 import { cn } from '@/lib/utils';
@@ -32,18 +32,14 @@ import {
 import { Link, usePage } from '@inertiajs/react';
 import {
     BarChart3,
-    Check,
     ChevronDown,
     FileBarChart,
     FileText,
     LayoutGrid,
     Megaphone,
     Menu,
-    Monitor,
-    Moon,
     PanelLeft,
     Sparkles,
-    Sun,
 } from 'lucide-react';
 import { HatGlasses } from '@/components/icons/hat-glasses';
 import { useMemo } from 'react';
@@ -112,7 +108,6 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
     const { auth } = page.props;
     const getInitials = useInitials();
     const { urlIsActive } = useActiveUrl();
-    const { appearance, updateAppearance } = useAppearance();
     const { toggleLayout } = useLayoutPreference();
 
     const can = page.props.can || {
@@ -230,32 +225,9 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                     <div className="ml-auto flex items-center gap-1">
                         <NotificationDropdown />
 
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
-                                    {appearance === 'light' && <Sun className="h-4 w-4" />}
-                                    {appearance === 'dark' && <Moon className="h-4 w-4" />}
-                                    {appearance === 'system' && <Monitor className="h-4 w-4" />}
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => updateAppearance('light')} className="cursor-pointer">
-                                    <Sun className="mr-2 h-4 w-4" />
-                                    <span>Light</span>
-                                    {appearance === 'light' && <Check className="ml-auto h-4 w-4" />}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => updateAppearance('dark')} className="cursor-pointer">
-                                    <Moon className="mr-2 h-4 w-4" />
-                                    <span>Dark</span>
-                                    {appearance === 'dark' && <Check className="ml-auto h-4 w-4" />}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => updateAppearance('system')} className="cursor-pointer">
-                                    <Monitor className="mr-2 h-4 w-4" />
-                                    <span>System</span>
-                                    {appearance === 'system' && <Check className="ml-auto h-4 w-4" />}
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                        <AppearanceToggle
+                            className="text-muted-foreground hover:text-foreground"
+                        />
 
                         <Button
                             variant="ghost"

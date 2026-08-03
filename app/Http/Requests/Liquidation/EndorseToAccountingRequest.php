@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Liquidation;
 
+use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
 class EndorseToAccountingRequest extends FormRequest
@@ -16,19 +17,13 @@ class EndorseToAccountingRequest extends FormRequest
         $user = $this->user();
         $liquidation = $this->route('liquidation');
 
-        // Only Regional Coordinator, STUFAPS Focal, or Super Admin can endorse
-        if (!in_array($user->role->name, ['Regional Coordinator', 'STUFAPS Focal']) && !$user->isSuperAdmin()) {
-            return false;
-        }
-
-        // RC can endorse any liquidation they have access to
-        return true;
+        return $user->can('review', $liquidation);
     }
 
     /**
      * Get the validation rules that apply to the request.
      *
-     * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
+     * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
@@ -44,10 +39,6 @@ class EndorseToAccountingRequest extends FormRequest
     {
         $user = $this->user();
 
-        if (!in_array($user->role->name, ['Regional Coordinator', 'STUFAPS Focal']) && !$user->isSuperAdmin()) {
-            abort(403, 'Only Regional Coordinator or STUFAPS Focal can endorse to accounting.');
-        }
-
-        abort(403, 'This liquidation is not available for Regional Coordinator review.');
+        abort(403, 'This liquidation is outside your Regional Coordinator review scope.');
     }
 }

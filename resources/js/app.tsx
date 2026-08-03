@@ -8,6 +8,7 @@ import { initializeTheme } from './hooks/use-appearance';
 import { initializeDensity } from './hooks/use-density-preference';
 import { initializeFont } from './hooks/use-font-preference';
 import { initializeLayout } from './hooks/use-layout-preference';
+import { initDeferredPropRevalidation } from './lib/revalidate-deferred-props';
 import { route as ziggyRoute } from 'ziggy-js';
 
 // Make route available globally
@@ -50,3 +51,7 @@ initializeTheme();
 initializeLayout();
 initializeFont();
 initializeDensity();
+
+// Keep deferred data (liquidation table, dashboard charts, …) fresh when the
+// user returns to a page via the browser's back/forward buttons.
+initDeferredPropRevalidation();

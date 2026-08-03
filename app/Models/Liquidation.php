@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Services\DashboardCache;
 use App\Traits\HasUuid;
 use App\Traits\LogsActivity;
-use App\Models\ComplianceStatus;
-use App\Models\DocumentLocation;
-use App\Models\ReviewType;
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,7 +16,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Database\Eloquent\Builder;
 
 /**
  * Liquidation model.
@@ -27,6 +26,7 @@ use Illuminate\Database\Eloquent\Builder;
  * @property string $id
  * @property string $control_no
  * @property string $hei_id
+ * @property string|null $processing_region_id
  * @property string $program_id
  * @property string|null $academic_year_id
  * @property string|null $semester_id
@@ -34,15 +34,15 @@ use Illuminate\Database\Eloquent\Builder;
  * @property string|null $document_status_id
  * @property string|null $rc_note_status_id
  * @property string $liquidation_status
- * @property \Carbon\Carbon|null $date_submitted
+ * @property Carbon|null $date_submitted
  * @property string|null $remarks
  * @property string $created_by
  * @property string|null $reviewed_by
- * @property \Carbon\Carbon|null $reviewed_at
+ * @property Carbon|null $reviewed_at
  * @property string|null $accountant_reviewed_by
- * @property \Carbon\Carbon|null $accountant_reviewed_at
+ * @property Carbon|null $accountant_reviewed_at
  * @property string|null $coa_endorsed_by
- * @property \Carbon\Carbon|null $coa_endorsed_at
+ * @property Carbon|null $coa_endorsed_at
  */
 class Liquidation extends Model
 {
@@ -92,7 +92,13 @@ class Liquidation extends Model
      */
     protected static function booted(): void
     {
-        $flush = fn () => \App\Services\DashboardCache::flush();
+        static::updating(function (Liquidation $liquidation): void {
+            if ($liquidation->isDirty('processing_region_id')) {
+                throw new \LogicException('A liquidation processing region is immutable.');
+            }
+        });
+
+        $flush = fn () => DashboardCache::flush();
         static::saved($flush);
         static::deleted($flush);
         static::restored($flush);
@@ -107,6 +113,7 @@ class Liquidation extends Model
         // Core identification
         'control_no',
         'hei_id',
+        'processing_region_id',
         'program_id',
 
         // Period coverage
@@ -164,8 +171,11 @@ class Liquidation extends Model
      * Liquidation status code constants (matching liquidation_statuses.code).
      */
     public const LIQUIDATION_STATUS_UNLIQUIDATED = 'UNLIQUIDATED';
+
     public const LIQUIDATION_STATUS_PARTIALLY = 'PARTIALLY_LIQUIDATED';
+
     public const LIQUIDATION_STATUS_FULLY = 'FULLY_LIQUIDATED';
+
     public const LIQUIDATION_STATUS_VOIDED = 'VOIDED';
 
     // ========================================
@@ -178,6 +188,14 @@ class Liquidation extends Model
     public function hei(): BelongsTo
     {
         return $this->belongsTo(HEI::class);
+    }
+
+    /**
+     * Region that originally processed this liquidation. This is immutable.
+     */
+    public function processingRegion(): BelongsTo
+    {
+        return $this->belongsTo(Region::class, 'processing_region_id');
     }
 
     /**
@@ -319,7 +337,7 @@ class Liquidation extends Model
     public function rcReviews(): HasMany
     {
         return $this->hasMany(LiquidationReview::class)
-            ->whereHas('reviewType', fn($q) => $q->whereIn('code', [
+            ->whereHas('reviewType', fn ($q) => $q->whereIn('code', [
                 LiquidationReview::TYPE_RC_RETURN,
                 LiquidationReview::TYPE_HEI_RESUBMISSION,
             ]))
@@ -332,7 +350,7 @@ class Liquidation extends Model
     public function accountantReviews(): HasMany
     {
         return $this->hasMany(LiquidationReview::class)
-            ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_ACCOUNTANT_RETURN))
+            ->whereHas('reviewType', fn ($q) => $q->where('code', LiquidationReview::TYPE_ACCOUNTANT_RETURN))
             ->orderBy('performed_at', 'asc');
     }
 
@@ -391,12 +409,12 @@ class Liquidation extends Model
     {
         $financial = $this->financial;
 
-        if (!$financial || !$this->date_submitted) {
+        if (! $financial || ! $this->date_submitted) {
             return null;
         }
 
         $dueDate = $financial->due_date;
-        if (!$dueDate) {
+        if (! $dueDate) {
             return null;
         }
 
@@ -456,7 +474,7 @@ class Liquidation extends Model
     public function getLatestHEIResubmission(): ?LiquidationReview
     {
         return $this->reviews()
-            ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_HEI_RESUBMISSION))
+            ->whereHas('reviewType', fn ($q) => $q->where('code', LiquidationReview::TYPE_HEI_RESUBMISSION))
             ->orderBy('performed_at', 'desc')
             ->first();
     }
@@ -467,7 +485,7 @@ class Liquidation extends Model
     public function getLatestReviewRemarks(): ?string
     {
         $latestReview = $this->reviews()
-            ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_RC_RETURN))
+            ->whereHas('reviewType', fn ($q) => $q->where('code', LiquidationReview::TYPE_RC_RETURN))
             ->orderBy('performed_at', 'desc')
             ->first();
 
@@ -480,7 +498,7 @@ class Liquidation extends Model
     public function getLatestAccountantRemarks(): ?string
     {
         $latestReview = $this->reviews()
-            ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_ACCOUNTANT_RETURN))
+            ->whereHas('reviewType', fn ($q) => $q->where('code', LiquidationReview::TYPE_ACCOUNTANT_RETURN))
             ->orderBy('performed_at', 'desc')
             ->first();
 
@@ -493,7 +511,7 @@ class Liquidation extends Model
     public function getRcEndorsementRemarks(): ?string
     {
         $review = $this->reviews()
-            ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_RC_ENDORSEMENT))
+            ->whereHas('reviewType', fn ($q) => $q->where('code', LiquidationReview::TYPE_RC_ENDORSEMENT))
             ->orderBy('performed_at', 'desc')
             ->first();
 
@@ -506,7 +524,7 @@ class Liquidation extends Model
     public function getAccountantEndorsementRemarks(): ?string
     {
         $review = $this->reviews()
-            ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_ACCOUNTANT_ENDORSEMENT))
+            ->whereHas('reviewType', fn ($q) => $q->where('code', LiquidationReview::TYPE_ACCOUNTANT_ENDORSEMENT))
             ->orderBy('performed_at', 'desc')
             ->first();
 
@@ -526,8 +544,8 @@ class Liquidation extends Model
             ['liquidation_id' => $this->id],
             [
                 'transmittal_reference_no' => $data['transmittal_reference_no'],
-                'receiver_name'            => $data['receiver_name'] ?? null,
-                'document_location_id'     => DocumentLocation::where('name', $data['document_location'] ?? '')->value('id'),
+                'receiver_name' => $data['receiver_name'] ?? null,
+                'document_location_id' => DocumentLocation::where('name', $data['document_location'] ?? '')->value('id'),
                 'number_of_folders' => $data['number_of_folders'] ?? null,
                 'folder_location_number' => $data['folder_location_number'] ?? null,
                 'group_transmittal' => $data['group_transmittal'] ?? null,
@@ -551,9 +569,9 @@ class Liquidation extends Model
         return $this->compliance()->updateOrCreate(
             ['liquidation_id' => $this->id],
             [
-                'documents_required'   => $documentsRequired,
+                'documents_required' => $documentsRequired,
                 'compliance_status_id' => ComplianceStatus::findByCode(LiquidationCompliance::STATUS_PENDING_HEI_REVIEW)?->id,
-                'concerns_emailed_at'  => now(),
+                'concerns_emailed_at' => now(),
             ]
         );
     }
@@ -587,6 +605,7 @@ class Liquidation extends Model
     public function getRemainingAmount(): float
     {
         $amountReceived = $this->financial?->amount_received ?? 0;
+
         return $amountReceived - $this->getTotalBeneficiaryDisbursements();
     }
 
@@ -625,6 +644,21 @@ class Liquidation extends Model
         return $this->liquidationStatus?->code === self::LIQUIDATION_STATUS_VOIDED;
     }
 
+    /**
+     * A current RC and the RC that originally processed a record can both manage it.
+     */
+    public function isManagedByRegion(?string $regionId): bool
+    {
+        if ($regionId === null) {
+            return false;
+        }
+
+        $this->loadMissing('hei');
+
+        return $this->processing_region_id === $regionId
+            || $this->hei?->region_id === $regionId;
+    }
+
     // ========================================
     // SCOPES
     // ========================================
@@ -635,6 +669,17 @@ class Liquidation extends Model
     public function scopeForHEI(Builder $query, string $heiId): Builder
     {
         return $query->where('hei_id', $heiId);
+    }
+
+    /**
+     * Operational scope for an RC. Official reports intentionally do not use it.
+     */
+    public function scopeManagedByRegion(Builder $query, string $regionId): Builder
+    {
+        return $query->where(function (Builder $scope) use ($regionId) {
+            $scope->where('liquidations.processing_region_id', $regionId)
+                ->orWhereHas('hei', fn (Builder $hei) => $hei->where('region_id', $regionId));
+        });
     }
 
     /**
@@ -649,9 +694,10 @@ class Liquidation extends Model
         if ($voidedId) {
             return $query->where(function ($q) use ($voidedId) {
                 $q->where('liquidation_status_id', '!=', $voidedId)
-                  ->orWhereNull('liquidation_status_id');
+                    ->orWhereNull('liquidation_status_id');
             });
         }
+
         return $query;
     }
 

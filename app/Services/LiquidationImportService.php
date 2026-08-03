@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Exceptions\LiquidationImportValidationException;
+use App\Models\HEI;
 use App\Models\Liquidation;
 use App\Models\LiquidationFinancial;
 use App\Models\User;
+use App\Traits\HasUuid;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -25,8 +28,7 @@ class LiquidationImportService
 {
     public function __construct(
         private readonly LiquidationService $liquidationService,
-    ) {
-    }
+    ) {}
 
     /**
      * Import one chunk of pre-validated rows.
@@ -51,21 +53,31 @@ class LiquidationImportService
     public function importChunk(array $chunk, User $user, string $batchId): array
     {
         $previousLiquidationLogging = Liquidation::$loggingEnabled;
-        $previousFinancialLogging   = LiquidationFinancial::$loggingEnabled;
-        $previousDashboardFlushing  = DashboardCache::$flushEnabled;
+        $previousFinancialLogging = LiquidationFinancial::$loggingEnabled;
+        $previousDashboardFlushing = DashboardCache::$flushEnabled;
 
-        Liquidation::$loggingEnabled          = false;
+        Liquidation::$loggingEnabled = false;
         LiquidationFinancial::$loggingEnabled = false;
-        DashboardCache::$flushEnabled         = false;
+        DashboardCache::$flushEnabled = false;
 
         try {
             // ── Fast path ─────────────────────────────────────────────────────
             try {
                 $imported = DB::transaction(function () use ($chunk, $user, $batchId) {
+                    // Match the transfer workflow's lock order (HEIs first) to
+                    // avoid a control-number/HEI deadlock under concurrent imports.
+                    $processingRegions = $this->processingRegionsForRows($chunk, $user);
+
                     // One locking prefix scan per program+year for the whole chunk,
                     // inside the transaction so the lock holds through the inserts.
                     $autoControlNos = $this->allocateControlNos($chunk);
-                    [$liquidations, $financials] = $this->buildRowPayloads($chunk, $autoControlNos, $user, $batchId);
+                    [$liquidations, $financials] = $this->buildRowPayloads(
+                        $chunk,
+                        $autoControlNos,
+                        $processingRegions,
+                        $user,
+                        $batchId,
+                    );
 
                     Liquidation::insert($liquidations);
                     LiquidationFinancial::insert($financials);
@@ -80,16 +92,17 @@ class LiquidationImportService
                 // back, so the slow path starts from a clean slate.
                 Log::info('Bulk import chunk fell back to per-row inserts.', [
                     'batch_id' => $batchId,
-                    'rows'     => count($chunk),
-                    'reason'   => $e->getMessage(),
+                    'rows' => count($chunk),
+                    'reason' => $e->getMessage(),
                 ]);
             }
 
             // ── Slow path — names the offending rows ──────────────────────────
             $imported = 0;
-            $errors   = [];
+            $errors = [];
 
             DB::transaction(function () use ($chunk, $user, $batchId, &$imported, &$errors) {
+                $this->processingRegionsForRows($chunk, $user);
                 $autoControlNos = $this->allocateControlNos($chunk);
 
                 foreach ($chunk as $index => $rowData) {
@@ -108,9 +121,9 @@ class LiquidationImportService
 
             return ['imported' => $imported, 'errors' => $errors];
         } finally {
-            Liquidation::$loggingEnabled          = $previousLiquidationLogging;
+            Liquidation::$loggingEnabled = $previousLiquidationLogging;
             LiquidationFinancial::$loggingEnabled = $previousFinancialLogging;
-            DashboardCache::$flushEnabled         = $previousDashboardFlushing;
+            DashboardCache::$flushEnabled = $previousDashboardFlushing;
 
             // No-op when an outer withoutFlushing() is still in effect, which is
             // how a multi-chunk import ends up flushing only once.
@@ -139,15 +152,15 @@ class LiquidationImportService
     {
         $groups = [];
         foreach ($chunk as $index => $row) {
-            if (!empty($row['explicit_control_no'])) {
+            if (! empty($row['explicit_control_no'])) {
                 continue;
             }
 
-            $year = !empty($row['date_fund_released'])
+            $year = ! empty($row['date_fund_released'])
                 ? (int) substr($row['date_fund_released'], 0, 4)
                 : (int) now()->year;
 
-            $groups[$row['program_id'] . '|' . $year][] = $index;
+            $groups[$row['program_id'].'|'.$year][] = $index;
         }
 
         $allocated = [];
@@ -159,9 +172,10 @@ class LiquidationImportService
             } catch (\Throwable $e) {
                 Log::warning('Bulk import control-number pre-allocation failed; falling back to per-row generation.', [
                     'program_id' => $programId,
-                    'year'       => $year,
-                    'error'      => $e->getMessage(),
+                    'year' => $year,
+                    'error' => $e->getMessage(),
                 ]);
+
                 continue;
             }
 
@@ -177,62 +191,68 @@ class LiquidationImportService
      * Build the raw row arrays for the two bulk INSERTs.
      *
      * Bulk inserts bypass Eloquent, so everything the model events would have
-     * supplied is set here: UUID primary keys ({@see \App\Traits\HasUuid}),
+     * supplied is set here: UUID primary keys ({@see HasUuid}),
      * timestamps, and the JSON encoding for `ledger_breakdown`'s array cast.
      *
      * @param  array<int, array<string, mixed>>  $chunk
      * @param  array<int, string>  $autoControlNos
+     * @param  array<string, string|null>  $processingRegions
      * @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>}
      *
      * @throws \RuntimeException when a row has no usable control number, which
      *                           routes the chunk to the per-row path.
      */
-    private function buildRowPayloads(array $chunk, array $autoControlNos, User $user, string $batchId): array
-    {
-        $now          = now();
+    private function buildRowPayloads(
+        array $chunk,
+        array $autoControlNos,
+        array $processingRegions,
+        User $user,
+        string $batchId,
+    ): array {
+        $now = now();
         $liquidations = [];
-        $financials   = [];
-
+        $financials = [];
         foreach ($chunk as $index => $data) {
             $controlNo = $data['explicit_control_no'] ?: ($autoControlNos[$index] ?? null);
 
-            if (!$controlNo) {
+            if (! $controlNo) {
                 throw new \RuntimeException("No control number available for row {$index}.");
             }
 
             $liquidationId = (string) Str::uuid();
 
             $liquidations[] = [
-                'id'                    => $liquidationId,
-                'control_no'            => $controlNo,
-                'hei_id'                => $data['hei_id'],
-                'program_id'            => $data['program_id'],
-                'academic_year_id'      => $data['academic_year_id'],
-                'semester_id'           => $data['semester_id'],
-                'batch_no'              => $data['batch_no'],
-                'document_status_id'    => $data['document_status_id'],
-                'rc_note_status_id'     => $data['rc_note_status_id'],
+                'id' => $liquidationId,
+                'control_no' => $controlNo,
+                'hei_id' => $data['hei_id'],
+                'processing_region_id' => $processingRegions[$data['hei_id']] ?? null,
+                'program_id' => $data['program_id'],
+                'academic_year_id' => $data['academic_year_id'],
+                'semester_id' => $data['semester_id'],
+                'batch_no' => $data['batch_no'],
+                'document_status_id' => $data['document_status_id'],
+                'rc_note_status_id' => $data['rc_note_status_id'],
                 'liquidation_status_id' => $data['liquidation_status_id'],
-                'created_by'            => $user->id,
-                'import_batch_id'       => $batchId,
-                'created_at'            => $now,
-                'updated_at'            => $now,
+                'created_by' => $user->id,
+                'import_batch_id' => $batchId,
+                'created_at' => $now,
+                'updated_at' => $now,
             ];
 
             $financials[] = [
-                'id'                 => (string) Str::uuid(),
-                'liquidation_id'     => $liquidationId,
+                'id' => (string) Str::uuid(),
+                'liquidation_id' => $liquidationId,
                 'date_fund_released' => $data['date_fund_released'],
-                'due_date'           => $data['due_date'],
+                'due_date' => $data['due_date'],
                 'number_of_grantees' => $data['number_of_grantees'],
-                'ledger_breakdown'   => isset($data['ledger_breakdown'])
+                'ledger_breakdown' => isset($data['ledger_breakdown'])
                     ? json_encode($data['ledger_breakdown'])
                     : null,
-                'amount_received'    => $data['amount_received'],
-                'amount_disbursed'   => $data['amount_disbursed'],
-                'amount_liquidated'  => $data['amount_liquidated'],
-                'created_at'         => $now,
-                'updated_at'         => $now,
+                'amount_received' => $data['amount_received'],
+                'amount_disbursed' => $data['amount_disbursed'],
+                'amount_liquidated' => $data['amount_liquidated'],
+                'created_at' => $now,
+                'updated_at' => $now,
             ];
         }
 
@@ -249,10 +269,26 @@ class LiquidationImportService
      */
     private function insertRow(array $data, User $user, string $batchId, ?string $autoControlNo = null): void
     {
+        $hei = HEI::query()->lockForUpdate()->find($data['hei_id']);
+
+        if (! $hei) {
+            throw new LiquidationImportValidationException('The HEI no longer exists. Please re-validate the import.');
+        }
+
+        if (! $hei->region_id) {
+            throw new LiquidationImportValidationException('The HEI is not assigned to an official region. Please update the HEI and re-validate the import.');
+        }
+
+        if ($user->role?->name === 'Regional Coordinator'
+            && $user->region_id
+            && $hei->region_id !== $user->region_id) {
+            throw new LiquidationImportValidationException('The HEI was transferred to another region. Please re-validate the import.');
+        }
+
         $controlNo = $data['explicit_control_no'];
 
-        if (!$controlNo) {
-            $fundYear = !empty($data['date_fund_released'])
+        if (! $controlNo) {
+            $fundYear = ! empty($data['date_fund_released'])
                 ? (int) substr($data['date_fund_released'], 0, 4)
                 : null;
             $controlNo = $autoControlNo
@@ -266,30 +302,77 @@ class LiquidationImportService
         }
 
         $liquidation = Liquidation::create([
-            'control_no'            => $controlNo,
-            'hei_id'                => $data['hei_id'],
-            'program_id'            => $data['program_id'],
-            'academic_year_id'      => $data['academic_year_id'],
-            'semester_id'           => $data['semester_id'],
-            'batch_no'              => $data['batch_no'],
-            'document_status_id'    => $data['document_status_id'],
-            'rc_note_status_id'     => $data['rc_note_status_id'],
+            'control_no' => $controlNo,
+            'hei_id' => $data['hei_id'],
+            'processing_region_id' => $hei->region_id,
+            'program_id' => $data['program_id'],
+            'academic_year_id' => $data['academic_year_id'],
+            'semester_id' => $data['semester_id'],
+            'batch_no' => $data['batch_no'],
+            'document_status_id' => $data['document_status_id'],
+            'rc_note_status_id' => $data['rc_note_status_id'],
             'liquidation_status_id' => $data['liquidation_status_id'],
-            'created_by'            => $user->id,
-            'import_batch_id'       => $batchId,
+            'created_by' => $user->id,
+            'import_batch_id' => $batchId,
         ]);
 
         $liquidation->createOrUpdateFinancial([
             'date_fund_released' => $data['date_fund_released'],
-            'due_date'           => $data['due_date'],
+            'due_date' => $data['due_date'],
             'number_of_grantees' => $data['number_of_grantees'],
-            'ledger_breakdown'   => $data['ledger_breakdown'] ?? null,
-            'amount_received'    => $data['amount_received'],
-            'amount_disbursed'   => $data['amount_disbursed'],
-            'amount_liquidated'  => $data['amount_liquidated'],
+            'ledger_breakdown' => $data['ledger_breakdown'] ?? null,
+            'amount_received' => $data['amount_received'],
+            'amount_disbursed' => $data['amount_disbursed'],
+            'amount_liquidated' => $data['amount_liquidated'],
         ]);
 
         // Notification is sent once per batch (not per row) to avoid flooding.
+    }
+
+    /**
+     * Lock every HEI represented in a bulk chunk and resolve the immutable
+     * processing-region snapshot from current ownership at insert time.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<string, string|null>
+     */
+    private function processingRegionsForRows(array $rows, User $user): array
+    {
+        $heiIds = collect($rows)
+            ->pluck('hei_id')
+            ->filter()
+            ->unique()
+            ->sort()
+            ->values();
+
+        $heis = HEI::query()
+            ->whereIn('id', $heiIds)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get(['id', 'region_id'])
+            ->keyBy('id');
+
+        foreach ($heiIds as $heiId) {
+            $hei = $heis->get($heiId);
+
+            if (! $hei) {
+                throw new LiquidationImportValidationException('An HEI in this import no longer exists. Please re-validate the import.');
+            }
+
+            if (! $hei->region_id) {
+                throw new LiquidationImportValidationException('An HEI in this import is not assigned to an official region. Please update the HEI and re-validate the import.');
+            }
+
+            if ($user->role?->name === 'Regional Coordinator'
+                && $user->region_id
+                && $hei->region_id !== $user->region_id) {
+                throw new LiquidationImportValidationException('An HEI in this import was transferred to another region. Please re-validate the import.');
+            }
+        }
+
+        return $heis->mapWithKeys(
+            fn (HEI $hei) => [$hei->id => $hei->region_id]
+        )->all();
     }
 
     /**
@@ -301,12 +384,12 @@ class LiquidationImportService
     private function rowError(array $rowData, string $message): array
     {
         return [
-            'row'      => $rowData['row_no'] ?? null,
-            'seq'      => $rowData['seq'] ?? null,
-            'program'  => $rowData['program_code'] ?? null,
-            'uii'      => $rowData['uii'] ?? null,
+            'row' => $rowData['row_no'] ?? null,
+            'seq' => $rowData['seq'] ?? null,
+            'program' => $rowData['program_code'] ?? null,
+            'uii' => $rowData['uii'] ?? null,
             'hei_name' => $rowData['hei_name'] ?? '',
-            'error'    => $message,
+            'error' => $message,
         ];
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Liquidation;
 
+use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
 class ReturnToHEIRequest extends FormRequest
@@ -16,19 +17,14 @@ class ReturnToHEIRequest extends FormRequest
         $user = $this->user();
         $liquidation = $this->route('liquidation');
 
-        // Only Regional Coordinator or Super Admin can return
-        if ($user->role->name !== 'Regional Coordinator' && !$user->isSuperAdmin()) {
-            return false;
-        }
-
-        // RC can return any liquidation they have access to
-        return true;
+        return $user->can('review', $liquidation)
+            && ($user->role->name === 'Regional Coordinator' || $user->isSuperAdmin());
     }
 
     /**
      * Get the validation rules that apply to the request.
      *
-     * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
+     * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
@@ -59,10 +55,6 @@ class ReturnToHEIRequest extends FormRequest
     {
         $user = $this->user();
 
-        if ($user->role->name !== 'Regional Coordinator' && !$user->isSuperAdmin()) {
-            abort(403, 'Only Regional Coordinator can return liquidation to HEI.');
-        }
-
-        abort(403, 'This liquidation is not available for Regional Coordinator review.');
+        abort(403, 'This liquidation is outside your Regional Coordinator review scope.');
     }
 }

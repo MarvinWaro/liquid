@@ -110,6 +110,17 @@ export interface LiquidationComment {
     replies: LiquidationComment[];
 }
 
+export interface LiquidationRegion {
+    id: string;
+    code: string;
+    name: string;
+}
+
+export interface LiquidationRegionContext {
+    current_region: LiquidationRegion;
+    processing_region: LiquidationRegion;
+}
+
 export interface Liquidation {
     id: number;
     control_no: string;
@@ -160,6 +171,7 @@ export interface Liquidation {
     created_by_name?: string | null;
     document_completeness?: DocumentCompleteness;
     import_batch?: ImportBatchSummary | null;
+    region_context?: LiquidationRegionContext;
     /**
      * Per-ledger grantee breakdown for legacy STUFAPS multi-ledger imports.
      * Null/undefined for the common single-ledger case — UI should fall back

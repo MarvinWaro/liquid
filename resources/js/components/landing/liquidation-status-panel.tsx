@@ -118,6 +118,17 @@ export function LiquidationStatusPanel({
         let last = 0;
 
         const tick = (now: number) => {
+            // The root theme reveal already animates the captured page. Avoid
+            // scroll writes underneath it so the compositor can devote the
+            // frame budget to the reveal.
+            if (
+                document.documentElement.classList.contains('theme-transition')
+            ) {
+                last = now;
+                raf = requestAnimationFrame(tick);
+                return;
+            }
+
             if (last === 0) {
                 last = now;
             }

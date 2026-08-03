@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Models\AcademicYear;
 use App\Models\ActivityLog;
 use App\Models\DocumentStatus;
 use App\Models\HEI;
@@ -17,6 +18,7 @@ use App\Models\Semester;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -35,9 +37,9 @@ class LiquidationService
         $query = Liquidation::join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id');
 
-        $this->applyRoleFilter($query, $user);
+        $this->applyOperationalRoleFilter($query, $user);
 
-        if (!$this->isFilteringVoided($filters)) {
+        if (! $this->isFilteringVoided($filters)) {
             $query->excludeVoided();
         }
 
@@ -71,8 +73,8 @@ class LiquidationService
         $totalsQuery = Liquidation::join('liquidation_financials', 'liquidations.id', '=', 'liquidation_financials.liquidation_id')
             ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id');
 
-        $this->applyRoleFilter($totalsQuery, $user);
-        if (!$this->isFilteringVoided($filters)) {
+        $this->applyReportingRoleFilter($totalsQuery, $user);
+        if (! $this->isFilteringVoided($filters)) {
             $totalsQuery->excludeVoided();
         }
         $this->applyFilters($totalsQuery, $filters);
@@ -86,10 +88,10 @@ class LiquidationService
             ->first();
 
         $totals = [
-            'grantees'        => (int) ($stats->grantees ?? 0),
-            'disbursements'   => (float) ($stats->disbursements ?? 0),
-            'liquidated'      => (float) ($stats->liquidated ?? 0),
-            'unliquidated'    => (float) ($stats->unliquidated ?? 0),
+            'grantees' => (int) ($stats->grantees ?? 0),
+            'disbursements' => (float) ($stats->disbursements ?? 0),
+            'liquidated' => (float) ($stats->liquidated ?? 0),
+            'unliquidated' => (float) ($stats->unliquidated ?? 0),
             'for_endorsement' => (float) ($stats->for_endorsement ?? 0),
         ];
 
@@ -97,8 +99,8 @@ class LiquidationService
             ->leftJoin('rc_note_statuses', 'liquidations.rc_note_status_id', '=', 'rc_note_statuses.id')
             ->join('programs', 'liquidations.program_id', '=', 'programs.id');
 
-        $this->applyRoleFilter($summaryQuery, $user);
-        if (!$this->isFilteringVoided($filters)) {
+        $this->applyReportingRoleFilter($summaryQuery, $user);
+        if (! $this->isFilteringVoided($filters)) {
             $summaryQuery->excludeVoided();
         }
         $this->applyFilters($summaryQuery, $filters);
@@ -116,20 +118,20 @@ class LiquidationService
 
         $programSummary = $programRows->map(function ($row) {
             $disbursements = (float) $row->disbursements;
-            $liquidated    = (float) $row->liquidated;
-            $forEnd        = (float) $row->for_endorsement;
-            $percentage    = $disbursements > 0
+            $liquidated = (float) $row->liquidated;
+            $forEnd = (float) $row->for_endorsement;
+            $percentage = $disbursements > 0
                 ? round((($liquidated + $forEnd) / $disbursements) * 100, 2)
                 : 0;
 
             return [
-                'program_code'  => (string) $row->program_code,
-                'count'         => (int) $row->count,
-                'grantees'      => (int) $row->grantees,
+                'program_code' => (string) $row->program_code,
+                'count' => (int) $row->count,
+                'grantees' => (int) $row->grantees,
                 'disbursements' => $disbursements,
-                'liquidated'    => $liquidated,
-                'unliquidated'  => $disbursements - $liquidated,
-                'percentage'    => $percentage,
+                'liquidated' => $liquidated,
+                'unliquidated' => $disbursements - $liquidated,
+                'percentage' => $percentage,
             ];
         })->values();
 
@@ -231,57 +233,60 @@ class LiquidationService
         $parts = [];
 
         $toArray = function ($value): array {
-            if (empty($value)) return [];
+            if (empty($value)) {
+                return [];
+            }
             $arr = is_array($value) ? $value : [$value];
+
             return array_values(array_filter($arr, fn ($v) => $v !== '' && $v !== 'all'));
         };
 
         $programs = $toArray($filters['program'] ?? null);
-        if (!empty($programs)) {
+        if (! empty($programs)) {
             $codes = Program::whereIn('id', $programs)->pluck('code', 'id');
             $names = array_map(fn ($id) => $codes[$id] ?? $id, $programs);
-            $parts[] = 'Program: ' . implode(', ', $names);
+            $parts[] = 'Program: '.implode(', ', $names);
         }
 
         $academicYears = $toArray($filters['academic_year'] ?? null);
-        if (!empty($academicYears)) {
-            $labels = \App\Models\AcademicYear::whereIn('id', $academicYears)->pluck('name', 'id');
+        if (! empty($academicYears)) {
+            $labels = AcademicYear::whereIn('id', $academicYears)->pluck('name', 'id');
             $names = array_map(fn ($id) => $labels[$id] ?? $id, $academicYears);
-            $parts[] = 'AY: ' . implode(', ', $names);
+            $parts[] = 'AY: '.implode(', ', $names);
         }
 
         $docStatuses = $toArray($filters['document_status'] ?? null);
-        if (!empty($docStatuses)) {
+        if (! empty($docStatuses)) {
             $labels = array_map(fn ($c) => str_replace('_', ' ', ucfirst(strtolower($c))), $docStatuses);
-            $parts[] = 'Doc Status: ' . implode(', ', $labels);
+            $parts[] = 'Doc Status: '.implode(', ', $labels);
         }
 
         $liqStatuses = $toArray($filters['liquidation_status'] ?? null);
-        if (!empty($liqStatuses)) {
+        if (! empty($liqStatuses)) {
             $labels = array_map(fn ($c) => str_replace('_', ' ', ucfirst(strtolower($c))), $liqStatuses);
-            $parts[] = 'Liq Status: ' . implode(', ', $labels);
+            $parts[] = 'Liq Status: '.implode(', ', $labels);
         }
 
         $rcNotes = $toArray($filters['rc_note_status'] ?? null);
-        if (!empty($rcNotes)) {
+        if (! empty($rcNotes)) {
             $ids = array_filter($rcNotes, fn ($v) => $v !== 'none');
             $names = RcNoteStatus::whereIn('id', $ids)->pluck('name', 'id');
             $labels = array_map(
                 fn ($v) => $v === 'none' ? 'None' : ($names[$v] ?? $v),
                 $rcNotes
             );
-            $parts[] = 'RC Notes: ' . implode(', ', $labels);
+            $parts[] = 'RC Notes: '.implode(', ', $labels);
         }
 
         $heis = $toArray($filters['hei'] ?? null);
-        if (!empty($heis)) {
+        if (! empty($heis)) {
             $names = HEI::whereIn('id', $heis)->pluck('name', 'id');
             $labels = array_map(fn ($id) => $names[$id] ?? $id, $heis);
-            $parts[] = 'HEI: ' . implode(', ', $labels);
+            $parts[] = 'HEI: '.implode(', ', $labels);
         }
 
-        if (!empty($filters['search'])) {
-            $parts[] = 'Search: "' . $filters['search'] . '"';
+        if (! empty($filters['search'])) {
+            $parts[] = 'Search: "'.$filters['search'].'"';
         }
 
         return implode(' | ', $parts);
@@ -295,13 +300,13 @@ class LiquidationService
         // Select from the liquidations table explicitly so sort joins on
         // heis/programs/liquidation_financials don't collide on shared column
         // names (e.g. id, name, created_at).
-        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus'])
+        $query = Liquidation::with(['hei.region', 'processingRegion', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus'])
             ->select('liquidations.*');
 
-        $this->applyRoleFilter($query, $user);
+        $this->applyOperationalRoleFilter($query, $user);
 
         // Exclude voided records unless explicitly filtering for them
-        if (!$this->isFilteringVoided($filters)) {
+        if (! $this->isFilteringVoided($filters)) {
             $query->excludeVoided();
         }
 
@@ -366,6 +371,7 @@ class LiquidationService
                 break;
             default:
                 $query->orderBy('liquidations.control_no', 'asc');
+
                 return;
         }
 
@@ -378,9 +384,9 @@ class LiquidationService
      * Get the current user's pinned liquidations, ordered most-recently pinned first.
      * Respects the same role scope as the main table (no privilege escalation via pins).
      */
-    public function getPinnedLiquidationsForUser(User $user, int $limit): \Illuminate\Support\Collection
+    public function getPinnedLiquidationsForUser(User $user, int $limit): Collection
     {
-        $query = Liquidation::with(['hei', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus', 'trackingEntries'])
+        $query = Liquidation::with(['hei.region', 'processingRegion', 'creator', 'reviewer', 'accountantReviewer', 'financial', 'semester', 'academicYear', 'program', 'documentStatus', 'liquidationStatus', 'trackingEntries'])
             ->whereHas('pinnedByUsers', fn (Builder $q) => $q->where('users.id', $user->id))
             ->leftJoin('user_liquidation_pins', function ($join) use ($user) {
                 $join->on('user_liquidation_pins.liquidation_id', '=', 'liquidations.id')
@@ -389,7 +395,7 @@ class LiquidationService
             ->select('liquidations.*')
             ->orderByDesc('user_liquidation_pins.pinned_at');
 
-        $this->applyRoleFilter($query, $user);
+        $this->applyOperationalRoleFilter($query, $user);
 
         return $query->limit($limit)->get();
     }
@@ -399,9 +405,9 @@ class LiquidationService
      */
     public function applyRoleAndFilters(Builder $query, User $user, array $filters = []): void
     {
-        $this->applyRoleFilter($query, $user);
+        $this->applyReportingRoleFilter($query, $user);
 
-        if (!$this->isFilteringVoided($filters)) {
+        if (! $this->isFilteringVoided($filters)) {
             $query->excludeVoided();
         }
 
@@ -416,7 +422,7 @@ class LiquidationService
      */
     public function applyRoleScope(Builder $query, User $user): void
     {
-        $this->applyRoleFilter($query, $user);
+        $this->applyReportingRoleFilter($query, $user);
     }
 
     /**
@@ -426,13 +432,29 @@ class LiquidationService
     {
         $val = $filters['liquidation_status'] ?? [];
         $arr = is_array($val) ? $val : [$val];
+
         return in_array('voided', $arr);
     }
 
     /**
      * Apply role-based filtering to query.
      */
-    private function applyRoleFilter(Builder $query, User $user): void
+    public function applyOperationalRoleScope(Builder $query, User $user): void
+    {
+        $this->applyOperationalRoleFilter($query, $user);
+    }
+
+    private function applyOperationalRoleFilter(Builder $query, User $user): void
+    {
+        $this->applyRoleFilter($query, $user, true);
+    }
+
+    private function applyReportingRoleFilter(Builder $query, User $user): void
+    {
+        $this->applyRoleFilter($query, $user, false);
+    }
+
+    private function applyRoleFilter(Builder $query, User $user, bool $includeHistoricalProcessing): void
     {
         $roleName = $user->role->name;
 
@@ -440,10 +462,15 @@ class LiquidationService
         if ($roleName === 'HEI' && $user->hei_id) {
             $query->where('hei_id', $user->hei_id);
         } elseif ($roleName === 'Regional Coordinator' && $user->region_id) {
-            // RCs see liquidations from HEIs in their region, excluding STUFAPS sub-programs
-            $query->whereHas('hei', function (Builder $q) use ($user) {
-                $q->where('region_id', $user->region_id);
-            });
+            // Operational screens include legacy records originally processed by this RC region.
+            // Official reporting remains based solely on the HEI's current region.
+            if ($includeHistoricalProcessing) {
+                $query->managedByRegion($user->region_id);
+            } else {
+                $query->whereHas('hei', function (Builder $q) use ($user) {
+                    $q->where('region_id', $user->region_id);
+                });
+            }
             $query->whereDoesntHave('program', function (Builder $q) {
                 $q->whereNotNull('parent_id');
             });
@@ -462,7 +489,7 @@ class LiquidationService
         } elseif ($roleName === 'COA') {
             // COA only sees liquidations endorsed to COA by Accountant
             $query->whereNotNull('coa_endorsed_at');
-        } elseif (!$user->isSuperAdmin() && !in_array($roleName, ['Admin', 'HEI'])) {
+        } elseif (! $user->isSuperAdmin() && ! in_array($roleName, ['Admin', 'HEI'])) {
             // Fallback for other non-admin roles: show only their own created liquidations
             $query->where('created_by', $user->id);
         }
@@ -477,14 +504,17 @@ class LiquidationService
     {
         // Helper: normalize a filter value to a flat array, stripping 'all' and empties.
         $toArray = function ($value): array {
-            if (empty($value)) return [];
+            if (empty($value)) {
+                return [];
+            }
             $arr = is_array($value) ? $value : [$value];
+
             return array_values(array_filter($arr, fn ($v) => $v !== '' && $v !== 'all'));
         };
 
         // Program filter — each selected value is a program UUID
         $programs = $toArray($filters['program'] ?? null);
-        if (!empty($programs)) {
+        if (! empty($programs)) {
             $programIds = collect();
             foreach ($programs as $programId) {
                 $program = Program::find($programId);
@@ -500,7 +530,7 @@ class LiquidationService
         }
 
         // Search filter
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $search = $filters['search'];
             $query->where(function ($q) use ($search) {
                 $q->where('control_no', 'like', "%{$search}%")
@@ -512,21 +542,25 @@ class LiquidationService
 
         // Document status filter
         $docStatuses = $toArray($filters['document_status'] ?? null);
-        if (!empty($docStatuses)) {
+        if (! empty($docStatuses)) {
             $docStatusIds = [];
             $includeNull = false;
             foreach ($docStatuses as $code) {
                 if ($code === 'NONE') {
                     $includeNull = true;
                     $noneStatus = DocumentStatus::findByCode(DocumentStatus::CODE_NONE);
-                    if ($noneStatus) $docStatusIds[] = $noneStatus->id;
+                    if ($noneStatus) {
+                        $docStatusIds[] = $noneStatus->id;
+                    }
                 } else {
                     $status = DocumentStatus::findByCode($code);
-                    if ($status) $docStatusIds[] = $status->id;
+                    if ($status) {
+                        $docStatusIds[] = $status->id;
+                    }
                 }
             }
             $query->where(function ($q) use ($docStatusIds, $includeNull) {
-                if (!empty($docStatusIds)) {
+                if (! empty($docStatusIds)) {
                     $q->whereIn('document_status_id', $docStatusIds);
                 }
                 if ($includeNull) {
@@ -537,26 +571,28 @@ class LiquidationService
 
         // Liquidation status filter
         $liqStatuses = $toArray($filters['liquidation_status'] ?? null);
-        if (!empty($liqStatuses)) {
+        if (! empty($liqStatuses)) {
             $liqStatusIds = [];
             foreach ($liqStatuses as $code) {
                 $status = LiquidationStatus::findByCode(strtoupper($code));
-                if ($status) $liqStatusIds[] = $status->id;
+                if ($status) {
+                    $liqStatusIds[] = $status->id;
+                }
             }
-            if (!empty($liqStatusIds)) {
+            if (! empty($liqStatusIds)) {
                 $query->whereIn('liquidation_status_id', $liqStatusIds);
             }
         }
 
         // Academic year filter
         $academicYears = $toArray($filters['academic_year'] ?? null);
-        if (!empty($academicYears)) {
+        if (! empty($academicYears)) {
             $query->whereIn('academic_year_id', $academicYears);
         }
 
         // Region filter — filters by HEI's region (Admin/Super Admin only; controller strips for others)
         $regions = $toArray($filters['region'] ?? null);
-        if (!empty($regions)) {
+        if (! empty($regions)) {
             $query->whereHas('hei', function (Builder $q) use ($regions) {
                 $q->whereIn('region_id', $regions);
             });
@@ -564,17 +600,17 @@ class LiquidationService
 
         // HEI filter — narrows by specific HEIs (used by /report stepper). Role scoping still applies.
         $heis = $toArray($filters['hei'] ?? null);
-        if (!empty($heis)) {
+        if (! empty($heis)) {
             $query->whereIn('hei_id', $heis);
         }
 
         // RC note status filter
         $rcNotes = $toArray($filters['rc_note_status'] ?? null);
-        if (!empty($rcNotes)) {
+        if (! empty($rcNotes)) {
             $includeNone = in_array('none', $rcNotes);
             $statusIds = array_filter($rcNotes, fn ($v) => $v !== 'none');
             $query->where(function ($q) use ($statusIds, $includeNone) {
-                if (!empty($statusIds)) {
+                if (! empty($statusIds)) {
                     $q->whereIn('rc_note_status_id', $statusIds);
                 }
                 if ($includeNone) {
@@ -591,10 +627,18 @@ class LiquidationService
     public function createLiquidation(array $data, User $creator): Liquidation
     {
         return DB::transaction(function () use ($data, $creator) {
-            $hei = $this->findHEIByUII($data['uii']);
+            $matchedHei = $this->findHEIByUII($data['uii']);
 
-            if (!$hei) {
+            if (! $matchedHei) {
                 throw new \InvalidArgumentException('HEI not found with the provided UII.');
+            }
+
+            // Serialize creation with region transfers so a record cannot slip
+            // into the former region after the HEI has moved.
+            $hei = HEI::query()->lockForUpdate()->findOrFail($matchedHei->id);
+
+            if (! $hei->region_id) {
+                throw new \InvalidArgumentException('The HEI must be assigned to an official region before creating a liquidation.');
             }
 
             // Regional Coordinators can only create liquidations for HEIs in their assigned region
@@ -604,35 +648,36 @@ class LiquidationService
                 }
             }
 
-            $semesterId = !empty($data['semester']) ? $this->findSemesterId($data['semester']) : null;
+            $semesterId = ! empty($data['semester']) ? $this->findSemesterId($data['semester']) : null;
 
             // Determine document status ID - default to NONE if not provided
-            $documentStatusCode = !empty($data['document_status']) ? $data['document_status'] : 'NONE';
+            $documentStatusCode = ! empty($data['document_status']) ? $data['document_status'] : 'NONE';
             $documentStatusId = DocumentStatus::findByCode($documentStatusCode)?->id;
 
             $liquidation = Liquidation::create([
-                'control_no'            => $data['dv_control_no'] ?? $this->generateControlNo(
+                'control_no' => $data['dv_control_no'] ?? $this->generateControlNo(
                     $data['program_id'],
-                    !empty($data['date_fund_released']) ? (int) date('Y', strtotime($data['date_fund_released'])) : null,
+                    ! empty($data['date_fund_released']) ? (int) date('Y', strtotime($data['date_fund_released'])) : null,
                 ),
-                'hei_id'                => $hei->id,
-                'program_id'            => $data['program_id'],
-                'academic_year_id'      => $data['academic_year_id'],
-                'semester_id'           => $semesterId,
-                'batch_no'              => $data['batch_no'] ?? null,
-                'document_status_id'    => $documentStatusId,
-                'rc_note_status_id'     => $this->resolveRcNoteStatusId($data['rc_notes'] ?? null),
+                'hei_id' => $hei->id,
+                'processing_region_id' => $hei->region_id,
+                'program_id' => $data['program_id'],
+                'academic_year_id' => $data['academic_year_id'],
+                'semester_id' => $semesterId,
+                'batch_no' => $data['batch_no'] ?? null,
+                'document_status_id' => $documentStatusId,
+                'rc_note_status_id' => $this->resolveRcNoteStatusId($data['rc_notes'] ?? null),
                 'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
-                'created_by'            => $creator->id,
+                'created_by' => $creator->id,
             ]);
 
             $liquidation->createOrUpdateFinancial([
                 'date_fund_released' => $data['date_fund_released'],
-                'due_date'           => $data['due_date'] ?? null,
+                'due_date' => $data['due_date'] ?? null,
                 'number_of_grantees' => $data['number_of_grantees'] ?? null,
-                'amount_received'    => $data['total_disbursements'],
-                'amount_disbursed'   => $data['total_disbursements'],
-                'amount_liquidated'  => $data['total_amount_liquidated'] ?? 0,
+                'amount_received' => $data['total_disbursements'],
+                'amount_disbursed' => $data['total_disbursements'],
+                'amount_liquidated' => $data['total_amount_liquidated'] ?? 0,
             ]);
 
             ActivityLog::log('created_liquidation', 'Created liquidation '.$liquidation->control_no.' for '.$hei->name, $liquidation, 'Liquidation');
@@ -672,14 +717,14 @@ class LiquidationService
             }
 
             $financialFieldsMap = [
-                'amount_received'    => 'amount_received',
-                'disbursed_amount'   => 'amount_disbursed',
-                'disbursement_date'  => 'disbursement_date',
-                'fund_source'        => 'fund_source',
-                'liquidated_amount'  => 'amount_liquidated',
-                'purpose'            => 'purpose',
+                'amount_received' => 'amount_received',
+                'disbursed_amount' => 'amount_disbursed',
+                'disbursement_date' => 'disbursement_date',
+                'fund_source' => 'fund_source',
+                'liquidated_amount' => 'amount_liquidated',
+                'purpose' => 'purpose',
                 'date_fund_released' => 'date_fund_released',
-                'due_date'           => 'due_date',
+                'due_date' => 'due_date',
                 'number_of_grantees' => 'number_of_grantees',
             ];
 
@@ -691,15 +736,15 @@ class LiquidationService
             }
 
             // Sync amount_disbursed with amount_received if only amount_received is set
-            if (isset($financialData['amount_received']) && !isset($data['disbursed_amount'])) {
+            if (isset($financialData['amount_received']) && ! isset($data['disbursed_amount'])) {
                 $financialData['amount_disbursed'] = $financialData['amount_received'];
             }
 
-            if (!empty($liquidationFields)) {
+            if (! empty($liquidationFields)) {
                 $liquidation->update($liquidationFields);
             }
 
-            if (!empty($financialData)) {
+            if (! empty($financialData)) {
                 $liquidation->createOrUpdateFinancial($financialData);
             }
 
@@ -723,10 +768,10 @@ class LiquidationService
 
             // Check if this is a resubmission based on review history
             $hasBeenReturned = $liquidation->reviews()
-                ->whereHas('reviewType', fn($q) => $q->where('code', LiquidationReview::TYPE_RC_RETURN))
+                ->whereHas('reviewType', fn ($q) => $q->where('code', LiquidationReview::TYPE_RC_RETURN))
                 ->exists();
 
-            if ($hasBeenReturned && !empty($remarks)) {
+            if ($hasBeenReturned && ! empty($remarks)) {
                 $liquidation->addHEIResubmission($user, $remarks);
             }
 
@@ -734,11 +779,11 @@ class LiquidationService
 
             $updateData = [
                 'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
-                'date_submitted'        => now(),
-                'document_status_id'    => $documentStatusId,
+                'date_submitted' => now(),
+                'document_status_id' => $documentStatusId,
             ];
 
-            if (!$hasBeenReturned) {
+            if (! $hasBeenReturned) {
                 $updateData['remarks'] = $remarks ?? $liquidation->remarks;
             }
 
@@ -768,22 +813,22 @@ class LiquidationService
             }
 
             // Auto-set date_submitted for RC-created entries that were never submitted by HEI
-            if (!$liquidation->date_submitted) {
+            if (! $liquidation->date_submitted) {
                 $liquidation->date_submitted = now();
             }
 
             // Only create transmittal if transmittal data is provided
-            if (!empty($data['transmittal_reference_no'])) {
+            if (! empty($data['transmittal_reference_no'])) {
                 $liquidation->createTransmittal($data, $user);
             }
 
-            if (!empty($data['review_remarks'])) {
+            if (! empty($data['review_remarks'])) {
                 $liquidation->reviews()->create([
-                    'review_type_id'    => ReviewType::findByCode(LiquidationReview::TYPE_RC_ENDORSEMENT)?->id,
-                    'performed_by'      => $user->id,
+                    'review_type_id' => ReviewType::findByCode(LiquidationReview::TYPE_RC_ENDORSEMENT)?->id,
+                    'performed_by' => $user->id,
                     'performed_by_name' => $user->name,
-                    'remarks'           => $data['review_remarks'],
-                    'performed_at'      => now(),
+                    'remarks' => $data['review_remarks'],
+                    'performed_at' => now(),
                 ]);
             }
 
@@ -791,8 +836,8 @@ class LiquidationService
 
             $liquidation->update([
                 'liquidation_status_id' => $liquidationStatusId,
-                'reviewed_by'           => $user->id,
-                'reviewed_at'           => now(),
+                'reviewed_by' => $user->id,
+                'reviewed_at' => now(),
             ]);
 
             ActivityLog::log('endorsed_to_accounting', 'Endorsed liquidation '.$liquidation->control_no.' to Accounting', $liquidation, 'Liquidation');
@@ -811,7 +856,7 @@ class LiquidationService
             $liquidation = Liquidation::lockForUpdate()->findOrFail($liquidation->id);
 
             // State guards
-            if (!$liquidation->date_submitted) {
+            if (! $liquidation->date_submitted) {
                 throw new \InvalidArgumentException('Liquidation has not been submitted for review yet.');
             }
             if ($liquidation->coa_endorsed_at) {
@@ -824,14 +869,14 @@ class LiquidationService
                 $data['documents_for_compliance'] ?? null
             );
 
-            if (!empty($data['documents_for_compliance'])) {
+            if (! empty($data['documents_for_compliance'])) {
                 $liquidation->createCompliance($data['documents_for_compliance']);
             }
 
             $liquidation->update([
                 'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
-                'reviewed_by'           => $user->id,
-                'reviewed_at'           => now(),
+                'reviewed_by' => $user->id,
+                'reviewed_at' => now(),
             ]);
 
             ActivityLog::log('returned_to_hei', 'Returned liquidation '.$liquidation->control_no.' to HEI', $liquidation, 'Liquidation');
@@ -850,31 +895,31 @@ class LiquidationService
             $liquidation = Liquidation::lockForUpdate()->findOrFail($liquidation->id);
 
             // State guards
-            if (!$liquidation->reviewed_at) {
+            if (! $liquidation->reviewed_at) {
                 throw new \InvalidArgumentException('Liquidation has not been endorsed to Accounting yet.');
             }
             if ($liquidation->coa_endorsed_at) {
                 throw new \InvalidArgumentException('This liquidation has already been endorsed to COA.');
             }
 
-            if (!empty($remarks)) {
+            if (! empty($remarks)) {
                 $liquidation->reviews()->create([
-                    'review_type_id'    => ReviewType::findByCode(LiquidationReview::TYPE_ACCOUNTANT_ENDORSEMENT)?->id,
-                    'performed_by'      => $user->id,
+                    'review_type_id' => ReviewType::findByCode(LiquidationReview::TYPE_ACCOUNTANT_ENDORSEMENT)?->id,
+                    'performed_by' => $user->id,
                     'performed_by_name' => $user->name,
-                    'remarks'           => $remarks,
-                    'performed_at'      => now(),
+                    'remarks' => $remarks,
+                    'performed_at' => now(),
                 ]);
             }
 
             $liquidationStatusId = $this->calculateLiquidationStatusId($liquidation);
 
             $liquidation->update([
-                'liquidation_status_id'  => $liquidationStatusId,
+                'liquidation_status_id' => $liquidationStatusId,
                 'accountant_reviewed_by' => $user->id,
                 'accountant_reviewed_at' => now(),
-                'coa_endorsed_by'        => $user->id,
-                'coa_endorsed_at'        => now(),
+                'coa_endorsed_by' => $user->id,
+                'coa_endorsed_at' => now(),
             ]);
 
             ActivityLog::log('endorsed_to_coa', 'Endorsed liquidation '.$liquidation->control_no.' to COA', $liquidation, 'Liquidation');
@@ -893,7 +938,7 @@ class LiquidationService
             $liquidation = Liquidation::lockForUpdate()->findOrFail($liquidation->id);
 
             // State guards
-            if (!$liquidation->reviewed_at) {
+            if (! $liquidation->reviewed_at) {
                 throw new \InvalidArgumentException('Liquidation has not been endorsed to Accounting yet.');
             }
             if ($liquidation->coa_endorsed_at) {
@@ -903,7 +948,7 @@ class LiquidationService
             $liquidation->addAccountantReturn($user, $remarks);
 
             $liquidation->update([
-                'liquidation_status_id'  => LiquidationStatus::unliquidated()?->id,
+                'liquidation_status_id' => LiquidationStatus::unliquidated()?->id,
                 'accountant_reviewed_by' => $user->id,
                 'accountant_reviewed_at' => now(),
             ]);
@@ -966,27 +1011,27 @@ class LiquidationService
         $year = $year ?? now()->year;
         $programCode = Program::where('id', $programId)->value('code');
 
-        if (!$programCode) {
+        if (! $programCode) {
             throw new \InvalidArgumentException('Program not found.');
         }
 
-        $prefix = $programCode . '-' . $year . '-';
+        $prefix = $programCode.'-'.$year.'-';
         $prefixLen = strlen($prefix) + 1; // +1 for 1-based SUBSTRING
 
         // Get all occupied sequence numbers for this prefix, sorted ascending.
         // Include soft-deleted records — their control numbers are still reserved
         // in the unique index and cannot be reused.
         $occupied = Liquidation::withTrashed()
-            ->where('control_no', 'like', $prefix . '%')
+            ->where('control_no', 'like', $prefix.'%')
             ->lockForUpdate()
-            ->selectRaw('CAST(SUBSTRING(control_no, ' . $prefixLen . ') AS UNSIGNED) as seq')
+            ->selectRaw('CAST(SUBSTRING(control_no, '.$prefixLen.') AS UNSIGNED) as seq')
             ->orderBy('seq')
             ->pluck('seq')
             ->toArray();
 
         // Walk the occupied sequence once, emitting every gap until $count are found.
         $numbers = [];
-        $next    = 1;
+        $next = 1;
 
         foreach ($occupied as $seq) {
             if (count($numbers) === $count) {
@@ -1009,7 +1054,7 @@ class LiquidationService
         }
 
         return array_map(
-            fn (int $seq) => $prefix . str_pad((string) $seq, 4, '0', STR_PAD_LEFT),
+            fn (int $seq) => $prefix.str_pad((string) $seq, 4, '0', STR_PAD_LEFT),
             $numbers,
         );
     }
@@ -1019,7 +1064,9 @@ class LiquidationService
      */
     public function findHEIByUII(string $uii): ?HEI
     {
-        return Cache::remember("hei_uii_{$uii}", self::CACHE_TTL, function () use ($uii) {
+        $cacheKey = 'hei_uii_'.strtolower($uii);
+
+        return Cache::remember($cacheKey, self::CACHE_TTL, function () use ($uii) {
             return HEI::where('uii', $uii)->first()
                 ?? HEI::whereRaw('LOWER(uii) = ?', [strtolower($uii)])->first();
         });
@@ -1145,7 +1192,7 @@ class LiquidationService
     {
         $financial = $liquidation->financial;
 
-        if (!$financial) {
+        if (! $financial) {
             return LiquidationStatus::partiallyLiquidated()?->id;
         }
 

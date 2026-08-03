@@ -10,8 +10,12 @@ use App\Models\Notification;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class LiquidationCommentController extends Controller
@@ -23,6 +27,8 @@ class LiquidationCommentController extends Controller
      */
     public function index(Request $request, Liquidation $liquidation): JsonResponse
     {
+        Gate::authorize('comment', $liquidation);
+
         $requirementId = $request->query('document_requirement_id');
 
         $comments = LiquidationComment::where('liquidation_id', $liquidation->id)
@@ -41,9 +47,16 @@ class LiquidationCommentController extends Controller
      */
     public function store(Request $request, Liquidation $liquidation): JsonResponse
     {
+        Gate::authorize('comment', $liquidation);
+
         $validated = $request->validate([
             'body' => 'nullable|string|max:2000',
-            'parent_id' => 'nullable|uuid|exists:liquidation_comments,id',
+            'parent_id' => [
+                'nullable',
+                'uuid',
+                Rule::exists('liquidation_comments', 'id')
+                    ->where(fn ($query) => $query->where('liquidation_id', $liquidation->id)),
+            ],
             'document_requirement_id' => 'nullable|uuid|exists:document_requirements,id',
             'mentions' => 'nullable|array',
             'mentions.*' => 'uuid|exists:users,id',
@@ -54,27 +67,39 @@ class LiquidationCommentController extends Controller
         $bodyText = trim($validated['body'] ?? '');
         $hasAttachments = $request->hasFile('attachments');
 
-        if ($bodyText === '' && !$hasAttachments) {
+        if ($bodyText === '' && ! $hasAttachments) {
             return response()->json(['message' => 'A comment must have text or at least one attachment.'], 422);
         }
 
         // Enforce max depth: if parent is at max depth, flatten to its parent
         $parentId = $validated['parent_id'] ?? null;
         if ($parentId) {
-            $depth = $this->getCommentDepth($parentId);
+            $parent = LiquidationComment::where('liquidation_id', $liquidation->id)->find($parentId);
+            $depth = $this->getCommentDepth($parentId, $liquidation->id);
             if ($depth >= self::MAX_DEPTH) {
-                $parentId = LiquidationComment::find($parentId)?->parent_id ?? $parentId;
+                $parentId = $parent?->parent_id ?? $parentId;
             }
         }
 
-        $mentionIds = $validated['mentions'] ?? ($bodyText ? LiquidationComment::parseMentions($bodyText) : []);
+        $requestedMentionIds = collect(
+            $validated['mentions'] ?? ($bodyText ? LiquidationComment::parseMentions($bodyText) : [])
+        )->filter()->unique()->values();
+        $mentionIds = $this->usersWhoCanView($requestedMentionIds->all(), $liquidation)
+            ->pluck('id')
+            ->all();
+
+        if (isset($validated['mentions']) && count($mentionIds) !== $requestedMentionIds->count()) {
+            throw ValidationException::withMessages([
+                'mentions' => 'One or more mentioned users cannot access this liquidation.',
+            ]);
+        }
 
         // Handle file attachments (up to 3)
         $attachments = [];
         if ($hasAttachments) {
             foreach ($request->file('attachments') as $file) {
-                $fileName = time() . '_' . $file->getClientOriginalName();
-                $filePath = $file->storeAs('comment_attachments/' . $liquidation->id, $fileName, 's3');
+                $fileName = time().'_'.$file->getClientOriginalName();
+                $filePath = $file->storeAs('comment_attachments/'.$liquidation->id, $fileName, 's3');
                 $attachments[] = [
                     'path' => $filePath,
                     'name' => $file->getClientOriginalName(),
@@ -89,8 +114,8 @@ class LiquidationCommentController extends Controller
             'parent_id' => $parentId,
             'document_requirement_id' => $validated['document_requirement_id'] ?? null,
             'body' => $bodyText,
-            'mentions' => !empty($mentionIds) ? $mentionIds : null,
-            'attachments' => !empty($attachments) ? $attachments : null,
+            'mentions' => ! empty($mentionIds) ? $mentionIds : null,
+            'attachments' => ! empty($attachments) ? $attachments : null,
         ]);
 
         $actor = $request->user();
@@ -111,9 +136,11 @@ class LiquidationCommentController extends Controller
      */
     public function downloadAttachment(LiquidationComment $comment, int $index): StreamedResponse
     {
+        Gate::authorize('view', $comment->liquidation);
+
         $attachments = $comment->attachments ?? [];
 
-        if (!isset($attachments[$index]) || !Storage::disk('s3')->exists($attachments[$index]['path'])) {
+        if (! isset($attachments[$index]) || ! Storage::disk('s3')->exists($attachments[$index]['path'])) {
             abort(404, 'Attachment not found.');
         }
 
@@ -125,7 +152,13 @@ class LiquidationCommentController extends Controller
      */
     public function destroy(Request $request, Liquidation $liquidation, LiquidationComment $comment): JsonResponse
     {
-        if ($comment->user_id !== $request->user()->id && !$request->user()->isAdmin() && !$request->user()->isSuperAdmin()) {
+        Gate::authorize('comment', $liquidation);
+
+        if ($comment->liquidation_id !== $liquidation->id) {
+            abort(404);
+        }
+
+        if ($comment->user_id !== $request->user()->id && ! $request->user()->isAdmin() && ! $request->user()->isSuperAdmin()) {
             abort(403, 'You can only delete your own comments.');
         }
 
@@ -139,13 +172,19 @@ class LiquidationCommentController extends Controller
      */
     public function mentionableUsers(Request $request, Liquidation $liquidation): JsonResponse
     {
+        Gate::authorize('comment', $liquidation);
+
         $liquidation->loadMissing(['hei', 'program']);
         $currentUserId = $request->user()->id;
         $isSTUFAPSProgram = $liquidation->program && $liquidation->program->parent_id;
+        $rcRegionIds = collect([
+            $liquidation->hei?->region_id,
+            $liquidation->processing_region_id,
+        ])->filter()->unique()->values()->all();
 
         $users = User::where('status', 'active')
             ->where('id', '!=', $currentUserId)
-            ->where(function ($q) use ($liquidation, $isSTUFAPSProgram) {
+            ->where(function ($q) use ($liquidation, $isSTUFAPSProgram, $rcRegionIds) {
                 // HEI users for this liquidation's institution
                 $q->where('hei_id', $liquidation->hei_id);
                 // For STUFAPS sub-programs: show STUFAPS Focals assigned to the program
@@ -156,19 +195,20 @@ class LiquidationCommentController extends Controller
                     });
                 } else {
                     // For non-STUFAPS: show RCs for the same region
-                    if ($liquidation->hei?->region_id) {
-                        $q->orWhere(function ($sub) use ($liquidation) {
+                    if ($rcRegionIds !== []) {
+                        $q->orWhere(function ($sub) use ($rcRegionIds) {
                             $sub->whereHas('role', fn ($r) => $r->where('name', 'Regional Coordinator'))
-                                ->where('region_id', $liquidation->hei->region_id);
+                                ->whereIn('region_id', $rcRegionIds);
                         });
                     }
                 }
                 // Accountants and admins
                 $q->orWhereHas('role', fn ($r) => $r->whereIn('name', ['Accountant', 'COA', 'Admin', 'Super Admin']));
             })
-            ->with('role')
+            ->with(['role.permissions', 'permissions'])
             ->orderBy('name')
-            ->get(['id', 'name', 'role_id'])
+            ->get()
+            ->filter(fn (User $user) => Gate::forUser($user)->allows('view', $liquidation))
             ->map(fn (User $u) => [
                 'id' => $u->id,
                 'name' => $u->name,
@@ -187,17 +227,16 @@ class LiquidationCommentController extends Controller
             return;
         }
 
-        $recipients = User::whereIn('id', $mentionIds)
+        $recipients = $this->usersWhoCanView($mentionIds, $liquidation)
             ->where('id', '!=', $actor->id)
-            ->where('status', 'active')
-            ->get();
+            ->values();
 
         if ($recipients->isEmpty()) {
             return;
         }
 
         $liquidation->loadMissing('hei');
-        $description = 'mentioned you in a comment on ' . $liquidation->control_no;
+        $description = 'mentioned you in a comment on '.$liquidation->control_no;
         $metadata = $comment->document_requirement_id
             ? json_encode(['document_requirement_id' => $comment->document_requirement_id])
             : null;
@@ -224,14 +263,14 @@ class LiquidationCommentController extends Controller
     /**
      * Calculate the depth of a comment in the tree (0 = top-level).
      */
-    private function getCommentDepth(string $commentId): int
+    private function getCommentDepth(string $commentId, string $liquidationId): int
     {
         $depth = 0;
-        $current = LiquidationComment::find($commentId);
+        $current = LiquidationComment::where('liquidation_id', $liquidationId)->find($commentId);
 
         while ($current?->parent_id) {
             $depth++;
-            $current = LiquidationComment::find($current->parent_id);
+            $current = LiquidationComment::where('liquidation_id', $liquidationId)->find($current->parent_id);
         }
 
         return $depth;
@@ -242,26 +281,39 @@ class LiquidationCommentController extends Controller
      */
     private function notifyThreadParticipants(LiquidationComment $comment, Liquidation $liquidation, User $actor, array $mentionIds): void
     {
-        if (!$comment->parent_id) {
+        if (! $comment->parent_id) {
             return; // Top-level comments don't trigger thread notifications
         }
 
         // Walk up to find the root comment
         $rootId = $comment->parent_id;
-        $current = LiquidationComment::find($rootId);
+        $current = LiquidationComment::where('liquidation_id', $liquidation->id)->find($rootId);
+        if (! $current) {
+            return;
+        }
+
         while ($current?->parent_id) {
             $rootId = $current->parent_id;
-            $current = LiquidationComment::find($current->parent_id);
+            $current = LiquidationComment::where('liquidation_id', $liquidation->id)->find($current->parent_id);
         }
 
         // Collect all comment IDs in this thread tree (3 levels max)
         $level0 = [$rootId];
-        $level1 = LiquidationComment::whereIn('parent_id', $level0)->pluck('id')->toArray();
-        $level2 = !empty($level1) ? LiquidationComment::whereIn('parent_id', $level1)->pluck('id')->toArray() : [];
+        $level1 = LiquidationComment::where('liquidation_id', $liquidation->id)
+            ->whereIn('parent_id', $level0)
+            ->pluck('id')
+            ->toArray();
+        $level2 = ! empty($level1)
+            ? LiquidationComment::where('liquidation_id', $liquidation->id)
+                ->whereIn('parent_id', $level1)
+                ->pluck('id')
+                ->toArray()
+            : [];
         $allThreadIds = array_merge($level0, $level1, $level2);
 
         // Get unique user IDs from all thread comments, excluding actor and already-mentioned users
         $participantIds = LiquidationComment::whereIn('id', $allThreadIds)
+            ->where('liquidation_id', $liquidation->id)
             ->where('user_id', '!=', $actor->id)
             ->whereNotIn('user_id', $mentionIds)
             ->pluck('user_id')
@@ -271,16 +323,14 @@ class LiquidationCommentController extends Controller
             return;
         }
 
-        $recipients = User::whereIn('id', $participantIds)
-            ->where('status', 'active')
-            ->get();
+        $recipients = $this->usersWhoCanView($participantIds->all(), $liquidation);
 
         if ($recipients->isEmpty()) {
             return;
         }
 
         $liquidation->loadMissing('hei');
-        $description = 'replied to a conversation on ' . $liquidation->control_no;
+        $description = 'replied to a conversation on '.$liquidation->control_no;
         $metadata = $comment->document_requirement_id
             ? json_encode(['document_requirement_id' => $comment->document_requirement_id])
             : null;
@@ -319,15 +369,24 @@ class LiquidationCommentController extends Controller
         if ($comment->parent_id) {
             // Thread participants were already notified by notifyThreadParticipants
             $rootId = $comment->parent_id;
-            $current = LiquidationComment::find($rootId);
+            $current = LiquidationComment::where('liquidation_id', $liquidation->id)->find($rootId);
             while ($current?->parent_id) {
                 $rootId = $current->parent_id;
-                $current = LiquidationComment::find($current->parent_id);
+                $current = LiquidationComment::where('liquidation_id', $liquidation->id)->find($current->parent_id);
             }
             $level0 = [$rootId];
-            $level1 = LiquidationComment::whereIn('parent_id', $level0)->pluck('id')->toArray();
-            $level2 = !empty($level1) ? LiquidationComment::whereIn('parent_id', $level1)->pluck('id')->toArray() : [];
+            $level1 = LiquidationComment::where('liquidation_id', $liquidation->id)
+                ->whereIn('parent_id', $level0)
+                ->pluck('id')
+                ->toArray();
+            $level2 = ! empty($level1)
+                ? LiquidationComment::where('liquidation_id', $liquidation->id)
+                    ->whereIn('parent_id', $level1)
+                    ->pluck('id')
+                    ->toArray()
+                : [];
             $threadUserIds = LiquidationComment::whereIn('id', array_merge($level0, $level1, $level2))
+                ->where('liquidation_id', $liquidation->id)
                 ->pluck('user_id');
             $alreadyNotified = $alreadyNotified->merge($threadUserIds);
         }
@@ -353,10 +412,15 @@ class LiquidationCommentController extends Controller
                     ->whereHas('programs', fn ($q) => $q->where('programs.id', $liquidation->program_id))
                     ->get();
             }
+            $regionIds = collect([
+                $liquidation->hei?->region_id,
+                $liquidation->processing_region_id,
+            ])->filter()->unique()->values()->all();
+
             return User::where('status', 'active')
                 ->where('id', '!=', $actor->id)
                 ->whereNotIn('id', $excludeIds)
-                ->where('region_id', $liquidation->hei?->region_id)
+                ->whereIn('region_id', $regionIds)
                 ->whereHas('role', fn ($q) => $q->where('name', 'Regional Coordinator'))
                 ->get();
         };
@@ -434,7 +498,16 @@ class LiquidationCommentController extends Controller
             return;
         }
 
-        $description = 'commented on a document requirement on ' . $liquidation->control_no;
+        $recipients = $recipients
+            ->unique('id')
+            ->filter(fn (User $user) => Gate::forUser($user)->allows('view', $liquidation))
+            ->values();
+
+        if ($recipients->isEmpty()) {
+            return;
+        }
+
+        $description = 'commented on a document requirement on '.$liquidation->control_no;
         $metadata = $comment->document_requirement_id
             ? json_encode(['document_requirement_id' => $comment->document_requirement_id])
             : null;
@@ -458,6 +531,25 @@ class LiquidationCommentController extends Controller
         Notification::insert($rows);
     }
 
+    /**
+     * Resolve active users who are still authorized to view this liquidation.
+     */
+    private function usersWhoCanView(array $userIds, Liquidation $liquidation): Collection
+    {
+        $ids = collect($userIds)->filter()->unique()->values();
+
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        return User::whereIn('id', $ids)
+            ->where('status', 'active')
+            ->with(['role.permissions', 'permissions'])
+            ->get()
+            ->filter(fn (User $user) => Gate::forUser($user)->allows('view', $liquidation))
+            ->values();
+    }
+
     private function formatComment(LiquidationComment $comment): array
     {
         return [
@@ -470,7 +562,7 @@ class LiquidationCommentController extends Controller
             'body' => $comment->body,
             'mentions' => $comment->mentions,
             'attachments' => collect($comment->attachments ?? [])->map(fn ($att, $i) => [
-                'url' => url('liquidation-comments/' . $comment->id . '/attachment/' . $i),
+                'url' => url('liquidation-comments/'.$comment->id.'/attachment/'.$i),
                 'name' => $att['name'],
                 'size' => $att['size'],
             ])->toArray(),
