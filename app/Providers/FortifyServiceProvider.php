@@ -109,5 +109,25 @@ class FortifyServiceProvider extends ServiceProvider
 
             return Limit::perMinute(5)->by($throttleKey);
         });
+
+        // Backstop for every web route. The per-route limiters above guard the
+        // endpoints worth attacking one by one; this only catches a signed-in
+        // session that has gone haywire — a runaway poll, a stuck retry loop, a
+        // script scraping records — before it reaches the database.
+        //
+        // Keyed by user id, never by IP, for signed-in traffic: a regional office
+        // behind one public IP would otherwise share a single bucket and lock its
+        // own staff out. Guests fall back to IP, with more room for that reason.
+        //
+        // 300/min is deliberately far above real usage. One user with several tabs
+        // open runs roughly 50-160 requests a minute (import progress polls every
+        // 2s, report queue every 3s, notifications 30s, presence 45s, plus page
+        // loads that fetch deferred dashboard props). A loop firing 50x a second
+        // is 3,000/min and gets stopped; normal work never comes close.
+        RateLimiter::for('global', function (Request $request) {
+            return $request->user()
+                ? Limit::perMinute(300)->by('user:'.$request->user()->getAuthIdentifier())
+                : Limit::perMinute(600)->by('ip:'.$request->ip());
+        });
     }
 }

@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/context-menu';
 import { Pencil, Save, RotateCcw, FileSpreadsheet, Download, ChevronDown } from 'lucide-react';
 import AmountInput from './amount-input';
+import { formatManilaDate } from '@/lib/date';
 import {
     type Liquidation,
     RC_NOTES_OPTIONS,
@@ -444,7 +445,7 @@ export default function LiquidationDetailsCard({
                                                 <DisplayValue>{liquidation.reviewed_by_name}</DisplayValue>
                                             </FieldBlock>
                                             <FieldBlock label="Date Reviewed">
-                                                <DisplayValue>{liquidation.reviewed_at ? new Date(liquidation.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</DisplayValue>
+                                                <DisplayValue>{formatManilaDate(liquidation.reviewed_at)}</DisplayValue>
                                             </FieldBlock>
                                         </>
                                     )}
@@ -477,7 +478,7 @@ export default function LiquidationDetailsCard({
                                             <DisplayValue>{liquidation.reviewed_by_name}</DisplayValue>
                                         </FieldBlock>
                                         <FieldBlock label="Date Endorsed to Accounting">
-                                            <DisplayValue>{liquidation.reviewed_at ? new Date(liquidation.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</DisplayValue>
+                                            <DisplayValue>{formatManilaDate(liquidation.reviewed_at)}</DisplayValue>
                                         </FieldBlock>
                                         {liquidation.rc_endorsement_remarks && (
                                             <FieldBlock label="RC Remarks">
@@ -494,7 +495,7 @@ export default function LiquidationDetailsCard({
                                             <DisplayValue>{liquidation.accountant_reviewed_by_name}</DisplayValue>
                                         </FieldBlock>
                                         <FieldBlock label="Date Endorsed to COA">
-                                            <DisplayValue>{liquidation.accountant_reviewed_at ? new Date(liquidation.accountant_reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</DisplayValue>
+                                            <DisplayValue>{formatManilaDate(liquidation.accountant_reviewed_at)}</DisplayValue>
                                         </FieldBlock>
                                         {liquidation.accountant_endorsement_remarks && (
                                             <FieldBlock label="Accountant Remarks">
@@ -531,7 +532,7 @@ export default function LiquidationDetailsCard({
                                                     {liquidation.import_batch.imported_at && (
                                                         <>
                                                             <span>•</span>
-                                                            <span>{new Date(liquidation.import_batch.imported_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                                                            <span>{formatManilaDate(liquidation.import_batch.imported_at)}</span>
                                                         </>
                                                     )}
                                                 </div>

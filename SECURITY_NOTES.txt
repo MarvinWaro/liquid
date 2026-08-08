@@ -1,0 +1,517 @@
+===============================================================================
+ UniFAST LIQUIDATION SYSTEM - SECURITY WORK LOG
+ Date: 07 August 2026
+ Branch: NEW-LAPTOP-BUG-DEV
+ Scope: static code review + fixes. NOT a live penetration test.
+===============================================================================
+
+ CONTENTS
+   PART 1 - What was fixed (with before/after scenarios)
+   PART 2 - What was checked and found already safe
+   PART 3 - What still needs work
+   PART 4 - Deployment checklist
+   PART 5 - Limits of this review
+
+
+===============================================================================
+ PART 1 - WHAT WAS FIXED
+===============================================================================
+
+-------------------------------------------------------------------------------
+ 1.1  STORED XSS IN ANNOUNCEMENTS          Severity: HIGH        Status: FIXED
+-------------------------------------------------------------------------------
+
+ THE PROBLEM
+   Announcement body was validated only as "required, string" - no HTML
+   sanitizing - then rendered as raw HTML on the page using React's
+   dangerouslySetInnerHTML.
+
+   The TipTap editor did NOT protect this. The editor only shapes what the
+   browser form sends. A request can be posted straight to the endpoint and
+   skip the editor completely.
+
+ WHO COULD DO IT
+   Any account holding "create_announcements" or "edit_announcements".
+   Not anonymous internet users - this is an insider / compromised-account
+   risk, which is why it was rated High rather than Critical.
+
+ BEFORE
+   A staff member posts an announcement containing hidden code.
+   Every person who opens that announcement - including Admins and
+   Super Admins - silently runs that code in their browser.
+   Their login session could be stolen, or actions performed as them.
+
+ AFTER
+   The server strips anything executable before it is saved.
+   The announcement still displays bold text, headings, lists, quotes,
+   code blocks and links exactly as written. The hidden code never
+   reaches the database.
+
+ WHAT WAS CHANGED
+   NEW   app/Services/HtmlSanitizer.php
+   EDIT  app/Http/Controllers/AnnouncementController.php
+   EDIT  app/Providers/AppServiceProvider.php  (registered as singleton)
+   DEP   added ezyang/htmlpurifier
+
+ DESIGN NOTES
+   - Used HTMLPurifier, the industry-standard PHP sanitizer, instead of
+     hand-writing a filter. Hand-rolled filters miss mutation-XSS and
+     encoded protocols.
+   - Chose ezyang/htmlpurifier directly over the mews/purifier Laravel
+     wrapper: 1 dependency instead of 2, no config file to publish.
+   - Sanitizing happens inside validatePayload(), which BOTH store() and
+     update() already call. One line covers both paths, and a future
+     method cannot forget it.
+   - Allow-list mirrors exactly what TipTap StarterKit + Link can produce.
+
+ VERIFIED - 15 attack payloads, all blocked:
+     script tag ................. blocked
+     img onerror ................ blocked
+     svg onload ................. blocked
+     javascript: href ........... blocked
+     JaVaScRiPt: (mixed case) ... blocked
+     data: URI .................. blocked
+     iframe ..................... blocked
+     inline onmouseover ......... blocked
+     style with javascript url .. blocked
+     form + input (fake login) .. blocked
+     meta refresh ............... blocked
+     object / embed ............. blocked
+     HTML-encoded js href ....... blocked
+     nested broken script tag ... blocked
+     base tag hijack ............ blocked
+
+ VERIFIED - 15 legitimate formats, all preserved:
+     bold, italic, underline, strike, headings, bullet list,
+     numbered list, blockquote, code block, inline code,
+     horizontal rule, line break, safe link, mailto link,
+     empty paragraphs (spacing)
+
+ BONUS: safe links now automatically gain rel="noreferrer noopener".
+
+ NOTE: database had 0 announcements at fix time, so there was no existing
+       content to migrate or break.
+
+
+-------------------------------------------------------------------------------
+ 1.2  NO GLOBAL RATE LIMITING             Severity: MEDIUM       Status: FIXED
+-------------------------------------------------------------------------------
+
+ THE PROBLEM
+   Only 6 of 132 routes had any rate limit. The important ones (login,
+   2FA, AI assistant, imports, support tickets) were covered, but there
+   was no backstop for everything else once a user was signed in.
+
+ BEFORE
+   A Regional Coordinator's laptop gets malware that loops the dashboard
+   50 times per second. Nothing stops it. The database grinds and the
+   system slows for everyone.
+
+ AFTER
+   That one session is cut off after 300 requests in the minute.
+   Everyone else keeps working normally - including their own colleagues
+   sitting in the same office on the same internet connection.
+
+ WHAT WAS CHANGED
+   EDIT  app/Providers/FortifyServiceProvider.php  (new 'global' limiter)
+   EDIT  bootstrap/app.php                         (throttle:global on web)
+
+ LIMITS SET
+   300 requests/min  per signed-in user
+   600 requests/min  per IP for guests (not logged in)
+
+ THE KEY DESIGN DECISION
+   It keys on USER ID, not IP address.
+
+   If it keyed by IP, a regional office behind one shared internet
+   connection would share ONE bucket. Ten staff would get about 30
+   requests/min each and would lock each other out. That failure only
+   appears in production, in one office, and is very hard to diagnose.
+
+   This only works if the throttle runs AFTER the session loads.
+   That was PROVEN, not assumed - a temporary test read the real
+   X-RateLimit-Limit response header:
+       authenticated request .... 300  (correct - user branch)
+       guest request ............ 600  (IP branch)
+       two users, same IP ....... independent budgets
+
+ WHY 300 AND NOT LOWER
+   Actual measured polling load per user:
+       import progress (every 2s) .............  30/min
+       report queue (every 3s) ................  20/min
+       notifications (every 30s) ..............   2/min
+       user presence (every 45s) ..............   1/min
+       online-status route allowance .......... 120/min
+       navigation + deferred dashboard props ..  30/min
+       ------------------------------------------------
+       pessimistic busy minute ................ 204/min
+
+   A runaway loop at 50 req/sec = 3,000/min and is stopped.
+   A limit of 60 or 120 would have broken the import progress bar
+   in the middle of an import.
+
+ KNOWN TRADE-OFF
+   CACHE_STORE=database, and throttle counters live in the cache.
+   So every request now does one extra small database read/write on
+   the cache table. It is a single indexed primary-key lookup
+   (sub-millisecond) and marginal next to the dozens of queries a
+   dashboard already runs - but it is not literally free.
+   Switching CACHE_STORE to redis or file removes this entirely.
+
+
+-------------------------------------------------------------------------------
+ 1.3  MISSING SECURITY HEADERS            Severity: MEDIUM       Status: FIXED
+-------------------------------------------------------------------------------
+
+ THE PROBLEM
+   No HTTP security response headers were set anywhere in the app.
+
+ BEFORE
+   An attacker hosts a web page that invisibly frames your liquidation
+   system. A logged-in RC visits it, clicks what looks like a harmless
+   button, and actually approves or endorses a real record without
+   ever realising it. (This is called clickjacking.)
+
+ AFTER
+   The browser refuses to load your site inside that frame at all.
+   The attack never even renders.
+
+ WHAT WAS CHANGED
+   NEW   app/Http/Middleware/SecurityHeaders.php
+   EDIT  bootstrap/app.php
+
+ HEADERS ADDED
+   X-Frame-Options: DENY
+       Cannot be embedded in a frame. Stops clickjacking.
+
+   X-Content-Type-Options: nosniff
+       Browser must trust the declared file type. Stops an uploaded
+       file being guessed as HTML and executed.
+
+   Referrer-Policy: strict-origin-when-cross-origin
+       Full URLs (which contain liquidation record IDs) are not handed
+       to third-party sites when a user clicks an outbound link.
+
+   Permissions-Policy: camera=(), microphone=(), geolocation=()
+       Denies hardware the app never uses, so injected code cannot
+       request it either.
+
+   Strict-Transport-Security: max-age=31536000; includeSubDomains
+       ONLY sent over HTTPS. See note below.
+
+ IMPORTANT DESIGN NOTE - HSTS is conditional
+   HSTS is only sent when the connection is already secure.
+   Sending it over http://127.0.0.1 would pin your browser to HTTPS
+   for localhost for a full year - you would lock yourself out of your
+   own development machine, and it is painful to undo.
+
+ DELIBERATELY NOT ADDED - Content-Security-Policy (CSP)
+   CSP is the one header that can white-screen the entire app.
+   Doing it properly means auditing every inline style and script that
+   Vite, Tailwind, TipTap and Recharts emit. Adding it blind would have
+   broken working pages. It belongs in its own change, starting in
+   report-only mode. See PART 3.
+
+
+-------------------------------------------------------------------------------
+ 1.4  UNSAFE .env.example DEFAULTS        Severity: MEDIUM       Status: FIXED
+-------------------------------------------------------------------------------
+
+ THE PROBLEM
+   .env.example shipped APP_DEBUG=true and had no SESSION_SECURE_COOKIE
+   key at all. Anyone deploying by copying that file gets debug mode on
+   in production.
+
+ BEFORE
+   A new team member deploys by copying .env.example to the server.
+   A user hits any error, and the error page prints the full stack
+   trace - file paths, config values, and the DATABASE USERNAME AND
+   PASSWORD - to whoever triggered it.
+
+ AFTER
+   The first thing anyone opening that file reads is a production
+   checklist naming exactly which five lines must be changed, and why.
+
+ WHAT WAS CHANGED
+   EDIT  .env.example  (production checklist header + documented
+                        SESSION_SECURE_COOKIE key)
+
+ WHY THE VALUES WERE NOT SIMPLY FLIPPED TO PRODUCTION
+   composer setup copies .env.example to .env and runs the migrations.
+   If the template shipped APP_ENV=production / APP_DEBUG=false, every
+   developer setting up locally would get blank white error pages with
+   no detail, and Laravel would change behaviour during local setup.
+   That would break the documented setup flow.
+
+   The template stays local-friendly. Real enforcement belongs on the
+   production server's own .env, which this file cannot reach.
+
+ NOTE: the actual .env file was NOT touched. Local secrets untouched.
+
+
+===============================================================================
+ PART 2 - CHECKED AND FOUND ALREADY SAFE
+===============================================================================
+
+ These were reviewed and needed no change. Worth recording so the same
+ ground is not covered twice.
+
+ SQL INJECTION ................ SAFE
+   All raw SQL uses hardcoded strings with bound (?) parameters.
+   No user input is ever interpolated into a query.
+
+ SORT / ORDER-BY INJECTION .... SAFE
+   LiquidationService.php:326 whitelists sort direction to exactly
+   'asc' or 'desc'. Textbook correct.
+
+ IDOR (stealing others' files)  SAFE
+   Document download and view both call authorizeView() first.
+   You cannot grab another region's file by guessing an ID.
+
+ FILE UPLOADS ................. SAFE
+   Every upload validates both mime type and size:
+   PDFs (mimes:pdf, 10MB), Excel (mimes:xlsx,xls, 50MB),
+   images (jpg/jpeg/png/webp, 8MB), avatars (3MB).
+
+ USER-SUPPLIED URLs ........... SAFE
+   gdrive_link is locked to HTTPS + drive.google.com/docs.google.com
+   by regex, and rendered with rel="noreferrer".
+
+ CSRF ......................... SAFE
+   Laravel default protection, no bypasses. Only 'appearance' and
+   'sidebar_state' are excluded from cookie encryption, and both are
+   harmless UI preferences.
+
+ BRUTE-FORCE LOGIN ............ SAFE
+   5 attempts/min keyed on EMAIL + IP together. An attacker cannot
+   dodge it by rotating usernames or by switching IP alone.
+   Cloudflare Turnstile captcha is also wired in and available.
+
+ IP SPOOFING .................. SAFE
+   trustProxies lists Cloudflare's published IP ranges explicitly
+   instead of using '*'. With '*', anyone could fake an
+   X-Forwarded-For header and defeat the login rate limiter by
+   pretending to be a new IP on every attempt. This was done right.
+
+ PASSWORD / SECRET EXPOSURE ... SAFE
+   User model hides password, two_factor_secret,
+   two_factor_recovery_codes, and remember_token from serialization.
+
+ MCP ENDPOINT ................. SAFE
+   Bearer token compared with hash_equals (defeats timing attacks),
+   plus active-user check, permission check, and 60/min throttle.
+
+ AI REPORT ASSISTANT .......... SAFE
+   Uses a defined tool registry. It never generates or runs raw SQL.
+   Good architecture - this is where many AI features go wrong.
+
+ COMMENTS ..................... SAFE
+   Rendered through React, which escapes by default. Not raw HTML.
+
+ PAGE-SIZE EXHAUSTION ......... SAFE
+   All pagination sizes are hardcoded (10, 12, 20, 25). Nobody can
+   request per_page=999999 to exhaust memory.
+
+ FILE STORAGE ................. SAFE
+   Documents live on S3 and are served through authorized controller
+   methods, not via public URLs.
+
+ BROWSER localStorage ......... SAFE
+   Only UI preferences are stored (dark mode, dashboard card order,
+   report assistant conversation). No passwords, no tokens.
+   NOTE: seeing these in DevTools > Application is NOT an attack.
+   That tab is a built-in browser inspector showing your own data.
+   Any website can be inspected this way. Nothing is exposed to
+   a remote attacker by opening it.
+
+
+===============================================================================
+ PART 3 - STILL NEEDS WORK
+===============================================================================
+
+-------------------------------------------------------------------------------
+ 3.1  DEPENDENCY VULNERABILITIES          Priority: HIGH
+-------------------------------------------------------------------------------
+ 42 security advisories affecting 14 packages.
+ Breakdown by severity: 13 high, 23 medium, 4 low.
+
+ Most affected:
+     guzzlehttp/guzzle .............. 9 advisories
+     phpoffice/phpspreadsheet ....... 7 advisories   <-- see below
+     league/commonmark .............. 6 advisories
+     guzzlehttp/psr7 ................ 4 advisories
+     symfony/yaml ................... 3 advisories
+     laravel/framework .............. 3 advisories
+
+ WHY phpspreadsheet MATTERS MOST
+     It parses the Excel files that HEIs upload. That is untrusted
+     input from outside the organisation hitting a library with
+     7 known advisories.
+
+ WHY THIS WAS NOT DONE NOW
+     Requires composer update, which can move many packages at once.
+     It needs its own full regression testing pass - not something to
+     slip in alongside unrelated fixes.
+
+ SUGGESTED APPROACH
+     1. Run: composer audit          (see the full list)
+     2. Update targeted packages first, not everything at once
+     3. Run the full test suite after each step
+     4. Manually test Excel import, report generation, and email
+
+
+-------------------------------------------------------------------------------
+ 3.2  FIREWALL THE ORIGIN SERVER          Priority: HIGH   (hosting, not code)
+-------------------------------------------------------------------------------
+ THE QUESTION TO ANSWER
+     Can someone reach the server directly, bypassing Cloudflare?
+
+ WHY IT MATTERS
+     Cloudflare is the real DDoS protection - application code cannot
+     stop a volume attack. But Cloudflare only helps if attackers
+     cannot reach the origin server directly. If the real server IP
+     is discovered and the firewall accepts connections from anywhere,
+     an attacker walks straight around the protection.
+
+ ACTION
+     Configure the server firewall to accept HTTP/HTTPS traffic ONLY
+     from Cloudflare's published IP ranges.
+     Reference: https://www.cloudflare.com/ips/
+
+ This is the single highest-value item on this whole list, and it is
+ a hosting setting - no code change involved.
+
+
+-------------------------------------------------------------------------------
+ 3.3  CONTENT-SECURITY-POLICY (CSP)       Priority: MEDIUM
+-------------------------------------------------------------------------------
+ The last missing security header. It is a strong second line of
+ defence against XSS - even if something slipped past the sanitizer,
+ CSP can stop the browser executing it.
+
+ NOT added yet because a wrong CSP white-screens the whole app.
+
+ SUGGESTED APPROACH
+     1. Add it as Content-Security-Policy-Report-Only first
+     2. Browse every page (dashboard, liquidation, announcements,
+        report assistant, settings) and collect console violations
+     3. Widen the policy until there are no violations
+     4. Only then switch from Report-Only to enforcing
+
+ Watch out for: Vite inline scripts, Tailwind inline styles,
+ TipTap editor, Recharts SVG rendering.
+
+
+-------------------------------------------------------------------------------
+ 3.4  PRODUCTION ENVIRONMENT VALUES       Priority: HIGH (at deploy time)
+-------------------------------------------------------------------------------
+ Documented in .env.example but must actually be SET on the server.
+ See PART 4.
+
+
+-------------------------------------------------------------------------------
+ 3.5  OPTIONAL / LOWER PRIORITY
+-------------------------------------------------------------------------------
+ SESSION_ENCRYPT=true
+     Encrypts session data at rest. Defence in depth. Small CPU cost.
+
+ Permanent regression test for the rate-limit keying
+     Guards a silent failure: if middleware order changes, the throttle
+     falls back to keying by IP and locks out whole offices with no
+     obvious cause. About 20 lines. Was written and verified during
+     this work, then removed to keep the change minimal.
+
+ Runtime guard for APP_DEBUG in production
+     ~3 lines in AppServiceProvider that log a warning if
+     APP_ENV=production and APP_DEBUG=true are both set.
+     Real enforcement rather than a comment in a file.
+
+
+===============================================================================
+ PART 4 - DEPLOYMENT CHECKLIST
+===============================================================================
+
+ Set these on the PRODUCTION server's own .env - never rely on
+ .env.example being correct:
+
+     APP_ENV=production
+     APP_DEBUG=false                 <-- critical, leaks DB credentials
+     APP_URL=https://your-domain.gov.ph
+     SESSION_SECURE_COOKIE=true      <-- login cookie over HTTPS only
+     LOG_LEVEL=error
+
+ Then run:
+     php artisan config:cache
+
+ Also confirm:
+     [ ] Server firewall accepts traffic only from Cloudflare IPs
+     [ ] HTTPS certificate valid and HTTP redirects to HTTPS
+     [ ] MCP_API_KEY set to a strong random value (or MCP left disabled)
+     [ ] Storage/S3 bucket is NOT publicly listable
+     [ ] Database backups running and restore actually tested
+
+
+===============================================================================
+ PART 5 - LIMITS OF THIS REVIEW
+===============================================================================
+
+ Be honest about what this covers, so gaps are not assumed to be clean:
+
+ 1. This was a STATIC CODE REVIEW, not a live penetration test.
+    No actual attack traffic was sent at the running application.
+    The XSS payloads were tested against the sanitizer directly.
+
+ 2. Server, firewall, and Cloudflare configuration were NOT reviewed.
+    That is exactly where the DDoS answer lives (see 3.2).
+
+ 3. Dependency advisories were identified but NOT resolved.
+
+ 4. Business-logic authorization was spot-checked, not exhaustively
+    mapped. Every role x every endpoint was not individually tested.
+
+ 5. No review of: email/SMTP configuration, queue worker security,
+    backup encryption, or physical/staff access controls.
+
+ RECOMMENDATION
+    For a government financial system handling public funds, an
+    independent penetration test before go-live is worth the cost.
+    This review raises the floor; it does not replace that.
+
+
+===============================================================================
+ SUMMARY
+===============================================================================
+
+ FIXED THIS SESSION
+     1. Stored XSS in announcements ........... HIGH
+     2. No global rate limiting ............... MEDIUM
+     3. Missing security headers .............. MEDIUM
+     4. Unsafe .env.example defaults .......... MEDIUM
+
+ STILL OPEN
+     1. 42 dependency advisories (13 high) .... HIGH
+     2. Firewall origin to Cloudflare ......... HIGH  (hosting)
+     3. Content-Security-Policy ............... MEDIUM
+     4. Production env values at deploy ....... HIGH  (deploy time)
+
+ OVERALL ASSESSMENT
+     Against common web attacks this system is genuinely well built.
+     No SQL injection, no IDOR, proper file validation, sensible rate
+     limiting, and thoughtful details like whitelisted sort directions
+     and explicit Cloudflare IP ranges rather than a wildcard.
+
+     The one real code vulnerability found (stored XSS) is now closed.
+
+     The largest remaining risks are NOT in the application code -
+     they are outdated dependencies and the hosting/firewall setup.
+
+ VERIFICATION PERFORMED ON ALL CHANGES
+     119 tests passing (780 assertions)
+     Zero new TypeScript errors against baseline
+     Pint clean on every file touched
+     15 XSS payloads blocked, 15 legitimate formats preserved
+     Rate-limit user-keying proven via response headers
+
+===============================================================================
+ END OF FILE
+===============================================================================

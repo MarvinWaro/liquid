@@ -36,6 +36,7 @@ use App\Models\User;
 use App\Services\CacheService;
 use App\Services\LiquidationService;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -2544,6 +2545,19 @@ class LiquidationController extends Controller
             ->get(['id', 'name', 'avatar', 'region_id']);
     }
 
+    /**
+     * Serialize a timestamp for the frontend as an ISO 8601 string carrying the
+     * Asia/Manila offset (e.g. "2026-08-04T13:30:00+08:00").
+     *
+     * A bare 'Y-m-d H:i:s' has no timezone marker, so the browser reads the digits
+     * as its own local time and the value lands hours off. Matching the ISO format
+     * already used for announcements keeps every timestamp unambiguous.
+     */
+    private function toManilaIso(?CarbonInterface $value): ?string
+    {
+        return $value?->copy()->setTimezone('Asia/Manila')->toIso8601String();
+    }
+
     private function formatLiquidationDetails(Liquidation $liquidation, Collection $requirements, bool $isHEIUser): array
     {
         $financial = $liquidation->financial;
@@ -2604,7 +2618,7 @@ class LiquidationController extends Controller
             'folder_location_number' => $transmittal?->folder_location_number,
             'group_transmittal' => $transmittal?->group_transmittal,
             'reviewed_by_name' => $liquidation->reviewer?->name ?? $transmittal?->endorser?->name,
-            'reviewed_at' => $liquidation->reviewed_at?->format('Y-m-d H:i:s') ?? $transmittal?->endorsed_at?->format('Y-m-d H:i:s'),
+            'reviewed_at' => $this->toManilaIso($liquidation->reviewed_at) ?? $this->toManilaIso($transmittal?->endorsed_at),
             'date_fund_released' => $financial?->date_fund_released?->format('Y-m-d'),
             'due_date' => $financial?->due_date?->format('Y-m-d'),
             'fund_source' => $financial?->fund_source,
@@ -2614,10 +2628,10 @@ class LiquidationController extends Controller
             'lapsing_period' => $financial?->lapsing_period ?? 0,
             'document_status' => $liquidation->documentStatus?->name ?? 'N/A',
             'liquidation_status' => $liquidation->liquidationStatus?->name ?? 'Unliquidated',
-            'date_submitted' => $liquidation->date_submitted?->format('Y-m-d H:i:s'),
-            'coa_endorsed_at' => $liquidation->coa_endorsed_at?->format('Y-m-d H:i:s'),
+            'date_submitted' => $this->toManilaIso($liquidation->date_submitted),
+            'coa_endorsed_at' => $this->toManilaIso($liquidation->coa_endorsed_at),
             'accountant_reviewed_by_name' => $liquidation->accountantReviewer?->name,
-            'accountant_reviewed_at' => $liquidation->accountant_reviewed_at?->format('Y-m-d H:i:s'),
+            'accountant_reviewed_at' => $this->toManilaIso($liquidation->accountant_reviewed_at),
             'rc_endorsement_remarks' => $liquidation->getRcEndorsementRemarks(),
             'accountant_endorsement_remarks' => $liquidation->getAccountantEndorsementRemarks(),
             'updated_at' => $liquidation->updated_at?->toIso8601String(),
@@ -2651,7 +2665,7 @@ class LiquidationController extends Controller
                     'file_name' => $doc->file_name,
                     'file_path' => $doc->file_path,
                     'file_size' => $doc->file_size,
-                    'uploaded_at' => $doc->created_at->format('Y-m-d H:i:s'),
+                    'uploaded_at' => $this->toManilaIso($doc->created_at),
                     'is_gdrive' => $doc->is_gdrive ?? false,
                     'gdrive_link' => $doc->gdrive_link,
                 ])

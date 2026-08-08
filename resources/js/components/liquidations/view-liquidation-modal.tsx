@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { FileText, Send, X, BarChart3, Pencil, ClipboardList, MapPin, FolderArchive, User, Calendar } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { formatManilaDateTime } from '@/lib/date';
 import {
     Tooltip,
     TooltipContent,
@@ -851,13 +852,7 @@ export function ViewLiquidationModal({
                                         {liquidation.reviewed_at && (
                                             <div className="flex items-center gap-1.5">
                                                 <Calendar className="h-3.5 w-3.5" />
-                                                <span>{new Date(liquidation.reviewed_at).toLocaleString('en-US', {
-                                                    year: 'numeric',
-                                                    month: 'short',
-                                                    day: 'numeric',
-                                                    hour: '2-digit',
-                                                    minute: '2-digit'
-                                                })}</span>
+                                                <span>{formatManilaDateTime(liquidation.reviewed_at)}</span>
                                             </div>
                                         )}
                                     </div>

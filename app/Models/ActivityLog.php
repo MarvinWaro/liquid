@@ -116,9 +116,23 @@ class ActivityLog extends Model
         ?string $module = null,
         ?array $oldValues = null,
         ?array $newValues = null,
+        ?User $actor = null,
     ): self {
-        $user = auth()->user();
-        $request = request();
+        // Queued jobs run with no logged-in session, so auth() is empty there and
+        // the entry would read "System" even though a real person started the work.
+        // Callers outside a request pass the actor explicitly — see
+        // BulkImportLiquidationsJob. Deliberately does NOT touch auth() itself:
+        // NotificationService::dispatch() below bails out when auth() is empty, and
+        // the queued jobs that would be affected already send their own
+        // notifications, so signing the user in here would deliver each twice.
+        $user = $actor ?? auth()->user();
+
+        // Outside an HTTP request there is no browser and no visitor IP. Laravel
+        // still hands back a synthetic Request, which records a "Symfony" client at
+        // 127.0.0.1 — details that read as though someone really browsed from the
+        // server. Store nothing rather than something untrue; the activity log UI
+        // already omits both chips when they are null.
+        $request = app()->runningInConsole() ? null : request();
 
         $log = self::create([
             'user_id' => $user?->id,

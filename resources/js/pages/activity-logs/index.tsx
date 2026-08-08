@@ -16,12 +16,28 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { useInitials } from '@/hooks/use-initials';
+import {
+    ActionsBreakdownChart,
+    type ActionCount,
+} from '@/components/activity-logs/actions-breakdown-chart';
+import {
+    ActivityTrendChart,
+    type ActivityTrendPoint,
+} from '@/components/activity-logs/activity-trend-chart';
+import { TopUsersChart, type TopUser } from '@/components/activity-logs/top-users-chart';
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { useInsightsPanel } from '@/hooks/use-insights-panel';
 import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
 import { format } from 'date-fns';
 import {
+    BarChart3,
     CalendarIcon,
     ChevronDown,
     ChevronRight,
@@ -66,6 +82,14 @@ interface PaginatedData {
     links: PaginationLink[];
 }
 
+interface Insights {
+    trend: ActivityTrendPoint[];
+    actions: ActionCount[];
+    /** Null for self-scoped viewers — a chart of just yourself says nothing. */
+    topUsers: TopUser[] | null;
+    trendRangeLabel: string;
+}
+
 interface Props {
     logs: PaginatedData;
     users: { id: string; name: string }[];
@@ -73,6 +97,8 @@ interface Props {
     modules: string[];
     filters: Record<string, string>;
     scopedToOwn?: boolean;
+    /** Deferred: undefined on first paint, then filled in. */
+    insights?: Insights;
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -247,9 +273,11 @@ export default function Index({
     modules,
     filters,
     scopedToOwn = false,
+    insights,
 }: Props) {
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
     const getInitials = useInitials();
+    const { open: insightsOpen, setOpen: setInsightsOpen } = useInsightsPanel();
 
     const initialRange: DateRange | undefined =
         filters.date_from || filters.date_to
@@ -355,6 +383,52 @@ export default function Index({
                                     : 'Monitor all system transactions and user activities.'}
                             </p>
                         </div>
+
+                        {/* Insights — collapsible, remembered per browser */}
+                        <Collapsible
+                            open={insightsOpen}
+                            onOpenChange={setInsightsOpen}
+                            className="mb-6 rounded-lg border bg-card"
+                        >
+                            <CollapsibleTrigger className="flex w-full items-center justify-between p-4 text-left transition-colors hover:bg-muted/40">
+                                <div className="flex items-center gap-2">
+                                    <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-sm font-medium">Insights</span>
+                                </div>
+                                <ChevronDown
+                                    className={`h-4 w-4 text-muted-foreground transition-transform ${
+                                        insightsOpen ? 'rotate-180' : ''
+                                    }`}
+                                />
+                            </CollapsibleTrigger>
+
+                            <CollapsibleContent>
+                                <div className="grid grid-cols-1 gap-4 border-t p-4 lg:grid-cols-2">
+                                    <div className="lg:col-span-2">
+                                        <ActivityTrendChart
+                                            data={insights?.trend}
+                                            rangeLabel={insights?.trendRangeLabel}
+                                        />
+                                    </div>
+
+                                    <div className="rounded-lg border p-4">
+                                        <p className="mb-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                                            Actions Breakdown
+                                        </p>
+                                        <ActionsBreakdownChart data={insights?.actions} />
+                                    </div>
+
+                                    {!scopedToOwn && (
+                                        <div className="rounded-lg border p-4">
+                                            <p className="mb-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                                                Most Active Users
+                                            </p>
+                                            <TopUsersChart data={insights?.topUsers ?? undefined} />
+                                        </div>
+                                    )}
+                                </div>
+                            </CollapsibleContent>
+                        </Collapsible>
 
                         {/* Filters */}
                         <div className="mb-6 rounded-lg border bg-card p-4">

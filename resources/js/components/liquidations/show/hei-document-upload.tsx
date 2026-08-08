@@ -12,6 +12,7 @@ import {
     ChevronDown,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
+import { formatManilaDate } from '@/lib/date';
 import type { LiquidationDocument, DocumentRequirement, DocumentCompleteness } from '@/types/liquidation';
 import RequirementCommentThread from './requirement-comment-thread';
 import PdfPreviewDialog from './pdf-preview-dialog';
@@ -34,11 +35,6 @@ function formatFileSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatUploadDate(dateStr: string): string {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export default function HeiDocumentUpload({
@@ -526,7 +522,7 @@ function DocumentRow({ doc, canDelete, onDelete }: {
                     <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium truncate">Google Drive Link</p>
                         <p className="text-xs text-muted-foreground">
-                            Added {formatUploadDate(doc.uploaded_at)}
+                            Added {formatManilaDate(doc.uploaded_at)}
                         </p>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
@@ -546,7 +542,7 @@ function DocumentRow({ doc, canDelete, onDelete }: {
                     <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium truncate">{doc.file_name}</p>
                         <p className="text-xs text-muted-foreground">
-                            {formatFileSize(doc.file_size)} &middot; {formatUploadDate(doc.uploaded_at)}
+                            {formatFileSize(doc.file_size)} &middot; {formatManilaDate(doc.uploaded_at)}
                         </p>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">

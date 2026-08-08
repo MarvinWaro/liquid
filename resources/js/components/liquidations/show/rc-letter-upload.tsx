@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Upload, FileText, Download, Trash2, Eye, Loader2, Mail } from 'lucide-react';
 import { toast } from '@/lib/toast';
+import { formatManilaDate } from '@/lib/date';
 import type { LiquidationDocument } from '@/types/liquidation';
 import PdfPreviewDialog from './pdf-preview-dialog';
 
@@ -24,11 +25,6 @@ function formatFileSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatUploadDate(dateStr: string): string {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export default function RcLetterUpload({ liquidationId, documents, userRole, isStufapsProgram = false }: RcLetterUploadProps) {
@@ -169,7 +165,7 @@ export default function RcLetterUpload({ liquidationId, documents, userRole, isS
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-medium truncate">{doc.file_name}</p>
                                     <p className="text-xs text-muted-foreground">
-                                        {formatFileSize(doc.file_size)} &middot; Uploaded {formatUploadDate(doc.uploaded_at)}
+                                        {formatFileSize(doc.file_size)} &middot; Uploaded {formatManilaDate(doc.uploaded_at)}
                                     </p>
                                 </div>
 
