@@ -4,8 +4,17 @@ import AppLayout from '@/layouts/app-layout';
 import { type AppNotification, type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
 import axios from 'axios';
-import { Bell, CheckCheck } from 'lucide-react';
+import { Bell, CheckCheck, Search, X } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { useState } from 'react';
 
 interface PaginationLink {
     url: string | null;
@@ -25,7 +34,17 @@ interface PaginatedData {
 interface Props {
     notifications: PaginatedData;
     filter: string;
+    filters: Record<string, string>;
+    actions: string[];
+    modules: string[];
     unread_count: number;
+}
+
+/** "uploaded_document" -> "Uploaded document" */
+function formatAction(action: string): string {
+    const words = action.replace(/_/g, ' ');
+
+    return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -33,12 +52,35 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Notifications', href: '/notifications' },
 ];
 
-export default function NotificationsIndex({ notifications, filter, unread_count }: Props) {
-    const handleFilterChange = (newFilter: string) => {
-        router.get('/notifications', { filter: newFilter }, {
+export default function NotificationsIndex({ notifications, filter, filters, actions, modules, unread_count }: Props) {
+    const [search, setSearch] = useState(filters.search ?? '');
+
+    // Every control sends the whole set, so the All/Unread tab and the dropdowns
+    // narrow the list together instead of cancelling each other out.
+    const applyFilters = (changes: Record<string, string>) => {
+        const next = { filter, ...filters, search, ...changes };
+        const cleaned = Object.fromEntries(
+            Object.entries(next).filter(([, value]) => value && value !== 'all'),
+        );
+
+        router.get('/notifications', cleaned, {
             preserveState: true,
             preserveScroll: true,
         });
+    };
+
+    const hasActiveFilters = Boolean(filters.search || filters.action || filters.module);
+
+    const clearFilters = () => {
+        setSearch('');
+        router.get('/notifications', filter === 'all' ? {} : { filter }, {
+            preserveState: true,
+            preserveScroll: true,
+        });
+    };
+
+    const handleFilterChange = (newFilter: string) => {
+        applyFilters({ filter: newFilter });
     };
 
     const handleMarkAllRead = () => {
@@ -109,6 +151,69 @@ export default function NotificationsIndex({ notifications, filter, unread_count
                     </button>
                 </div>
 
+                {/* Filters — narrow the list further; they combine with the tab above */}
+                <div className="mb-4 rounded-lg border bg-card p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <div className="relative min-w-[200px] flex-1">
+                            <Search className="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
+                            <Input
+                                type="search"
+                                placeholder="Search notifications..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') applyFilters({});
+                                }}
+                                onBlur={() => {
+                                    if ((filters.search ?? '') !== search) applyFilters({});
+                                }}
+                                className="pl-8"
+                            />
+                        </div>
+
+                        <Select
+                            value={filters.action || 'all'}
+                            onValueChange={(value) => applyFilters({ action: value })}
+                        >
+                            <SelectTrigger className="w-[190px]">
+                                <SelectValue placeholder="All Types" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Types</SelectItem>
+                                {actions.map((action) => (
+                                    <SelectItem key={action} value={action}>
+                                        {formatAction(action)}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+
+                        <Select
+                            value={filters.module || 'all'}
+                            onValueChange={(value) => applyFilters({ module: value })}
+                        >
+                            <SelectTrigger className="w-[170px]">
+                                <SelectValue placeholder="All Modules" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Modules</SelectItem>
+                                {modules.map((module) => (
+                                    <SelectItem key={module} value={module}>
+                                        {module}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+
+                        {hasActiveFilters && (
+                            <Button variant="ghost" size="sm" onClick={clearFilters}>
+                                <X className="mr-1 size-4" />
+                                Clear
+                            </Button>
+                        )}
+                    </div>
+                </div>
+
                 {/* Notification List */}
                 <div className="overflow-hidden rounded-lg border bg-card">
                     {notifications.data.length === 0 ? (
@@ -116,7 +221,13 @@ export default function NotificationsIndex({ notifications, filter, unread_count
                             <Bell className="mb-3 size-12 opacity-30" />
                             <p className="text-lg font-medium">No notifications</p>
                             <p className="mt-1 text-sm">
-                                {filter === 'unread' ? "You're all caught up!" : "You don't have any notifications yet."}
+                                {/* An empty filtered list is not an empty inbox — saying
+                                    "you have none yet" would be untrue and confusing. */}
+                                {hasActiveFilters
+                                    ? 'No notifications match these filters.'
+                                    : filter === 'unread'
+                                      ? "You're all caught up!"
+                                      : "You don't have any notifications yet."}
                             </p>
                         </div>
                     ) : (

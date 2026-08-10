@@ -48,6 +48,8 @@ const actionColors: Record<string, string> = {
     commented_on_requirement: 'bg-sky-500',
     mentioned_in_announcement_comment: 'bg-pink-500',
     replied_to_announcement_thread: 'bg-violet-500',
+    commented_on_announcement: 'bg-sky-500',
+    reacted_to_comment: 'bg-rose-500',
     report_ready: 'bg-emerald-500',
     report_failed: 'bg-red-500',
     created: 'bg-green-500',

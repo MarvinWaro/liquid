@@ -39,7 +39,6 @@ import {
     Megaphone,
     Menu,
     PanelLeft,
-    Sparkles,
 } from 'lucide-react';
 import { HatGlasses } from '@/components/icons/hat-glasses';
 import { useMemo } from 'react';
@@ -87,17 +86,41 @@ const allNavItems: (NavItem & { ability?: keyof NavigationAbilities; children?: 
         ability: 'canViewReports',
     },
     {
-        title: 'Report Assistant',
-        href: '/report-assistant',
-        icon: Sparkles,
-        ability: 'canUseReportAssistant',
-    },
-    {
         title: 'Contact & Support',
         href: '/contact-support',
         icon: HatGlasses,
     },
+    {
+        // Renamed to the assistant's actual name. Header mode keeps it in the
+        // main nav — the space pressure is specific to the vertical sidebar —
+        // but it sits last so the branded item anchors the end of the bar.
+        // It carries its own artwork (a 1.8 KB WebP) instead of a Lucide glyph.
+        title: 'Liqui',
+        href: '/report-assistant',
+        iconImage: '/assets/img/liqui-icon.webp',
+        ability: 'canUseReportAssistant',
+    },
 ];
+
+/**
+ * Renders whichever glyph a nav entry carries: its own image when it has one
+ * (Liqui), otherwise the Lucide icon every other entry uses. Kept in one place
+ * so the four render sites below stay identical.
+ */
+function NavGlyph({ item }: { item: NavItem }) {
+    if (item.iconImage) {
+        return (
+            <img
+                src={item.iconImage}
+                alt=""
+                aria-hidden="true"
+                className="h-4 w-4 shrink-0 rounded-full object-contain"
+            />
+        );
+    }
+
+    return item.icon ? <Icon iconNode={item.icon} className="h-4 w-4" /> : null;
+}
 
 interface AppHeaderProps {
     breadcrumbs?: BreadcrumbItem[];
@@ -166,7 +189,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                         item.children && item.children.length > 0 ? (
                                             <div key={item.title} className="space-y-1">
                                                 <div className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground">
-                                                    {item.icon && <Icon iconNode={item.icon} className="h-4 w-4" />}
+                                                    <NavGlyph item={item} />
                                                     <span>{item.title}</span>
                                                 </div>
                                                 {item.children.map((child) => (
@@ -195,7 +218,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                                         : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                                                 )}
                                             >
-                                                {item.icon && <Icon iconNode={item.icon} className="h-4 w-4" />}
+                                                <NavGlyph item={item} />
                                                 <span>{item.title}</span>
                                             </Link>
                                         )
@@ -277,7 +300,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                             : 'text-muted-foreground hover:text-foreground',
                                     )}
                                 >
-                                    {item.icon && <Icon iconNode={item.icon} className="h-4 w-4" />}
+                                    <NavGlyph item={item} />
                                     {item.title}
                                     <ChevronDown className="h-3.5 w-3.5" />
                                     {item.children.some(child => urlIsActive(child.href)) && (
@@ -306,7 +329,7 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                     : 'text-muted-foreground hover:text-foreground',
                             )}
                         >
-                            {item.icon && <Icon iconNode={item.icon} className="h-4 w-4" />}
+                            <NavGlyph item={item} />
                             {item.title}
                             {urlIsActive(item.href) && (
                                 <span className="absolute inset-x-0 bottom-0 h-0.5 bg-foreground" />

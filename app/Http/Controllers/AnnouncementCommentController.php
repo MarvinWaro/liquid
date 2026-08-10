@@ -78,8 +78,17 @@ class AnnouncementCommentController extends Controller
         ]);
 
         $actor = $request->user();
-        $this->notifyMentionedUsers($comment, $announcement, $actor, $mentionIds);
-        $this->notifyThreadParticipants($comment, $announcement, $actor, $mentionIds);
+
+        // Order matters: the author notifier needs to know who the first two
+        // already reached, otherwise an author who was @mentioned — or who had
+        // replied earlier in the thread — would get two notifications for one
+        // comment. Two is a worse bug than none.
+        $notified = array_merge(
+            $this->notifyMentionedUsers($comment, $announcement, $actor, $mentionIds),
+            $this->notifyThreadParticipants($comment, $announcement, $actor, $mentionIds),
+        );
+
+        $this->notifyAnnouncementAuthor($comment, $announcement, $actor, $notified);
 
         $comment->load('user.role', 'reactions');
 
@@ -164,6 +173,10 @@ class AnnouncementCommentController extends Controller
                 'user_id'    => $user->id,
             ]);
             $reacted = true;
+
+            // Only on add. Un-reacting is not something the author needs told about,
+            // and notifying on both halves of a toggle would double the noise.
+            $this->notifyCommentReaction($comment, $announcement, $user);
         }
 
         $count = AnnouncementCommentReaction::where('comment_id', $comment->id)->count();
@@ -225,9 +238,9 @@ class AnnouncementCommentController extends Controller
         Announcement $announcement,
         User $actor,
         array $mentionIds,
-    ): void {
+    ): array {
         if (empty($mentionIds)) {
-            return;
+            return [];
         }
 
         $recipients = User::whereIn('id', $mentionIds)
@@ -236,7 +249,7 @@ class AnnouncementCommentController extends Controller
             ->get();
 
         if ($recipients->isEmpty()) {
-            return;
+            return [];
         }
 
         $rows = $recipients->map(fn (User $user) => [
@@ -256,6 +269,8 @@ class AnnouncementCommentController extends Controller
         ])->toArray();
 
         Notification::insert($rows);
+
+        return $recipients->pluck('id')->all();
     }
 
     /**
@@ -267,9 +282,9 @@ class AnnouncementCommentController extends Controller
         Announcement $announcement,
         User $actor,
         array $mentionIds,
-    ): void {
+    ): array {
         if (!$comment->parent_id) {
-            return; // top-level comment — no thread to notify
+            return []; // top-level comment — no thread to notify
         }
 
         // Walk up to the root comment
@@ -293,12 +308,12 @@ class AnnouncementCommentController extends Controller
             ->unique();
 
         if ($participantIds->isEmpty()) {
-            return;
+            return [];
         }
 
         $recipients = User::whereIn('id', $participantIds)->where('status', 'active')->get();
         if ($recipients->isEmpty()) {
-            return;
+            return [];
         }
 
         $rows = $recipients->map(fn (User $user) => [
@@ -318,6 +333,115 @@ class AnnouncementCommentController extends Controller
         ])->toArray();
 
         Notification::insert($rows);
+
+        return $recipients->pluck('id')->all();
     }
 
+    /**
+     * Tell the announcement's author that someone commented on it.
+     *
+     * Without this a plain comment notified nobody at all: mentions only fire
+     * when someone is tagged, and the thread notifier returns early on top-level
+     * comments. The person who posted the announcement — the one who most wants
+     * to know it drew a response — heard nothing.
+     *
+     * Fires for replies as well as top-level comments; a reply buried in a thread
+     * is still activity on their announcement.
+     *
+     * @param  list<string>  $alreadyNotified  ids the mention/thread notifiers reached
+     */
+    private function notifyAnnouncementAuthor(
+        AnnouncementComment $comment,
+        Announcement $announcement,
+        User $actor,
+        array $alreadyNotified,
+    ): void {
+        $authorId = $announcement->created_by;
+
+        // Commenting on your own announcement should not ping you, and anyone the
+        // earlier notifiers already reached must not be told twice.
+        if (! $authorId || $authorId === $actor->id || in_array($authorId, $alreadyNotified, true)) {
+            return;
+        }
+
+        $author = User::where('id', $authorId)->where('status', 'active')->first();
+
+        if (! $author) {
+            return;
+        }
+
+        Notification::insert([[
+            'id' => Str::uuid()->toString(),
+            'user_id' => $author->id,
+            'actor_id' => $actor->id,
+            'actor_name' => $actor->name,
+            'action' => 'commented_on_announcement',
+            'description' => 'commented on your announcement "'.$announcement->title.'"',
+            'subject_type' => Announcement::class,
+            'subject_id' => $announcement->id,
+            'subject_label' => $announcement->title,
+            'module' => 'Announcement',
+            // slug drives the deep link to /announcement/{slug}#discussion.
+            'metadata' => json_encode(['comment_id' => $comment->id, 'slug' => $announcement->slug]),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]]);
+    }
+
+    /**
+     * Tell a comment's author that someone reacted to it.
+     *
+     * Called only when a reaction is added, never when one is removed.
+     *
+     * A reaction is a toggle, so the obvious version of this is a spam source:
+     * clicking the button four times would send four notifications. The unread
+     * check below collapses that to one. Once the author has read it, a later
+     * reaction from the same person is allowed to notify again — the intent is to
+     * stop repeats, not to notify only ever once.
+     */
+    private function notifyCommentReaction(
+        AnnouncementComment $comment,
+        Announcement $announcement,
+        User $actor,
+    ): void {
+        // Reacting to your own comment should not ping you.
+        if ($comment->user_id === $actor->id) {
+            return;
+        }
+
+        $author = User::where('id', $comment->user_id)->where('status', 'active')->first();
+
+        if (! $author) {
+            return;
+        }
+
+        // metadata is cast to array on the model, so this compares the JSON key
+        // rather than the serialized blob.
+        $alreadyPending = Notification::where('user_id', $author->id)
+            ->where('actor_id', $actor->id)
+            ->where('action', 'reacted_to_comment')
+            ->whereNull('read_at')
+            ->where('metadata->comment_id', $comment->id)
+            ->exists();
+
+        if ($alreadyPending) {
+            return;
+        }
+
+        Notification::insert([[
+            'id' => Str::uuid()->toString(),
+            'user_id' => $author->id,
+            'actor_id' => $actor->id,
+            'actor_name' => $actor->name,
+            'action' => 'reacted_to_comment',
+            'description' => 'reacted to your comment on "'.$announcement->title.'"',
+            'subject_type' => Announcement::class,
+            'subject_id' => $announcement->id,
+            'subject_label' => $announcement->title,
+            'module' => 'Announcement',
+            'metadata' => json_encode(['comment_id' => $comment->id, 'slug' => $announcement->slug]),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]]);
+    }
 }

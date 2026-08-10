@@ -19,6 +19,11 @@ export interface NavItem {
     title: string;
     href: NonNullable<InertiaLinkProps['href']>;
     icon?: LucideIcon | null;
+    /**
+     * Path to an image to use instead of `icon`, for entries with their own
+     * artwork rather than a Lucide glyph (Liqui). Takes precedence when set.
+     */
+    iconImage?: string;
     isActive?: boolean;
     children?: NavItem[];
 }
