@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useMemo, useEffect } from 'react';
-import { router } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -12,11 +12,14 @@ import {
     ChevronDown,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
+import { checkUploadSize } from '@/lib/upload';
+import { type SharedData } from '@/types';
 import { formatManilaDate } from '@/lib/date';
 import type { LiquidationDocument, DocumentRequirement, DocumentCompleteness } from '@/types/liquidation';
 import RequirementCommentThread from './requirement-comment-thread';
 import PdfPreviewDialog from './pdf-preview-dialog';
 
+/** Policy cap for a requirement document. The server's own limit may be lower. */
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 
 interface HeiDocumentUploadProps {
@@ -48,6 +51,8 @@ export default function HeiDocumentUpload({
     defaultExpanded = false,
     focusRequirementId,
 }: HeiDocumentUploadProps) {
+    // Real ceiling for this server, read from PHP rather than assumed.
+    const { maxUploadBytes } = usePage<SharedData>().props;
     const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
     const [uploadingId, setUploadingId] = useState<string | null>(null);
     const [gdriveOpenId, setGdriveOpenId] = useState<string | null>(null);
@@ -104,8 +109,9 @@ export default function HeiDocumentUpload({
             toast.error('Only PDF files are allowed.');
             return;
         }
-        if (file.size > MAX_SIZE_BYTES) {
-            toast.error('File size must not exceed 10MB.');
+        const sizeError = checkUploadSize(file, MAX_SIZE_BYTES, maxUploadBytes);
+        if (sizeError) {
+            toast.error(sizeError);
             return;
         }
 
@@ -130,7 +136,7 @@ export default function HeiDocumentUpload({
             const ref = fileInputRefs.current[requirementId];
             if (ref) ref.value = '';
         }
-    }, [liquidationId]);
+    }, [liquidationId, maxUploadBytes]);
 
     const handleGdriveSubmit = useCallback(async (requirementId: string, link?: string) => {
         const linkToUse = (link ?? gdriveLink).trim();
@@ -194,6 +200,18 @@ export default function HeiDocumentUpload({
     const handleDelete = useCallback((documentId: number) => {
         router.delete(route('liquidation.delete-document', documentId), {
             preserveScroll: true,
+            preserveState: true,
+            // This card is rendered inside <Deferred data={['documentRequirements',
+            // 'commentCounts']}> in pages/liquidation/show.tsx. Deferred drops back
+            // to its skeleton on any *full* visit to the same URL, which unmounts
+            // this component and takes `expanded` with it — so the requirements
+            // list snapped shut every time an HEI removed a file.
+            //
+            // Naming `only` makes this a partial visit, and because 'liquidation'
+            // is not one of the deferred keys, Deferred leaves the card mounted.
+            // Refreshing just this prop is also all the delete actually changes —
+            // the same reason the upload path uses router.reload({ only: [...] }).
+            only: ['liquidation'],
             onError: () => toast.error('Failed to delete document.'),
         });
     }, []);

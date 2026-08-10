@@ -1,17 +1,20 @@
 import { useRef, useState, useCallback } from 'react';
-import { router } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Upload, FileText, Download, Trash2, Eye, Loader2, Mail } from 'lucide-react';
 import { toast } from '@/lib/toast';
+import { checkUploadSize } from '@/lib/upload';
+import { type SharedData } from '@/types';
 import { formatManilaDate } from '@/lib/date';
 import type { LiquidationDocument } from '@/types/liquidation';
 import PdfPreviewDialog from './pdf-preview-dialog';
 
 const RC_LETTER_TYPE = 'RC Letter';
 const MAX_LETTERS = 3;
+/** Policy cap for an RC letter. The server's own limit may be lower. */
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 
 interface RcLetterUploadProps {
@@ -30,6 +33,8 @@ function formatFileSize(bytes: number): string {
 export default function RcLetterUpload({ liquidationId, documents, userRole, isStufapsProgram = false }: RcLetterUploadProps) {
     const canManage = userRole === 'Regional Coordinator' || userRole === 'STUFAPS Focal';
     const isFocalContext = isStufapsProgram || userRole === 'STUFAPS Focal';
+    // Real ceiling for this server, read from PHP rather than assumed.
+    const { maxUploadBytes } = usePage<SharedData>().props;
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
@@ -46,8 +51,9 @@ export default function RcLetterUpload({ liquidationId, documents, userRole, isS
             toast.error('Only PDF files are allowed.');
             return;
         }
-        if (file.size > MAX_SIZE_BYTES) {
-            toast.error('File size must not exceed 10MB.');
+        const sizeError = checkUploadSize(file, MAX_SIZE_BYTES, maxUploadBytes);
+        if (sizeError) {
+            toast.error(sizeError);
             return;
         }
         if (!canUploadMore) {
@@ -78,7 +84,7 @@ export default function RcLetterUpload({ liquidationId, documents, userRole, isS
             setIsUploading(false);
             if (fileInputRef.current) fileInputRef.current.value = '';
         }
-    }, [liquidationId, canUploadMore]);
+    }, [liquidationId, canUploadMore, maxUploadBytes]);
 
     const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];

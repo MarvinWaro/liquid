@@ -443,7 +443,23 @@
  Then run:
      php artisan config:cache
 
+ UPLOAD LIMITS - these live in php.ini, NOT in the repo, so a fresh server
+ starts at PHP's defaults (2MB) and every upload over that fails with a bare
+ 422 saying only "The file failed to upload."
+
+     php.ini:
+       upload_max_filesize = 52M
+       post_max_size       = 56M     (must exceed upload_max_filesize - it
+                                      caps the whole request, not just the file)
+
+     If Nginx sits in front, it needs to agree or it returns 413 first:
+       client_max_body_size 56M;
+
+     Sized for the 50MB bulk Excel import. HEI documents need ~10MB.
+     Restart PHP-FPM after changing.
+
  Also confirm:
+     [ ] Upload limits set in php.ini (and Nginx) per the block above
      [ ] Server firewall accepts traffic only from Cloudflare IPs
      [ ] HTTPS certificate valid and HTTP redirects to HTTPS
      [ ] MCP_API_KEY set to a strong random value (or MCP left disabled)

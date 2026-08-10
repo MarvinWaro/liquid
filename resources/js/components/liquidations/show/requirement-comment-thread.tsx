@@ -9,11 +9,15 @@ import type { LiquidationComment, LiquidationCommentUser, CommentAttachment } fr
 import { getAvatarColor } from '@/types/liquidation';
 import axios from 'axios';
 import { toast } from '@/lib/toast';
+import { checkUploadSize } from '@/lib/upload';
+import { type SharedData } from '@/types';
+import { usePage } from '@inertiajs/react';
 import { Send, Reply, AtSign, X, MessageSquare, Paperclip, FileText, Download, Image as ImageIcon, Loader2, AlertCircle } from 'lucide-react';
 
 const MAX_DEPTH = 2;
 const MENTION_REGEX = /@\[(.+?)\]\(([a-f0-9-]+)\)/g;
 const URL_REGEX = /(https?:\/\/[^\s<>]+)/g;
+/** Policy cap for a comment attachment. The server's own limit may be lower. */
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_FILES = 3;
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -316,6 +320,8 @@ export default function RequirementCommentThread({
     currentUserId,
     defaultExpanded = false,
 }: RequirementCommentThreadProps) {
+    // Real ceiling for this server, read from PHP rather than assumed.
+    const { maxUploadBytes } = usePage<SharedData>().props;
     const [expanded, setExpanded] = useState(false);
     const [comments, setComments] = useState<LiquidationComment[]>([]);
     const [loaded, setLoaded] = useState(false);
@@ -468,8 +474,9 @@ export default function RequirementCommentThread({
                 if (fileInputRef.current) fileInputRef.current.value = '';
                 return;
             }
-            if (file.size > MAX_ATTACHMENT_SIZE) {
-                toast.error(`"${file.name}" exceeds the 10MB limit.`);
+            const sizeError = checkUploadSize(file, MAX_ATTACHMENT_SIZE, maxUploadBytes);
+            if (sizeError) {
+                toast.error(`"${file.name}" — ${sizeError}`);
                 if (fileInputRef.current) fileInputRef.current.value = '';
                 return;
             }
@@ -485,7 +492,7 @@ export default function RequirementCommentThread({
         });
 
         if (fileInputRef.current) fileInputRef.current.value = '';
-    }, []);
+    }, [maxUploadBytes]);
 
     const removeAttachment = useCallback((index: number) => {
         setAttachments((prev) => prev.filter((_, i) => i !== index));

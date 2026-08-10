@@ -1685,7 +1685,16 @@ class LiquidationController extends Controller
             'uploaded_by' => $request->user()->id,
         ]);
 
-        ActivityLog::log('uploaded_document', 'Uploaded document '.$file->getClientOriginalName().' to liquidation '.$liquidation->control_no, $liquidation, 'Liquidation');
+        // Names the requirement as well as the file. File names repeat — the same
+        // scan uploaded against two requirements produced two identical entries,
+        // so a reviewer had to open the record to tell them apart. $documentType
+        // is the requirement's own name, already resolved above.
+        ActivityLog::log(
+            'uploaded_document',
+            'Uploaded '.$file->getClientOriginalName().' for '.$documentType.' in liquidation '.$liquidation->control_no,
+            $liquidation,
+            'Liquidation',
+        );
 
         return response()->json(['message' => 'Document uploaded successfully.', 'success' => true]);
     }
@@ -1811,10 +1820,19 @@ class LiquidationController extends Controller
             Storage::disk('s3')->delete($document->file_path);
         }
 
+        // Captured before the delete. document_type carries the requirement name,
+        // which matters most for Drive links: those are stored with the literal
+        // file_name "Google Drive Link", so the old message named nothing at all.
         $documentName = $document->file_name;
+        $documentType = $document->document_type;
         $document->delete();
 
-        ActivityLog::log('deleted_document', 'Deleted document '.$documentName.' from liquidation '.$liquidation->control_no, $liquidation, 'Liquidation');
+        ActivityLog::log(
+            'deleted_document',
+            'Deleted '.$documentName.' for '.$documentType.' from liquidation '.$liquidation->control_no,
+            $liquidation,
+            'Liquidation',
+        );
 
         return redirect()->back()->with('success', 'Document deleted successfully.');
     }

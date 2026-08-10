@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { useForm } from '@inertiajs/react';
+import { useForm, usePage } from '@inertiajs/react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -10,8 +10,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { TipTapEditor } from '@/components/tiptap-editor';
 import { toast } from 'sonner';
 import { ImagePlus, X, Settings2 } from 'lucide-react';
+import { checkUploadSize } from '@/lib/upload';
+import { type SharedData } from '@/types';
 
 type TagColor = 'blue' | 'emerald' | 'violet' | 'amber' | 'sky' | 'rose';
+/** Policy cap for a cover image. The server's own limit may be lower. */
+const COVER_MAX_BYTES = 8 * 1024 * 1024; // 8MB
+
 type Category = 'news' | 'event' | 'important' | 'update';
 
 export interface AnnouncementFormValues {
@@ -59,6 +64,8 @@ const COLORS: { value: TagColor; label: string; dot: string }[] = [
 ];
 
 export function AnnouncementForm({ initial, submitUrl, isUpdate, cancelUrl = '/announcement' }: Props) {
+    // Real ceiling for this server, read from PHP rather than assumed.
+    const { maxUploadBytes } = usePage<SharedData>().props;
     const existingCover = initial?.cover_display ?? null;
     const [preview, setPreview] = useState<string | null>(existingCover);
 
@@ -100,8 +107,9 @@ export function AnnouncementForm({ initial, submitUrl, isUpdate, cancelUrl = '/a
             setPreview(existingCover);
             return;
         }
-        if (file.size > 8 * 1024 * 1024) {
-            toast.error('Cover image must be 8MB or less.');
+        const sizeError = checkUploadSize(file, COVER_MAX_BYTES, maxUploadBytes);
+        if (sizeError) {
+            toast.error(sizeError);
             return;
         }
         // Reset focal to center for a freshly chosen image.

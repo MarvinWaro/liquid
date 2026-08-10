@@ -31,6 +31,7 @@ import {
     CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { useInsightsPanel } from '@/hooks/use-insights-panel';
+import { liquidationSectionHash, visitWithHash } from '@/lib/liquidation-section';
 import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
@@ -196,7 +197,21 @@ function getViewUrl(log: ActivityLog): string | null {
     const routeFn = subjectRouteMap[log.subject_type];
     if (!routeFn) return null;
 
-    return routeFn(log.subject_id);
+    const url = routeFn(log.subject_id);
+
+    // Land on the section the action actually concerns rather than the top of the
+    // record — an upload should open at Document Requirements, the way the
+    // matching notification already does. Only liquidations have sections to
+    // target; every other subject keeps its plain index URL.
+    //
+    // Activity logs carry no metadata, so a comment action resolves to the
+    // requirements section instead of the individual thread. That is the same
+    // fallback a notification uses when it arrives without a requirement id.
+    if (url && log.subject_type === 'Liquidation') {
+        return `${url}${liquidationSectionHash(log.action)}`;
+    }
+
+    return url;
 }
 
 function formatAction(action: string): string {
@@ -641,7 +656,7 @@ export default function Index({
                                                             size="sm"
                                                             className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
                                                             onClick={() =>
-                                                                router.visit(
+                                                                visitWithHash(
                                                                     viewUrl,
                                                                 )
                                                             }

@@ -70,6 +70,12 @@ export interface SharedData {
     can: NavigationAbilities;
     sidebarOpen: boolean;
     notifications_unread_count: number;
+    /**
+     * Largest single file this server accepts, in bytes — read from PHP's own
+     * limits rather than assumed. Use `resolveMaxUpload` in lib/upload.ts to
+     * combine it with a feature's own cap.
+     */
+    maxUploadBytes: number;
     [key: string]: unknown;
 }
 
