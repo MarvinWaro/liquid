@@ -38,6 +38,22 @@ class LiquidationFinancial extends Model
         return 'Liquidation';
     }
 
+    /**
+     * A financial row is created with its liquidation and never on its own, so
+     * logging it produced a second entry in the same second reading
+     * "Created liquidation financial <uuid>" — no control number to show, and
+     * nothing the reader could act on beyond what the liquidation's own entry
+     * already said. The bulk importer suppressed it for the same reason; this
+     * makes the single-record path agree.
+     *
+     * Edits still log: changing an amount or due date afterwards is precisely
+     * the history a reviewer needs.
+     */
+    protected static function logsCreation(): bool
+    {
+        return false;
+    }
+
     protected static function getActivityFieldLabels(): array
     {
         return [

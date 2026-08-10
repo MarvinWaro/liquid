@@ -39,7 +39,7 @@ import { EndorseToAccountingModal } from '@/components/liquidations/endorsement-
 import { toast } from '@/lib/toast';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 
-import type { Liquidation, Program, HEIOption, AcademicYearOption, RcNoteStatusOption } from '@/components/liquidations/index/types';
+import type { Liquidation, Program, HEIOption, AcademicYearOption, SemesterOption, RcNoteStatusOption } from '@/components/liquidations/index/types';
 import { useReportQueue } from '@/hooks/use-report-queue';
 import { useDeferredRevalidation } from '@/hooks/use-deferred-revalidation';
 
@@ -87,6 +87,7 @@ interface Props {
     programs: Program[];
     createPrograms?: Program[];
     academicYears?: AcademicYearOption[];
+    semesters?: SemesterOption[];
     rcNoteStatuses?: RcNoteStatusOption[];
     heis?: HEIOption[];
     regions?: RegionOption[];
@@ -138,7 +139,7 @@ function useStaleWhileRevalidate<T>(value: T | undefined): T | undefined {
 /** Deferred props whose in-flight refreshes drive the "Refreshing" indicator. */
 const REFRESHABLE_PROPS = ['liquidations', 'pinnedLiquidations', 'tableSummary'] as const;
 
-export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10, tableSummary, programs, createPrograms, academicYears, rcNoteStatuses, heis, regions, filters, permissions, userRole }: Props) {
+export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10, tableSummary, programs, createPrograms, academicYears, semesters, rcNoteStatuses, heis, regions, filters, permissions, userRole }: Props) {
     const toArr = (v: string | string[] | undefined): string[] =>
         !v ? [] : Array.isArray(v) ? v : v === 'all' ? [] : [v];
 
@@ -491,6 +492,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                 onClose={() => setIsCreateModalOpen(false)}
                 programs={createPrograms ?? []}
                 academicYears={academicYears ?? []}
+                semesters={semesters ?? []}
                 rcNoteStatuses={rcNoteStatuses ?? []}
                 heis={heis ?? []}
                 onSuccess={() => router.reload()}
@@ -502,6 +504,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                 onClose={() => setIsBulkEntryOpen(false)}
                 programs={createPrograms ?? []}
                 academicYears={academicYears ?? []}
+                semesters={semesters ?? []}
                 rcNoteStatuses={rcNoteStatuses ?? []}
                 heis={heis ?? []}
                 onSuccess={() => router.reload()}

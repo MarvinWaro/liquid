@@ -12,6 +12,8 @@ import {
     ArrowLeft,
     Check,
     CircleAlert,
+    Eye,
+    EyeOff,
     Monitor,
     Moon,
     Sun,
@@ -34,6 +36,13 @@ type TurnstileWidgetSize = 'compact' | 'flexible';
 const TURNSTILE_COMPACT_MEDIA_QUERY = '(max-width: 387px)';
 const TURNSTILE_WIDE_FORM_MEDIA_QUERY = '(min-width: 640px)';
 
+// How long to wait for the widget before assuming it will never arrive.
+// Cloudflare's script normally renders in a second or two; when a browser shield
+// or ad blocker drops the request it often fails silently, without firing onError,
+// leaving the form with a disabled button and no explanation. Generous enough that
+// a slow connection is not mistaken for a block.
+const TURNSTILE_LOAD_TIMEOUT_MS = 12_000;
+
 export default function Login({
     status,
     googleAuthError,
@@ -41,6 +50,7 @@ export default function Login({
 }: LoginProps) {
     const { appearance, updateAppearance } = useAppearance();
     const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
     const [turnstileToken, setTurnstileToken] = useState('');
     const [turnstileResetSignal, setTurnstileResetSignal] = useState(0);
 
@@ -250,16 +260,47 @@ export default function Login({
                                             >
                                                 Password
                                             </Label>
-                                            <Input
-                                                id="password"
-                                                type="password"
-                                                name="password"
-                                                required
-                                                tabIndex={2}
-                                                autoComplete="current-password"
-                                                placeholder="Password"
-                                                className="border-border bg-muted/50"
-                                            />
+                                            <div className="relative">
+                                                <Input
+                                                    id="password"
+                                                    type={
+                                                        showPassword
+                                                            ? 'text'
+                                                            : 'password'
+                                                    }
+                                                    name="password"
+                                                    required
+                                                    tabIndex={2}
+                                                    autoComplete="current-password"
+                                                    placeholder="Password"
+                                                    className="border-border bg-muted/50 pr-10"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setShowPassword(
+                                                            (shown) => !shown,
+                                                        )
+                                                    }
+                                                    // Skipped in the tab order so
+                                                    // it never sits between the
+                                                    // password field and Log in.
+                                                    tabIndex={-1}
+                                                    aria-label={
+                                                        showPassword
+                                                            ? 'Hide password'
+                                                            : 'Show password'
+                                                    }
+                                                    aria-pressed={showPassword}
+                                                    className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                                                >
+                                                    {showPassword ? (
+                                                        <EyeOff className="h-4 w-4" />
+                                                    ) : (
+                                                        <Eye className="h-4 w-4" />
+                                                    )}
+                                                </button>
+                                            </div>
                                             <InputError
                                                 message={errors.password}
                                             />
@@ -273,6 +314,9 @@ export default function Login({
                                                             turnstileSiteKey
                                                         }
                                                         appearance={appearance}
+                                                        solved={Boolean(
+                                                            turnstileToken,
+                                                        )}
                                                         resetSignal={
                                                             turnstileResetSignal
                                                         }
@@ -294,6 +338,18 @@ export default function Login({
                                                     name="cf-turnstile-response"
                                                     value={turnstileToken}
                                                 />
+                                                {/*
+                                                    Kept visible even after the
+                                                    widget re-solves. The tick
+                                                    and the message look
+                                                    contradictory, so the
+                                                    messages themselves say the
+                                                    box has refreshed and to
+                                                    press Log in again —
+                                                    hiding this instead would
+                                                    leave a failed login with no
+                                                    explanation at all.
+                                                */}
                                                 <InputError
                                                     message={
                                                         errors[
@@ -392,12 +448,19 @@ function GoogleMark({ className }: { className?: string }) {
 function TurnstileWidget({
     siteKey,
     appearance,
+    solved,
     resetSignal,
     onVerify,
     onExpire,
 }: {
     siteKey: string;
     appearance: string;
+    /**
+     * Whether a token is currently held. Read from the parent rather than tracked
+     * again here — the parent already owns the token, and a second copy would be
+     * one more thing that can fall out of step with it.
+     */
+    solved: boolean;
     resetSignal: number;
     onVerify: (token: string) => void;
     onExpire: () => void;
@@ -409,7 +472,6 @@ function TurnstileWidget({
         theme: 'auto' | 'dark' | 'light';
         wideForm: boolean;
     } | null>(null);
-    const [loadFailed, setLoadFailed] = useState(false);
     const [widgetSize, setWidgetSize] = useState<TurnstileWidgetSize>(() =>
         typeof window !== 'undefined' &&
         window.matchMedia(TURNSTILE_COMPACT_MEDIA_QUERY).matches
@@ -427,6 +489,13 @@ function TurnstileWidget({
             : appearance === 'light'
               ? 'light'
               : 'auto';
+
+    // Identifies one challenge attempt. theme belongs here as much as size does:
+    // the effect below clears the token whenever theme changes, so if theme were
+    // left out the widget would keep showing a solved checkmark while the token
+    // behind it was already gone — leaving Log in greyed out with nothing to click
+    // and no way back except a page refresh.
+    const widgetKey = `${widgetSize}-${wideForm ? 'wide' : 'narrow'}-${theme}`;
 
     useEffect(() => {
         if (typeof window === 'undefined') {
@@ -489,6 +558,65 @@ function TurnstileWidget({
         }
     }, [onExpire, resetSignal]);
 
+    // Keyed, so changing size or theme unmounts the old attempt and mounts a fresh
+    // one. That resets the attempt's own state for free — no effect reaching in to
+    // clear it, and no stale "could not load" warning left sitting over a widget
+    // that is working perfectly well.
+    return (
+        <TurnstileAttempt
+            key={widgetKey}
+            widgetRef={widgetRef}
+            siteKey={siteKey}
+            size={widgetSize}
+            theme={theme}
+            solved={solved}
+            onVerify={onVerify}
+            onExpire={onExpire}
+        />
+    );
+}
+
+/**
+ * A single challenge attempt.
+ *
+ * Split out purely so its state is tied to the widget's lifetime: remounting via
+ * key is what clears it, rather than an effect that has to remember to.
+ */
+function TurnstileAttempt({
+    widgetRef,
+    siteKey,
+    size,
+    theme,
+    solved,
+    onVerify,
+    onExpire,
+}: {
+    widgetRef: React.RefObject<TurnstileInstance | null>;
+    siteKey: string;
+    size: TurnstileWidgetSize;
+    theme: 'auto' | 'dark' | 'light';
+    solved: boolean;
+    onVerify: (token: string) => void;
+    onExpire: () => void;
+}) {
+    const [loadFailed, setLoadFailed] = useState(false);
+
+    // A blocked script often fails silently — no widget, and no onError either —
+    // which left the form with a disabled button and nothing explaining why.
+    // Treat prolonged silence as a failure so the user gets told something.
+    useEffect(() => {
+        if (solved || loadFailed) {
+            return;
+        }
+
+        const timer = window.setTimeout(
+            () => setLoadFailed(true),
+            TURNSTILE_LOAD_TIMEOUT_MS,
+        );
+
+        return () => window.clearTimeout(timer);
+    }, [solved, loadFailed]);
+
     const handleFailure = useCallback(() => {
         setLoadFailed(true);
         onExpire();
@@ -496,6 +624,7 @@ function TurnstileWidget({
 
     const handleSuccess = useCallback(
         (token: string) => {
+            // Clears a warning the watchdog may have raised on a slow connection.
             setLoadFailed(false);
             onVerify(token);
         },
@@ -506,12 +635,11 @@ function TurnstileWidget({
         <div className="w-full leading-none">
             <div className="flex min-h-[65px] w-full justify-center">
                 <Turnstile
-                    key={`${widgetSize}-${wideForm ? 'wide' : 'narrow'}`}
                     ref={widgetRef}
                     siteKey={siteKey}
                     options={{
                         responseField: false,
-                        size: widgetSize,
+                        size,
                         theme,
                     }}
                     scriptOptions={{ onError: handleFailure }}
@@ -522,8 +650,12 @@ function TurnstileWidget({
             </div>
             {loadFailed && (
                 <p className="mt-2 text-xs text-destructive">
-                    Security check could not load. Refresh the page and try
-                    again.
+                    Security check could not load, so logging in is blocked. An
+                    ad blocker or browser shield is the usual cause — allow{' '}
+                    <span className="font-medium">
+                        challenges.cloudflare.com
+                    </span>
+                    , then refresh this page.
                 </p>
             )}
         </div>

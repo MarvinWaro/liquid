@@ -32,6 +32,7 @@ use App\Models\ProgramDueDateRule;
 use App\Models\RcNoteStatus;
 use App\Models\Region;
 use App\Models\ReviewType;
+use App\Models\Semester;
 use App\Models\User;
 use App\Services\CacheService;
 use App\Services\LiquidationService;
@@ -194,6 +195,11 @@ class LiquidationController extends Controller
                 return $allPrograms;
             }),
             'academicYears' => AcademicYear::getDropdownOptions(),
+            // The create and bulk-entry semester dropdowns used to map over a
+            // hardcoded list, so anything added under Settings > Semesters never
+            // appeared in them. Served from the table instead, using the same
+            // helper the academic-year dropdown above already uses.
+            'semesters' => Semester::getDropdownOptions(),
             'rcNoteStatuses' => RcNoteStatus::getDropdownOptions(),
             'regions' => in_array($user->role->name, self::REGION_FILTER_ROLES)
                 ? Region::where('status', 'active')->orderBy('code')->get(['id', 'code', 'name'])
@@ -1734,7 +1740,16 @@ class LiquidationController extends Controller
             'uploaded_by' => $request->user()->id,
         ]);
 
-        ActivityLog::log('added_gdrive_link', 'Added Google Drive link for liquidation '.$liquidation->control_no, $liquidation, 'Liquidation');
+        // Names the requirement so several links added to one liquidation are
+        // tellable apart. Without it a reviewer saw the same sentence repeated
+        // once per upload and had to open the record to find out what arrived —
+        // the PDF path already named its file, this one did not.
+        ActivityLog::log(
+            'added_gdrive_link',
+            'Added Google Drive link for '.$requirement->name.' in liquidation '.$liquidation->control_no,
+            $liquidation,
+            'Liquidation',
+        );
 
         return response()->json(['message' => 'Google Drive link added successfully.', 'success' => true]);
     }

@@ -300,6 +300,19 @@ class CacheService
             'lookup:liquidation_statuses',
             'users:regional_coordinators',
             'users:accountants',
+
+            // LiquidationService caches the same reference data under its own
+            // keys (see getCachedSemesters and friends), and its clearCache()
+            // has no callers — every settings controller clears through here.
+            // Leaving these out meant a semester added under Settings resolved
+            // against a stale list and saved as null on the liquidation, which
+            // is worse than the option merely being missing from the dropdown.
+            'semesters_all',
+            'document_statuses_all',
+            'rc_note_statuses_all',
+            'liquidation_statuses_all',
+            'programs_active',
+            'heis_active',
         ];
 
         foreach ($keys as $key) {

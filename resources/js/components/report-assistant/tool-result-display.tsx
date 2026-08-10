@@ -15,7 +15,21 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { useState } from 'react';
+import {
+    Bar,
+    BarChart,
+    CartesianGrid,
+    Cell,
+    Label,
+    Pie,
+    PieChart,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
+} from 'recharts';
 
 export interface ToolResult {
     tool: string;
@@ -259,7 +273,65 @@ const summaryChartConfig = {
     for_endorsement: { label: 'For Endorsement', color: 'var(--chart-4)' },
 } satisfies ChartConfig;
 
+type SummaryChartView = 'amounts' | 'completion' | 'share';
+
+/** Slice colours for the Share donut, matching the tokens used elsewhere. */
+const SHARE_COLORS = [
+    'var(--chart-1)',
+    'var(--chart-2)',
+    'var(--chart-3)',
+    'var(--chart-4)',
+    'var(--chart-5)',
+];
+
+const OTHER_COLOR = 'var(--muted-foreground)';
+
 function SummaryChart({
+    breakdown,
+}: {
+    breakdown: Array<SummaryMetrics & { label: string }>;
+}) {
+    const [view, setView] = useState<SummaryChartView>('amounts');
+
+    return (
+        <div className="mt-3">
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                    Visualization
+                </p>
+                <ToggleGroup
+                    type="single"
+                    size="sm"
+                    value={view}
+                    // Ignore the empty string the group emits when the active
+                    // button is clicked again — there is no "no chart" state.
+                    onValueChange={(next) =>
+                        next && setView(next as SummaryChartView)
+                    }
+                    className="h-7"
+                >
+                    <ToggleGroupItem value="amounts" className="px-2 text-[11px]">
+                        Amounts
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="completion" className="px-2 text-[11px]">
+                        Completion %
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="share" className="px-2 text-[11px]">
+                        Share
+                    </ToggleGroupItem>
+                </ToggleGroup>
+            </div>
+
+            {view === 'amounts' && <SummaryAmountsChart breakdown={breakdown} />}
+            {view === 'completion' && (
+                <SummaryCompletionChart breakdown={breakdown} />
+            )}
+            {view === 'share' && <SummaryShareChart breakdown={breakdown} />}
+        </div>
+    );
+}
+
+function SummaryAmountsChart({
     breakdown,
 }: {
     breakdown: Array<SummaryMetrics & { label: string }>;
@@ -275,10 +347,7 @@ function SummaryChart({
     }));
 
     return (
-        <div className="mt-3">
-            <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Visualization
-            </p>
+        <div>
             <ChartContainer
                 config={summaryChartConfig}
                 className="aspect-auto h-[280px] w-full"
@@ -338,6 +407,215 @@ function SummaryChart({
     );
 }
 
+/**
+ * Ranked completion bars.
+ *
+ * Reads liquidation_percentage straight off the row — the value the query
+ * service already calculated. It is deliberately NOT derived here from
+ * liquidated / disbursed: a second copy of that rule in the browser could drift
+ * from the server's and quietly disagree with the table printed underneath.
+ *
+ * Plain divs rather than a Recharts bar chart: with a handful of rows an axis
+ * costs more width than it earns, and long HEI names survive without clipping.
+ */
+function SummaryCompletionChart({
+    breakdown,
+}: {
+    breakdown: Array<SummaryMetrics & { label: string }>;
+}) {
+    const rows = breakdown
+        .map((row) => ({
+            label: row.label,
+            percentage: isFiniteNumber(row.liquidation_percentage)
+                ? row.liquidation_percentage
+                : 0,
+        }))
+        .sort((a, b) => b.percentage - a.percentage);
+
+    return (
+        // Capped so the assistant's full-screen width does not stretch each bar
+        // across the page and strand its percentage at the far edge.
+        <div className="max-w-3xl space-y-2.5 py-1">
+            {rows.map((row, i) => (
+                <div key={`${row.label}-${i}`} className="space-y-1">
+                    <div className="flex items-baseline justify-between gap-2 text-xs">
+                        <span className="truncate font-medium" title={row.label}>
+                            {row.label}
+                        </span>
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                            {formatPercent(row.percentage)}
+                        </span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                        <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                                // Scaled against a fixed 0-100, not against the
+                                // largest row, so bars mean the same thing from
+                                // one answer to the next.
+                                width: `${Math.min(Math.max(row.percentage, 0), 100)}%`,
+                                background: 'var(--chart-2)',
+                            }}
+                        />
+                    </div>
+                </div>
+            ))}
+            <p className="pt-1 text-[10px] text-muted-foreground">
+                Share of disbursed funds already liquidated or endorsed.
+            </p>
+        </div>
+    );
+}
+
+/**
+ * Donut of each group's share of total disbursed funds.
+ *
+ * Values come from row.disbursed as returned; the donut only sums them for the
+ * centre total, which is arithmetic on displayed values, not a business rule.
+ */
+function SummaryShareChart({
+    breakdown,
+}: {
+    breakdown: Array<SummaryMetrics & { label: string }>;
+}) {
+    const rows = breakdown
+        .map((row) => ({
+            label: row.label,
+            value: isFiniteNumber(row.disbursed) ? row.disbursed : 0,
+        }))
+        .filter((row) => row.value > 0)
+        .sort((a, b) => b.value - a.value);
+
+    if (rows.length === 0) {
+        return (
+            <div className="flex h-[200px] items-center justify-center">
+                <p className="text-sm text-muted-foreground">
+                    No disbursed amounts to compare.
+                </p>
+            </div>
+        );
+    }
+
+    // Past about six wedges a donut stops being readable, so the tail collapses
+    // into one slice. The centre total still covers every row.
+    const total = rows.reduce((sum, row) => sum + row.value, 0);
+    const slices =
+        rows.length <= 6
+            ? rows
+            : [
+                  ...rows.slice(0, 5),
+                  {
+                      label: 'Other',
+                      value: rows
+                          .slice(5)
+                          .reduce((sum, row) => sum + row.value, 0),
+                  },
+              ];
+
+    return (
+        <div className="flex flex-col items-center gap-3">
+            <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                    <Pie
+                        data={slices}
+                        dataKey="value"
+                        nameKey="label"
+                        innerRadius={55}
+                        outerRadius={85}
+                        strokeWidth={2}
+                    >
+                        {slices.map((slice, i) => (
+                            <Cell
+                                key={slice.label}
+                                fill={
+                                    slice.label === 'Other'
+                                        ? OTHER_COLOR
+                                        : SHARE_COLORS[i % SHARE_COLORS.length]
+                                }
+                            />
+                        ))}
+                        <Label
+                            content={({ viewBox }) => {
+                                if (!viewBox || !('cx' in viewBox)) return null;
+
+                                return (
+                                    <text
+                                        x={viewBox.cx}
+                                        y={viewBox.cy}
+                                        textAnchor="middle"
+                                    >
+                                        <tspan
+                                            x={viewBox.cx}
+                                            y={viewBox.cy}
+                                            className="fill-foreground text-sm font-semibold"
+                                        >
+                                            {formatCompact(total)}
+                                        </tspan>
+                                        <tspan
+                                            x={viewBox.cx}
+                                            y={(viewBox.cy ?? 0) + 16}
+                                            className="fill-muted-foreground text-[10px]"
+                                        >
+                                            disbursed
+                                        </tspan>
+                                    </text>
+                                );
+                            }}
+                        />
+                    </Pie>
+                    <Tooltip
+                        content={({ active, payload }) => {
+                            if (!active || !payload?.length) return null;
+                            const slice = payload[0];
+
+                            return (
+                                <div className="min-w-[150px] rounded-lg border border-border bg-background p-3 text-foreground shadow-xl">
+                                    <p className="mb-1 text-sm font-semibold">
+                                        {String(slice.name)}
+                                    </p>
+                                    <p className="text-sm">
+                                        {formatCurrency(slice.value)}
+                                    </p>
+                                </div>
+                            );
+                        }}
+                    />
+                </PieChart>
+            </ResponsiveContainer>
+
+            {/* Capped for the same reason as the status legend: on a full-width
+                panel an uncapped grid pushes each value far from its label. */}
+            <div className="grid w-full max-w-md grid-cols-1 gap-x-6 gap-y-1.5 px-1 sm:grid-cols-2">
+                {slices.map((slice, i) => (
+                    <div
+                        key={slice.label}
+                        className="flex items-center gap-1.5 text-xs"
+                    >
+                        <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                            style={{
+                                background:
+                                    slice.label === 'Other'
+                                        ? OTHER_COLOR
+                                        : SHARE_COLORS[i % SHARE_COLORS.length],
+                            }}
+                        />
+                        <span
+                            className="truncate text-muted-foreground"
+                            title={slice.label}
+                        >
+                            {slice.label}
+                        </span>
+                        <span className="ml-auto font-medium tabular-nums">
+                            {formatCompact(slice.value)}
+                        </span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
 function Metric({
     label,
     value,
@@ -382,6 +660,118 @@ interface LiquidationRecord {
     unliquidated?: number;
 }
 
+/**
+ * How the rows on screen split by liquidation status.
+ *
+ * Counted from the records actually returned, which for a paged answer is a
+ * slice of the matching set — 25 of 1,205, say. The heading states that outright:
+ * a donut silently read as describing all 1,205 would be worse than no donut,
+ * and this is financial data people quote in memos.
+ */
+function ListStatusChart({ records }: { records: LiquidationRecord[] }) {
+    // Two rows is the minimum where a split says anything.
+    if (records.length < 2) {
+        return null;
+    }
+
+    const counts = new Map<string, number>();
+
+    for (const record of records) {
+        const status = record.liquidation_status?.trim() || 'Unspecified';
+        counts.set(status, (counts.get(status) ?? 0) + 1);
+    }
+
+    const slices = [...counts.entries()]
+        .map(([label, value]) => ({ label, value }))
+        .sort((a, b) => b.value - a.value);
+
+    // A single status is a fact for the heading, not a pie chart.
+    if (slices.length < 2) {
+        return null;
+    }
+
+    return (
+        <div className="mb-3 rounded-lg border p-3">
+            <p className="mb-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                Status of these {records.length} row
+                {records.length === 1 ? '' : 's'}
+            </p>
+
+            <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-center">
+                <ResponsiveContainer width="100%" height={150} className="sm:max-w-[180px]">
+                    <PieChart>
+                        <Pie
+                            data={slices}
+                            dataKey="value"
+                            nameKey="label"
+                            innerRadius={40}
+                            outerRadius={65}
+                            strokeWidth={2}
+                        >
+                            {slices.map((slice, i) => (
+                                <Cell
+                                    key={slice.label}
+                                    fill={SHARE_COLORS[i % SHARE_COLORS.length]}
+                                />
+                            ))}
+                        </Pie>
+                        <Tooltip
+                            content={({ active, payload }) => {
+                                if (!active || !payload?.length) return null;
+                                const slice = payload[0];
+
+                                return (
+                                    <div className="min-w-[140px] rounded-lg border border-border bg-background p-3 text-foreground shadow-xl">
+                                        <p className="mb-1 text-sm font-semibold">
+                                            {String(slice.name)}
+                                        </p>
+                                        <p className="text-sm">
+                                            {formatInteger(slice.value)} record
+                                            {slice.value === 1 ? '' : 's'}
+                                        </p>
+                                    </div>
+                                );
+                            }}
+                        />
+                    </PieChart>
+                </ResponsiveContainer>
+
+                {/*
+                    Capped rather than full width. The assistant panel runs the
+                    width of the screen, so an uncapped legend stretched each row
+                    across the page and left the count stranded far from its
+                    label — readable only by tracking across empty space.
+                */}
+                <div className="w-full max-w-xs space-y-1.5">
+                    {slices.map((slice, i) => (
+                        <div
+                            key={slice.label}
+                            className="flex items-center gap-1.5 text-xs"
+                        >
+                            <span
+                                className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                                style={{
+                                    background:
+                                        SHARE_COLORS[i % SHARE_COLORS.length],
+                                }}
+                            />
+                            <span
+                                className="truncate text-muted-foreground"
+                                title={slice.label}
+                            >
+                                {slice.label}
+                            </span>
+                            <span className="ml-auto font-medium tabular-nums">
+                                {slice.value}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function ListLiquidationsView({ data }: { data: Record<string, unknown> }) {
     const records = Array.isArray(data.records)
         ? (data.records as LiquidationRecord[])
@@ -399,6 +789,8 @@ function ListLiquidationsView({ data }: { data: Record<string, unknown> }) {
                 {total === 1 ? '' : 's'} · page {page} · {perPage} per page
                 {hasMore ? ' · more available' : ''}
             </p>
+
+            <ListStatusChart records={records} />
 
             {records.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No records match.</p>
