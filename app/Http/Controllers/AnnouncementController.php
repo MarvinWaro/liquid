@@ -277,7 +277,7 @@ class AnnouncementController extends Controller
 
         $commentQuery = AnnouncementComment::where('announcement_id', $announcement->id)
             ->whereNull('parent_id')
-            ->with(['user.role', 'reactions', 'allReplies.user.role', 'allReplies.reactions', 'allReplies.allReplies.user.role', 'allReplies.allReplies.reactions'])
+            ->with(['user.role', 'reactions.user:id,name', 'allReplies.user.role', 'allReplies.reactions.user:id,name', 'allReplies.allReplies.user.role', 'allReplies.allReplies.reactions.user:id,name'])
             ->orderBy('created_at');
 
         $totalComments = $commentQuery->count();

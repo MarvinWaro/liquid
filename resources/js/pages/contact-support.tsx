@@ -106,6 +106,7 @@ interface SupportTicketDetail extends SupportTicketSummary {
     assignee_name: string | null;
     resolved_by_name: string | null;
     resolved_at: string | null;
+    resolution_remarks: string | null;
     messages: TicketMessage[];
 }
 
@@ -635,9 +636,17 @@ function TicketDetail({
                 )}
 
                 {ticket.resolved_at && (
-                    <p className="mt-3 text-xs text-muted-foreground">
-                        Resolved by {ticket.resolved_by_name ?? 'support'} on {ticket.resolved_at}.
-                    </p>
+                    <div className="mt-3 min-w-0 rounded-md border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/40">
+                        <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300">
+                            Resolved by {ticket.resolved_by_name ?? 'support'} on {ticket.resolved_at}.
+                        </p>
+                        {ticket.resolution_remarks && (
+                            // break-words so one long unbroken string cannot stretch the panel.
+                            <p className="mt-1.5 text-sm break-words whitespace-pre-wrap text-emerald-900 dark:text-emerald-100">
+                                {ticket.resolution_remarks}
+                            </p>
+                        )}
+                    </div>
                 )}
             </div>
 
@@ -807,8 +816,12 @@ function StatusRemarksDialog({
                         Add optional remarks for the ticket thread.
                     </DialogDescription>
                 </DialogHeader>
-                <form onSubmit={onSubmit} className="space-y-4">
-                    <div>
+                {/* min-w-0 on the grid child: DialogContent is a grid, whose items
+                    default to min-width:auto and so refuse to shrink below their
+                    content. A long unbroken string in the textarea then pushed the
+                    field out past the dialog instead of wrapping inside it. */}
+                <form onSubmit={onSubmit} className="min-w-0 space-y-4">
+                    <div className="min-w-0">
                         <Label htmlFor="ticket-status-remarks">Remarks</Label>
                         <Textarea
                             id="ticket-status-remarks"
@@ -817,7 +830,7 @@ function StatusRemarksDialog({
                             rows={4}
                             maxLength={2000}
                             placeholder={isResolve ? 'Optional resolution note...' : 'Optional reopen note...'}
-                            className={cn('mt-1 resize-none', error && 'border-red-500')}
+                            className={cn('mt-1 w-full min-w-0 resize-none', error && 'border-red-500')}
                         />
                         {error ? (
                             <p className="mt-1 text-sm text-red-500">{error}</p>

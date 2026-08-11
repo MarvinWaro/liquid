@@ -1,7 +1,8 @@
 import React, { useCallback, useRef, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { AtSign, Heart, MessageSquare, Send, X } from 'lucide-react';
+import { AtSign, MessageSquare, Send, X } from 'lucide-react';
+import { ReactorsBadge } from '@/components/announcement/reactors-badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -32,6 +33,8 @@ export interface AnnouncementComment {
     time_ago: string;
     reactions_count: number;
     has_reacted: boolean;
+    /** Names of the people who reacted, capped server-side; viewer shown as "You". */
+    reactor_names: string[];
     replies: AnnouncementComment[];
 }
 
@@ -82,10 +85,16 @@ function removeFromTree(tree: AnnouncementComment[], id: string): AnnouncementCo
     return tree.filter((c) => c.id !== id).map((c) => ({ ...c, replies: removeFromTree(c.replies, id) }));
 }
 
-function updateReactionInTree(tree: AnnouncementComment[], commentId: string, hasReacted: boolean, count: number): AnnouncementComment[] {
+function updateReactionInTree(
+    tree: AnnouncementComment[],
+    commentId: string,
+    hasReacted: boolean,
+    count: number,
+    names: string[],
+): AnnouncementComment[] {
     return tree.map((c) => {
-        if (c.id === commentId) return { ...c, has_reacted: hasReacted, reactions_count: count };
-        if (c.replies.length) return { ...c, replies: updateReactionInTree(c.replies, commentId, hasReacted, count) };
+        if (c.id === commentId) return { ...c, has_reacted: hasReacted, reactions_count: count, reactor_names: names };
+        if (c.replies.length) return { ...c, replies: updateReactionInTree(c.replies, commentId, hasReacted, count, names) };
         return c;
     });
 }
@@ -306,7 +315,7 @@ function CommentItem({
     depth?: number;
     onDelete: (id: string) => void;
     onNewReply: (parentId: string, reply: AnnouncementComment) => void;
-    onReaction: (commentId: string, hasReacted: boolean, count: number) => void;
+    onReaction: (commentId: string, hasReacted: boolean, count: number, names: string[]) => void;
     isLast?: boolean;
 }) {
     const getInitials = useInitials();
@@ -329,7 +338,7 @@ function CommentItem({
         try {
             const { data } = await axios.post(`/announcement/${slug}/comments/${comment.id}/react`);
             if (data.success) {
-                onReaction(comment.id, data.has_reacted, data.reactions_count);
+                onReaction(comment.id, data.has_reacted, data.reactions_count, data.reactor_names ?? []);
             }
         } catch {
             toast.error('Failed to react');
@@ -402,13 +411,14 @@ function CommentItem({
                         )}
                     </div>
 
-                    {/* Reaction badge — hidden for deleted comments */}
+                    {/* Reaction badge — hidden for deleted comments.
+                        Hover, tap or focus it to see who reacted. */}
                     {!comment.is_deleted && comment.reactions_count > 0 && (
                         <div className="flex justify-end -mt-2.5 mr-2 relative z-10">
-                            <span className="inline-flex items-center gap-0.5 rounded-full bg-background border shadow-sm px-1.5 py-0.5 text-[10px]">
-                                <Heart className="h-2.5 w-2.5 fill-red-500 text-red-500" />
-                                {comment.reactions_count}
-                            </span>
+                            <ReactorsBadge
+                                count={comment.reactions_count}
+                                names={comment.reactor_names}
+                            />
                         </div>
                     )}
 
@@ -561,8 +571,8 @@ export default function AnnouncementComments({ slug, initialComments, initialHas
         setTotalCount((n) => n + 1);
     }, []);
 
-    const handleReaction = useCallback((commentId: string, hasReacted: boolean, count: number) => {
-        setComments((prev) => updateReactionInTree(prev, commentId, hasReacted, count));
+    const handleReaction = useCallback((commentId: string, hasReacted: boolean, count: number, names: string[]) => {
+        setComments((prev) => updateReactionInTree(prev, commentId, hasReacted, count, names));
     }, []);
 
     const handleTopLevelPosted = useCallback((comment: AnnouncementComment) => {

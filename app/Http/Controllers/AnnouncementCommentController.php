@@ -29,16 +29,16 @@ class AnnouncementCommentController extends Controller
 
         $paginator = AnnouncementComment::where('announcement_id', $announcement->id)
             ->whereNull('parent_id')
-            ->with(['user.role', 'reactions', 'allReplies.user.role', 'allReplies.reactions', 'allReplies.allReplies.user.role', 'allReplies.allReplies.reactions'])
+            ->with(['user.role', 'reactions.user:id,name', 'allReplies.user.role', 'allReplies.reactions.user:id,name', 'allReplies.allReplies.user.role', 'allReplies.allReplies.reactions.user:id,name'])
             ->orderBy('created_at')
             ->paginate($perPage, ['*'], 'page', $page);
 
         $viewerId = $request->user()?->id;
 
         return response()->json([
-            'data'     => collect($paginator->items())->map(fn ($c) => $c->format($viewerId))->values(),
+            'data' => collect($paginator->items())->map(fn ($c) => $c->format($viewerId))->values(),
             'has_more' => $paginator->hasMorePages(),
-            'total'    => $paginator->total(),
+            'total' => $paginator->total(),
         ]);
     }
 
@@ -50,9 +50,9 @@ class AnnouncementCommentController extends Controller
         $this->ensureVisible($request, $announcement);
 
         $validated = $request->validate([
-            'body'       => ['required', 'string', 'max:2000'],
-            'parent_id'  => ['nullable', 'uuid', 'exists:announcement_comments,id'],
-            'mentions'   => ['nullable', 'array'],
+            'body' => ['required', 'string', 'max:2000'],
+            'parent_id' => ['nullable', 'uuid', 'exists:announcement_comments,id'],
+            'mentions' => ['nullable', 'array'],
             'mentions.*' => ['uuid', 'exists:users,id'],
         ]);
 
@@ -71,10 +71,10 @@ class AnnouncementCommentController extends Controller
 
         $comment = AnnouncementComment::create([
             'announcement_id' => $announcement->id,
-            'user_id'         => $request->user()->id,
-            'parent_id'       => $parentId,
-            'body'            => $body,
-            'mentions'        => !empty($mentionIds) ? $mentionIds : null,
+            'user_id' => $request->user()->id,
+            'parent_id' => $parentId,
+            'body' => $body,
+            'mentions' => ! empty($mentionIds) ? $mentionIds : null,
         ]);
 
         $actor = $request->user();
@@ -90,7 +90,7 @@ class AnnouncementCommentController extends Controller
 
         $this->notifyAnnouncementAuthor($comment, $announcement, $actor, $notified);
 
-        $comment->load('user.role', 'reactions');
+        $comment->load('user.role', 'reactions.user:id,name');
 
         return response()->json([
             'success' => true,
@@ -131,11 +131,11 @@ class AnnouncementCommentController extends Controller
         if ($actor->role?->name === 'HEI') {
             $query->where(function ($q) use ($actor) {
                 $q->where('hei_id', $actor->hei_id)
-                  ->orWhere(function ($sub) use ($actor) {
-                      $sub->whereHas('role', fn ($r) => $r->where('name', 'Regional Coordinator'))
-                          ->where('region_id', $actor->region_id);
-                  })
-                  ->orWhereHas('role', fn ($r) => $r->whereIn('name', ['Admin', 'Super Admin']));
+                    ->orWhere(function ($sub) use ($actor) {
+                        $sub->whereHas('role', fn ($r) => $r->where('name', 'Regional Coordinator'))
+                            ->where('region_id', $actor->region_id);
+                    })
+                    ->orWhereHas('role', fn ($r) => $r->whereIn('name', ['Admin', 'Super Admin']));
             });
         }
 
@@ -143,7 +143,7 @@ class AnnouncementCommentController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'role_id'])
             ->map(fn (User $u) => [
-                'id'   => $u->id,
+                'id' => $u->id,
                 'name' => $u->name,
                 'role' => $u->role?->name,
             ]);
@@ -170,7 +170,7 @@ class AnnouncementCommentController extends Controller
         } else {
             AnnouncementCommentReaction::create([
                 'comment_id' => $comment->id,
-                'user_id'    => $user->id,
+                'user_id' => $user->id,
             ]);
             $reacted = true;
 
@@ -179,12 +179,17 @@ class AnnouncementCommentController extends Controller
             $this->notifyCommentReaction($comment, $announcement, $user);
         }
 
-        $count = AnnouncementCommentReaction::where('comment_id', $comment->id)->count();
+        // Re-read the reactions with their users so the response carries the
+        // updated name list, letting the tooltip stay correct without a refetch.
+        // This replaces the separate count query rather than adding to it.
+        $comment->load('reactions.user:id,name');
+        $reactions = $comment->reactions;
 
         return response()->json([
-            'success'     => true,
+            'success' => true,
             'has_reacted' => $reacted,
-            'reactions_count' => $count,
+            'reactions_count' => $reactions->count(),
+            'reactor_names' => AnnouncementComment::reactorNames($reactions, $user->id),
         ]);
     }
 
@@ -207,8 +212,8 @@ class AnnouncementCommentController extends Controller
 
         $now = now();
         $notYetPublished = $announcement->published_at && $announcement->published_at->gt($now);
-        $hasExpired      = $announcement->end_date && $announcement->end_date->lt($now);
-        $hiddenFromHei   = $role === 'HEI' && !$announcement->show_to_hei;
+        $hasExpired = $announcement->end_date && $announcement->end_date->lt($now);
+        $hiddenFromHei = $role === 'HEI' && ! $announcement->show_to_hei;
 
         abort_if($notYetPublished || $hasExpired || $hiddenFromHei, 404);
     }
@@ -218,7 +223,7 @@ class AnnouncementCommentController extends Controller
         // Preload the parent chain in 2 eager-load queries instead of N separate finds.
         // MAX_DEPTH = 2 means 3 levels max, so 'parent.parent' covers the full chain.
         $comment = AnnouncementComment::with('parent.parent')->find($commentId);
-        if (!$comment) {
+        if (! $comment) {
             return 0;
         }
         $depth = 0;
@@ -230,6 +235,7 @@ class AnnouncementCommentController extends Controller
                 break;
             }
         }
+
         return $depth;
     }
 
@@ -253,19 +259,19 @@ class AnnouncementCommentController extends Controller
         }
 
         $rows = $recipients->map(fn (User $user) => [
-            'id'            => Str::uuid()->toString(),
-            'user_id'       => $user->id,
-            'actor_id'      => $actor->id,
-            'actor_name'    => $actor->name,
-            'action'        => 'mentioned_in_announcement_comment',
-            'description'   => 'mentioned you in a comment on "' . $announcement->title . '"',
-            'subject_type'  => Announcement::class,
-            'subject_id'    => $announcement->id,
+            'id' => Str::uuid()->toString(),
+            'user_id' => $user->id,
+            'actor_id' => $actor->id,
+            'actor_name' => $actor->name,
+            'action' => 'mentioned_in_announcement_comment',
+            'description' => 'mentioned you in a comment on "'.$announcement->title.'"',
+            'subject_type' => Announcement::class,
+            'subject_id' => $announcement->id,
             'subject_label' => $announcement->title,
-            'module'        => 'Announcement',
-            'metadata'      => json_encode(['comment_id' => $comment->id, 'slug' => $announcement->slug]),
-            'created_at'    => now(),
-            'updated_at'    => now(),
+            'module' => 'Announcement',
+            'metadata' => json_encode(['comment_id' => $comment->id, 'slug' => $announcement->slug]),
+            'created_at' => now(),
+            'updated_at' => now(),
         ])->toArray();
 
         Notification::insert($rows);
@@ -283,7 +289,7 @@ class AnnouncementCommentController extends Controller
         User $actor,
         array $mentionIds,
     ): array {
-        if (!$comment->parent_id) {
+        if (! $comment->parent_id) {
             return []; // top-level comment — no thread to notify
         }
 
@@ -298,7 +304,7 @@ class AnnouncementCommentController extends Controller
         // Collect all comment IDs in the thread tree (3 levels)
         $level0 = [$rootId];
         $level1 = AnnouncementComment::whereIn('parent_id', $level0)->pluck('id')->toArray();
-        $level2 = !empty($level1) ? AnnouncementComment::whereIn('parent_id', $level1)->pluck('id')->toArray() : [];
+        $level2 = ! empty($level1) ? AnnouncementComment::whereIn('parent_id', $level1)->pluck('id')->toArray() : [];
         $allThreadIds = array_merge($level0, $level1, $level2);
 
         $participantIds = AnnouncementComment::whereIn('id', $allThreadIds)
@@ -317,19 +323,19 @@ class AnnouncementCommentController extends Controller
         }
 
         $rows = $recipients->map(fn (User $user) => [
-            'id'            => Str::uuid()->toString(),
-            'user_id'       => $user->id,
-            'actor_id'      => $actor->id,
-            'actor_name'    => $actor->name,
-            'action'        => 'replied_to_announcement_thread',
-            'description'   => 'replied to a discussion on "' . $announcement->title . '"',
-            'subject_type'  => Announcement::class,
-            'subject_id'    => $announcement->id,
+            'id' => Str::uuid()->toString(),
+            'user_id' => $user->id,
+            'actor_id' => $actor->id,
+            'actor_name' => $actor->name,
+            'action' => 'replied_to_announcement_thread',
+            'description' => 'replied to a discussion on "'.$announcement->title.'"',
+            'subject_type' => Announcement::class,
+            'subject_id' => $announcement->id,
             'subject_label' => $announcement->title,
-            'module'        => 'Announcement',
-            'metadata'      => json_encode(['comment_id' => $comment->id, 'slug' => $announcement->slug]),
-            'created_at'    => now(),
-            'updated_at'    => now(),
+            'module' => 'Announcement',
+            'metadata' => json_encode(['comment_id' => $comment->id, 'slug' => $announcement->slug]),
+            'created_at' => now(),
+            'updated_at' => now(),
         ])->toArray();
 
         Notification::insert($rows);
