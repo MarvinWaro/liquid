@@ -206,9 +206,13 @@ class DashboardController extends Controller
             'Regional Coordinator' => $this->getTotalStats($user->region_id, null, true),
             'Accountant' => $this->getTotalStats(endorsedOnly: true),
             'COA' => $this->getTotalStats(coaEndorsedOnly: true),
-            'HEI' => $user->hei_id ? $this->getHEITotalStats($user->hei_id) : [],
+            'HEI' => $user->hei_id ? $this->getHEITotalStats($user->hei_id) : $this->emptyTotalStats(),
             'STUFAPS Focal' => $this->getTotalStats(null, $user->getParentScopedProgramIds()),
-            default => [],
+            // Every key at zero rather than an empty array. The frontend reads each
+            // field with `?? 0`, so a missing key renders as 0 without warning —
+            // which is how "%Age of Submission" silently reported 0.00% for HEIs.
+            // Roles with no dedicated scope (Encoder, Viewer) land here.
+            default => $this->emptyTotalStats(),
         });
 
         return Inertia::render('dashboard', [
@@ -341,11 +345,10 @@ class DashboardController extends Controller
     private function computeFundSourceData(?string $heiId = null, string|array|null $regionId = null, bool $endorsedOnly = false, bool $coaEndorsedOnly = false, ?array $academicYearIds = null): array
     {
         $fs = $this->getFundSourceProgramIds();
-        $empty = [
-            'total_liquidations' => 0, 'total_disbursed' => 0,
-            'total_liquidated' => 0, 'total_unliquidated' => 0,
-            'for_endorsement' => 0, 'for_compliance' => 0, 'pending_review' => 0,
-        ];
+        // Was a hand-written literal that omitted total_with_submission, so filtering
+        // to a fund source with no programs made "%Age of Submission" read 0.00% for
+        // any role. Sharing one shape is what stops that recurring.
+        $empty = $this->emptyTotalStats();
 
         $result = [];
         foreach (['unifast', 'tes', 'tdp', 'stufaps'] as $source) {
@@ -501,6 +504,30 @@ class DashboardController extends Controller
     /**
      * Get total stats with joins to liquidation_financials.
      */
+    /**
+     * The totalStats shape with every figure at zero.
+     *
+     * Kept in one place because the shape has to match what getTotalStats() and
+     * getHEITotalStats() return. When those drifted apart the frontend had no way
+     * to notice: it reads each field with `?? 0`, so a key that simply is not
+     * there renders as a real zero on the dashboard.
+     *
+     * @return array<string, int>
+     */
+    private function emptyTotalStats(): array
+    {
+        return [
+            'total_liquidations' => 0,
+            'total_disbursed' => 0,
+            'total_liquidated' => 0,
+            'total_unliquidated' => 0,
+            'for_endorsement' => 0,
+            'for_compliance' => 0,
+            'total_with_submission' => 0,
+            'pending_review' => 0,
+        ];
+    }
+
     private function getTotalStats(string|array|null $regionId = null, ?array $programIds = null, bool $excludeSubPrograms = false, ?string $heiId = null, bool $endorsedOnly = false, bool $coaEndorsedOnly = false, ?array $academicYearIds = null): array
     {
         $regionIds = $this->normalizeToIdArray($regionId);
@@ -1075,6 +1102,13 @@ class DashboardController extends Controller
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) - COALESCE(SUM(CASE WHEN rc_note_statuses.code IN ("FULLY_ENDORSED", "PARTIALLY_ENDORSED") THEN COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as total_unliquidated')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
             ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_compliance')
+            // Total With Submission = Liquidated + For Endorsement + For Compliance.
+            // Deliberately reuses this method's endorsed-only definition of
+            // "liquidated" rather than getTotalStats()'s plain SUM: an HEI is shown
+            // what has actually been accepted, and total_unliquidated above follows
+            // the same rule. Copying the admin definition would make the resulting
+            // percentage disagree with the cards beside it.
+            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code IN ("FULLY_ENDORSED", "PARTIALLY_ENDORSED") THEN COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) + COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) + COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_COMPLIANCE" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as total_with_submission')
             ->first();
 
         // Pending review = submitted but not endorsed to COA
@@ -1090,6 +1124,9 @@ class DashboardController extends Controller
             'total_unliquidated' => $stats->total_unliquidated ?? 0,
             'for_endorsement' => $stats->for_endorsement ?? 0,
             'for_compliance' => $stats->for_compliance ?? 0,
+            // Without this key the frontend's `?? 0` fallback made
+            // "%Age of Submission" render 0.00% for every HEI.
+            'total_with_submission' => $stats->total_with_submission ?? 0,
             'pending_review' => $pendingReview,
         ];
     }

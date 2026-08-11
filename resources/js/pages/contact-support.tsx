@@ -184,7 +184,17 @@ export default function ContactSupport({
 }: Props) {
     const { can } = usePage<SharedData>().props;
     const { layout } = useLayoutPreference();
-    const workspaceHeightClass = layout === 'sidebar' ? 'xl:h-[calc(100svh-7rem)]' : 'xl:h-[calc(100svh-9rem)]';
+    // Sidebar mode nests this inside a scroll container that already has a definite
+    // height, so h-full lands exactly right with no arithmetic. The previous
+    // calc(100svh-7rem) under-counted the chrome by roughly the height of AppFooter,
+    // which pushed the sticky reply box below the visible area and let the footer
+    // sit where it should have been. xl:py-0 goes with it: the py-6 below would
+    // otherwise add 3rem on top of a full-height box and bring the overflow back.
+    //
+    // Header mode keeps the viewport calc on purpose. AppHeaderLayout caps no
+    // height, so there is no definite-height ancestor for h-full to resolve
+    // against — it would collapse to auto.
+    const workspaceHeightClass = layout === 'sidebar' ? 'xl:h-full xl:py-0' : 'xl:h-[calc(100svh-9rem)]';
     const [createOpen, setCreateOpen] = useState(false);
     const [search, setSearch] = useState(filters.search ?? '');
     const getInitials = useInitials();
