@@ -19,9 +19,27 @@ export interface NavItem {
     title: string;
     href: NonNullable<InertiaLinkProps['href']>;
     icon?: LucideIcon | null;
+    /**
+     * Path to an image to use instead of `icon`, for entries with their own
+     * artwork rather than a Lucide glyph (Liqui). Takes precedence when set.
+     */
+    iconImage?: string;
     isActive?: boolean;
     children?: NavItem[];
 }
+
+/**
+ * A nav entry that is shown or hidden by a permission.
+ *
+ * `Omit` matters: NavItem already declares `children?: NavItem[]`, and
+ * intersecting that with a narrower children type leaves TypeScript resolving
+ * `.filter()` callbacks to the plain NavItem, which then has no `ability`.
+ * Dropping the property before redefining it avoids that collision.
+ */
+export type NavItemWithAbility = Omit<NavItem, 'children'> & {
+    ability?: keyof NavigationAbilities;
+    children?: NavItemWithAbility[];
+};
 
 export interface NavigationAbilities {
     canViewDashboard: boolean;
@@ -70,6 +88,12 @@ export interface SharedData {
     can: NavigationAbilities;
     sidebarOpen: boolean;
     notifications_unread_count: number;
+    /**
+     * Largest single file this server accepts, in bytes — read from PHP's own
+     * limits rather than assumed. Use `resolveMaxUpload` in lib/upload.ts to
+     * combine it with a feature's own cap.
+     */
+    maxUploadBytes: number;
     [key: string]: unknown;
 }
 

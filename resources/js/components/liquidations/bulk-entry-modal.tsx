@@ -44,12 +44,12 @@ import axios from 'axios';
 import { usePage } from '@inertiajs/react';
 import { type SharedData } from '@/types';
 import {
-    SEMESTERS,
     DOCUMENT_STATUSES,
     getDueDateDays,
     type Program,
     type HEIOption,
     type AcademicYearOption,
+    type SemesterOption,
     type RcNoteStatusOption,
 } from './liquidation-constants';
 
@@ -214,6 +214,7 @@ interface BulkEntryModalProps {
     onClose: () => void;
     programs: Program[];
     academicYears: AcademicYearOption[];
+    semesters: SemesterOption[];
     rcNoteStatuses: RcNoteStatusOption[];
     heis: HEIOption[];
     onSuccess: () => void;
@@ -498,6 +499,7 @@ export function BulkEntryModal({
     onClose,
     programs,
     academicYears,
+    semesters,
     rcNoteStatuses,
     heis,
     onSuccess,
@@ -891,7 +893,7 @@ export function BulkEntryModal({
                             {rows.map((row, index) => {
                                 const programLabel = programs.find(p => p.id === row.program_id)?.code || '';
                                 const ayLabel = academicYears.find(ay => ay.id === row.academic_year_id)?.name || '';
-                                const semLabel = SEMESTERS.find(s => s.value === row.semester)?.label || '';
+                                const semLabel = semesters.find(s => s.name === row.semester)?.name || '';
                                 const docLabel = DOCUMENT_STATUSES.find(s => s.value === row.document_status)?.label || '';
                                 const rcLabel = rcNoteStatuses.find(o => o.name === row.rc_notes)?.name || '';
                                 const fundDateLabel = row.date_fund_released ? format(parse(row.date_fund_released, 'yyyy-MM-dd', new Date()), 'MMM dd, yyyy') : '';
@@ -956,7 +958,7 @@ export function BulkEntryModal({
                                             <CellTooltip content={semLabel}>
                                                 <Select value={row.semester} onValueChange={v => updateRow(index, 'semester', v)}>
                                                     <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="--" /></SelectTrigger>
-                                                    <SelectContent>{SEMESTERS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+                                                    <SelectContent>{semesters.map(s => <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>)}</SelectContent>
                                                 </Select>
                                             </CellTooltip>
                                         </td>

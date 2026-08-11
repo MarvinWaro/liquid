@@ -1,4 +1,5 @@
 import { Followups } from '@/components/report-assistant/followups';
+import { LiquiAvatar } from '@/components/report-assistant/liqui-avatar';
 import { Sources } from '@/components/report-assistant/sources';
 import {
     ToolResultDisplay,
@@ -14,11 +15,9 @@ import { type BreadcrumbItem } from '@/types';
 import { Head, Link } from '@inertiajs/react';
 import axios from 'axios';
 import {
-    Bot,
     FileBarChart,
     Send,
     ShieldCheck,
-    Sparkles,
     UserRound,
     X,
 } from 'lucide-react';
@@ -41,7 +40,7 @@ interface Message {
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Report Assistant', href: '/report-assistant' },
+    { title: 'Liqui', href: '/report-assistant' },
 ];
 
 const initialMessage: Message = {
@@ -203,16 +202,19 @@ export default function ReportAssistant({ isConfigured }: Props) {
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Report Assistant" />
+            <Head title="Liqui" />
 
             <div className="flex w-full flex-col gap-5 p-4 md:p-8">
                 <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
                     <div>
                         <div className="flex items-center gap-2">
-                            <Sparkles className="h-5 w-5 text-primary" />
-                            <h1 className="text-xl font-semibold tracking-tight">
-                                Report Assistant
-                            </h1>
+                            {/* 320px WebP (11 KB). The uploaded source is
+                                3331x3610 / 1350 KB — far more than is shown. */}
+                            <img
+                                src="/assets/img/liqui-with-name.webp"
+                                alt="Liqui"
+                                className="h-9 w-auto object-contain"
+                            />
                             <Badge variant="outline">Admin preview</Badge>
                         </div>
                         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
@@ -298,9 +300,7 @@ export default function ReportAssistant({ isConfigured }: Props) {
                                         key={`assistant-${index}`}
                                         className="flex gap-3"
                                     >
-                                        <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                            <Bot className="h-4 w-4" />
-                                        </div>
+                                        <LiquiAvatar />
                                         <div className="flex min-w-0 flex-1 flex-col gap-3">
                                             {toolNames.length > 0 && (
                                                 <Sources tools={toolNames} />
@@ -336,9 +336,7 @@ export default function ReportAssistant({ isConfigured }: Props) {
                             })}
                             {messages.length === 1 && !isSending && (
                                 <div className="flex gap-3">
-                                    <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                        <Sparkles className="h-4 w-4" />
-                                    </div>
+                                    <LiquiAvatar />
                                     <div className="flex min-w-0 flex-1 flex-col gap-2">
                                         <Followups
                                             items={examples}
@@ -351,9 +349,7 @@ export default function ReportAssistant({ isConfigured }: Props) {
                             )}
                             {isSending && (
                                 <div className="flex gap-3">
-                                    <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                        <Bot className="h-4 w-4" />
-                                    </div>
+                                    <LiquiAvatar />
                                     <div className="flex min-w-0 flex-1 flex-col gap-3">
                                         <div className="flex flex-wrap gap-1.5">
                                             <Skeleton className="h-5 w-28 rounded-full" />

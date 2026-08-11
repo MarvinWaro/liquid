@@ -1,16 +1,20 @@
 import { useRef, useState, useCallback } from 'react';
-import { router } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Upload, FileText, Download, Trash2, Eye, Loader2, Mail } from 'lucide-react';
 import { toast } from '@/lib/toast';
+import { checkUploadSize } from '@/lib/upload';
+import { type SharedData } from '@/types';
+import { formatManilaDate } from '@/lib/date';
 import type { LiquidationDocument } from '@/types/liquidation';
 import PdfPreviewDialog from './pdf-preview-dialog';
 
 const RC_LETTER_TYPE = 'RC Letter';
 const MAX_LETTERS = 3;
+/** Policy cap for an RC letter. The server's own limit may be lower. */
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 
 interface RcLetterUploadProps {
@@ -26,14 +30,11 @@ function formatFileSize(bytes: number): string {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function formatUploadDate(dateStr: string): string {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
 export default function RcLetterUpload({ liquidationId, documents, userRole, isStufapsProgram = false }: RcLetterUploadProps) {
     const canManage = userRole === 'Regional Coordinator' || userRole === 'STUFAPS Focal';
     const isFocalContext = isStufapsProgram || userRole === 'STUFAPS Focal';
+    // Real ceiling for this server, read from PHP rather than assumed.
+    const { maxUploadBytes } = usePage<SharedData>().props;
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
@@ -50,8 +51,9 @@ export default function RcLetterUpload({ liquidationId, documents, userRole, isS
             toast.error('Only PDF files are allowed.');
             return;
         }
-        if (file.size > MAX_SIZE_BYTES) {
-            toast.error('File size must not exceed 10MB.');
+        const sizeError = checkUploadSize(file, MAX_SIZE_BYTES, maxUploadBytes);
+        if (sizeError) {
+            toast.error(sizeError);
             return;
         }
         if (!canUploadMore) {
@@ -82,7 +84,10 @@ export default function RcLetterUpload({ liquidationId, documents, userRole, isS
             setIsUploading(false);
             if (fileInputRef.current) fileInputRef.current.value = '';
         }
-    }, [liquidationId, canUploadMore]);
+    // isFocalContext is derived from props that cannot change without this whole
+    // component re-rendering with new props anyway.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [liquidationId, canUploadMore, maxUploadBytes]);
 
     const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -111,7 +116,9 @@ export default function RcLetterUpload({ liquidationId, documents, userRole, isS
     }, []);
 
     return (
-        <Card className="mb-3">
+        // The anchor a notification about an RC letter scrolls to. Must stay in
+        // step with RC_LETTER_ACTIONS in lib/liquidation-section.ts.
+        <Card id="rc-letters" className="mb-3">
             <CardHeader className="flex flex-row items-center justify-between pb-3">
                 <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-md bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
@@ -169,7 +176,7 @@ export default function RcLetterUpload({ liquidationId, documents, userRole, isS
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-medium truncate">{doc.file_name}</p>
                                     <p className="text-xs text-muted-foreground">
-                                        {formatFileSize(doc.file_size)} &middot; Uploaded {formatUploadDate(doc.uploaded_at)}
+                                        {formatFileSize(doc.file_size)} &middot; Uploaded {formatManilaDate(doc.uploaded_at)}
                                     </p>
                                 </div>
 

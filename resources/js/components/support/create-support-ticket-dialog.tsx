@@ -104,6 +104,9 @@ export function CreateSupportTicketDialog({
 
         form.clearErrors();
         form.setData(defaultFormData);
+    // `form` is a new object every render, so depending on it would loop. Opening
+    // the dialog is the event being handled.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, defaultFormData]);
 
     const selectedLiquidation = liquidationOptions.find((item) => item.id === form.data.liquidation_id);

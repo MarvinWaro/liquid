@@ -55,14 +55,20 @@ export interface AcademicYearOption {
     name: string;
 }
 
-export const SEMESTERS = [
-    { value: '1st Semester', label: '1st Semester' },
-    { value: '2nd Semester', label: '2nd Semester' },
-    { value: 'Summer', label: 'Summer' },
-    { value: 'TES3A', label: 'TES3A' },
-    { value: 'TES3B', label: 'TES3B' },
-    { value: '1st and 2nd Semester', label: '1st and 2nd Semester' },
-] as const;
+/**
+ * Shape returned by Semester::getDropdownOptions().
+ *
+ * Replaces a hardcoded SEMESTERS list that lived here. That list could not see
+ * anything added under Settings > Semesters, so a new semester was manageable in
+ * the table yet never selectable on a liquidation. The options now come from the
+ * server; `name` is what gets submitted, since that is the string the backend
+ * resolves and the one saved bulk-entry drafts already hold.
+ */
+export interface SemesterOption {
+    id: string;
+    code: string;
+    name: string;
+}
 
 export const DOCUMENT_STATUSES = [
     { value: 'NONE', label: 'No Submission' },

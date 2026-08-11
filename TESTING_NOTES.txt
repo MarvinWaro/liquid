@@ -1,0 +1,521 @@
+===============================================================================
+ UniFAST LIQUIDATION SYSTEM - TESTING GUIDE
+ Covers everything changed in this session (Aug 3 - Aug 8, 2026)
+ Branch: NEW-LAPTOP-BUG-DEV   |   Nothing is committed yet
+===============================================================================
+
+ HOW TO USE THIS
+   Each test has: WHAT TO DO -> PASS (what you should see) -> FAIL (what it
+   means if you see something else). Work top to bottom; the quick ones are
+   first so you find problems early.
+
+ CONTENTS
+   0. Before you start
+   1. Timezone: the 8-hour display bug        (5 min)
+   2. Overdue badge on the dashboard          (5 min)
+   3. Activity Logs: new Insights charts      (5 min)
+   4. Bulk import now names the person        (10 min, needs queue)
+   5. Announcement XSS sanitizing             (5 min)
+   6. Security headers                        (2 min)
+   7. Rate limiting                           (3 min)
+   8. Turnstile fixes                         (10 min)
+   9. Nothing else broke - regression sweep   (10 min)
+
+
+===============================================================================
+ 0. BEFORE YOU START
+===============================================================================
+
+ RUN THIS (starts server + queue worker + vite all together):
+
+     composer dev
+
+ IMPORTANT: several changes are in .tsx files. If you are NOT running vite,
+ you are looking at OLD JavaScript and nothing will appear fixed. Either use
+ `composer dev` or run `npm run build` first.
+
+ THE QUEUE MATTERS: bulk import runs in a background job. `composer dev`
+ starts the queue worker. If you run `php artisan serve` alone, imports will
+ sit there doing nothing and test 4 will look broken when it is not.
+
+ If you changed any PHP that the queue touches, restart the worker:
+
+     php artisan queue:restart
+
+ TIP: keep DevTools open (F12) on the Console and Network tabs throughout.
+
+
+===============================================================================
+ 1. TIMEZONE - THE 8-HOUR DISPLAY BUG                            ~5 minutes
+===============================================================================
+
+ THE BUG THAT WAS FIXED
+   Timestamps were sent without a timezone marker, so the browser read UTC
+   digits as local time. An action at 1:30 PM displayed as 5:30 AM.
+
+-------------------------------------------------------------------------------
+ 1.1  The main check
+-------------------------------------------------------------------------------
+ DO
+   1. Note the real time right now.
+   2. Endorse or review any test liquidation.
+   3. Open that liquidation's detail page AND the view modal
+      (the modal shows hours and minutes, so it is the clearest).
+
+ PASS   The time shown matches the real time you performed the action.
+ FAIL   It shows roughly 8 hours EARLIER -> you are running old JavaScript.
+        Stop, run `npm run build`, hard-refresh (Ctrl+Shift+R), try again.
+
+-------------------------------------------------------------------------------
+ 1.2  Confirm it at the source (fastest check)
+-------------------------------------------------------------------------------
+ DO
+   F12 -> Console tab, on a liquidation page, paste:
+
+     JSON.parse(document.getElementById('app').dataset.page).props
+
+   Look at reviewed_at.
+
+ PASS   "2026-08-08T13:30:00+08:00"    <- has +08:00 on the end
+ FAIL   "2026-08-08 05:30:00"          <- no timezone, the old format
+
+ The "+08:00" IS the fix. If it is there, the browser cannot misread it.
+
+-------------------------------------------------------------------------------
+ 1.3  Cross-check against the database
+-------------------------------------------------------------------------------
+     php artisan tinker
+     >>> $l = App\Models\Liquidation::whereNotNull('reviewed_at')->latest('reviewed_at')->first();
+     >>> $l->reviewed_at->setTimezone('Asia/Manila')->toDateTimeString();
+
+ PASS   This value matches what the screen shows.
+
+-------------------------------------------------------------------------------
+ 1.4  Wrong laptop clock must NOT change what is saved
+-------------------------------------------------------------------------------
+ DO
+   1. Windows Settings -> Time & language -> Date & time
+   2. Turn OFF "Set time automatically", set the clock 3 HOURS AHEAD.
+   3. Endorse a liquidation.
+   4. Turn "Set time automatically" back ON.
+   5. Check the record with the tinker command in 1.3.
+
+ PASS   The saved time is the REAL time, not your fake time.
+        (The server stamps it; your laptop is never asked.)
+ FAIL   It saved your fake time -> something reads the browser clock. Report it.
+
+-------------------------------------------------------------------------------
+ 1.5  Other pages that show dates
+-------------------------------------------------------------------------------
+ Check these still show sensible dates (they use the same new helper):
+   [ ] HEI document upload  - "Added <date>" under each file
+   [ ] RC letter upload     - "Uploaded <date>"
+   [ ] Detail card          - Date Reviewed / Date Endorsed to COA
+   [ ] Import batch date on the detail card
+
+
+===============================================================================
+ 2. OVERDUE BADGE ON THE DASHBOARD                               ~5 minutes
+===============================================================================
+
+ THE BUG THAT WAS FIXED
+   "Overdue" was decided by the laptop's clock. A laptop in another timezone
+   could show "1 day left" on something Manila already counted as late.
+
+-------------------------------------------------------------------------------
+ 2.1  Confirm the server is now deciding
+-------------------------------------------------------------------------------
+ DO
+   Dashboard -> F12 -> Console:
+
+     JSON.parse(document.getElementById('app').dataset.page).props.today
+
+ PASS   Prints today's PHILIPPINE date, e.g. "2026-08-08"
+ FAIL   Prints undefined -> the prop is not arriving. Report it.
+
+ Compare against the server:
+     php artisan tinker
+     >>> now('Asia/Manila')->toDateString();
+
+-------------------------------------------------------------------------------
+ 2.2  The real test - change TIMEZONE (not the clock)
+-------------------------------------------------------------------------------
+ DO
+   1. Settings -> Time & language -> Date & time
+   2. Turn OFF "Set time zone automatically"
+   3. Set Time zone to "(UTC-08:00) Pacific Time"
+   4. Reload the dashboard. Look at the calendar and the due-dates list.
+
+ PASS   Badges and colours are IDENTICAL to what you saw on PH time.
+        The calendar also still opens on the correct month.
+ FAIL   A red "Overdue" turns into amber "1 day left" -> the `today` prop is
+        not being used.
+
+ *** PUT YOUR TIMEZONE BACK to (UTC+08:00) Manila when done. ***
+
+ NOTE: `today` is fixed when the page loads. Leaving the dashboard open past
+ midnight will still show yesterday until you refresh. That is not a
+ regression - the old code behaved the same way.
+
+
+===============================================================================
+ 3. ACTIVITY LOGS - NEW INSIGHTS CHARTS                          ~5 minutes
+===============================================================================
+
+ Go to: Settings -> Activity Logs
+
+-------------------------------------------------------------------------------
+ 3.1  Basic appearance
+-------------------------------------------------------------------------------
+ PASS   [ ] An "Insights" panel sits above the filters.
+        [ ] The TABLE appears immediately; charts fill in a moment later.
+            (They are deferred on purpose so the page is not held up.)
+        [ ] Three charts: Activity Over Time (area), Actions Breakdown
+            (donut), Most Active Users (bars).
+
+-------------------------------------------------------------------------------
+ 3.2  Collapse is remembered
+-------------------------------------------------------------------------------
+ DO   Click "Insights" to collapse it. Reload the page (F5).
+ PASS It is still collapsed. Expand it, reload, it stays expanded.
+
+-------------------------------------------------------------------------------
+ 3.3  *** THE IMPORTANT ONE - numbers must agree ***
+-------------------------------------------------------------------------------
+ If the chart says one thing and the table says another, the page cannot be
+ trusted. This is the test that matters most.
+
+ DO
+   1. Filter by a single user, or a narrow date range.
+   2. Compare the donut's centre total against how many rows the table found.
+
+ PASS   They match.
+ FAIL   They disagree -> report it, this is the main risk of the design.
+
+ THEN, the trickiest rule:
+   3. Set the Action filter to "logout".
+ PASS   Logout entries now appear in BOTH the table and the charts.
+   4. Set it back to "All Actions".
+ PASS   Logout entries disappear from BOTH again.
+
+-------------------------------------------------------------------------------
+ 3.4  Empty state
+-------------------------------------------------------------------------------
+ DO   Pick a date range with no activity (e.g. last year).
+ PASS "No activity in this range" - a message, not a blank white box.
+
+-------------------------------------------------------------------------------
+ 3.5  Dark mode
+-------------------------------------------------------------------------------
+ DO   Toggle dark mode with the charts visible.
+ PASS All three stay readable; no invisible text or white-on-white.
+
+-------------------------------------------------------------------------------
+ 3.6  Self-scoped viewer
+-------------------------------------------------------------------------------
+ DO   Log in as someone with `view_own_activity_logs` but NOT
+      `view_activity_logs`.
+ PASS [ ] "Most Active Users" chart is completely ABSENT (not empty - gone).
+      [ ] The other two show only that person's own activity.
+
+
+===============================================================================
+ 4. BULK IMPORT NOW NAMES THE PERSON               ~10 minutes, NEEDS QUEUE
+===============================================================================
+
+ THE BUG THAT WAS FIXED
+   Bulk import runs in a background job with no logged-in session, so the log
+   said "System" instead of who actually did it - plus a fake "Symfony"
+   browser at 127.0.0.1.
+
+-------------------------------------------------------------------------------
+ 4.1  The old entry was already corrected
+-------------------------------------------------------------------------------
+ DO   Activity Logs -> find the "Bulk imported 1205 liquidation(s)" entry.
+ PASS [ ] It says "Albino, Emily" (NOT "System")
+      [ ] No "Symfony" device chip
+      [ ] No "127.0.0.1" chip
+      (Those were removed because with a real name attached, fake browser
+       details would read as if Emily had browsed from the server itself.)
+
+-------------------------------------------------------------------------------
+ 4.2  New imports must also be attributed
+-------------------------------------------------------------------------------
+ MAKE SURE the queue is running (`composer dev`, or `php artisan queue:work`).
+
+ DO
+   1. Log in as any user (note who).
+   2. Liquidation -> bulk import a small test Excel file.
+   3. Wait for it to finish.
+   4. Go to Activity Logs.
+
+ PASS   The new "Bulk imported ..." entry shows YOUR name.
+ FAIL   It says "System" -> the queue worker is running OLD code.
+        Run `php artisan queue:restart` and import again.
+
+-------------------------------------------------------------------------------
+ 4.3  Notifications must NOT be doubled
+-------------------------------------------------------------------------------
+ This was the trap in this fix - the obvious version would have sent two.
+
+ DO   After the import in 4.2, log in as a DIFFERENT Admin / Super Admin and
+      open the notification bell.
+ PASS EXACTLY ONE notification about that import.
+ FAIL Two identical ones -> report it immediately.
+
+-------------------------------------------------------------------------------
+ 4.4  The backfill command (safe to re-run)
+-------------------------------------------------------------------------------
+     php artisan activity-logs:backfill-import-actors
+
+ PASS "Nothing to backfill" (because it has already been applied).
+      It NEVER writes unless you add --apply.
+
+
+===============================================================================
+ 5. ANNOUNCEMENT XSS SANITIZING                                  ~5 minutes
+===============================================================================
+
+-------------------------------------------------------------------------------
+ 5.1  Normal formatting must survive
+-------------------------------------------------------------------------------
+ DO   Create an announcement using the editor with: bold, italic, underline,
+      a heading, a bullet list, a numbered list, a quote, and a link.
+      Save it, then open it.
+
+ PASS   Everything displays exactly as you typed it.
+ FAIL   Formatting is stripped -> the allow-list is too tight. Report which
+        formatting disappeared.
+
+-------------------------------------------------------------------------------
+ 5.2  Links open safely
+-------------------------------------------------------------------------------
+ DO   Right-click your saved link -> Inspect.
+ PASS The <a> tag has rel="noreferrer noopener" (added automatically).
+
+-------------------------------------------------------------------------------
+ 5.3  Confirm the stripping actually happens
+-------------------------------------------------------------------------------
+ The editor will not let you type a script tag, so check the sanitizer
+ directly instead:
+
+     php artisan tinker
+     >>> app(App\Services\HtmlSanitizer::class)->clean('<p>Hello</p><script>alert(1)</script>');
+
+ PASS   "<p>Hello</p>"          <- script removed, text kept
+ FAIL   The script tag survives -> report immediately.
+
+ Try a few more:
+     >>> app(App\Services\HtmlSanitizer::class)->clean('<img src=x onerror="alert(1)">');
+     >>> app(App\Services\HtmlSanitizer::class)->clean('<a href="javascript:alert(1)">x</a>');
+
+ PASS   First returns ""; second returns "<a>x</a>" (the dangerous href is gone).
+
+
+===============================================================================
+ 6. SECURITY HEADERS                                             ~2 minutes
+===============================================================================
+
+ DO   F12 -> Network tab -> reload any page -> click the FIRST request
+      (the document) -> Response Headers.
+
+ PASS   [ ] X-Frame-Options: DENY
+        [ ] X-Content-Type-Options: nosniff
+        [ ] Referrer-Policy: strict-origin-when-cross-origin
+        [ ] Permissions-Policy: camera=(), microphone=(), ...
+
+ EXPECTED: Strict-Transport-Security is NOT there on http://127.0.0.1.
+ That is deliberate - sending it locally would lock your browser into HTTPS
+ for 127.0.0.1 for a year, which is painful to undo. It appears only on HTTPS.
+
+ ALSO CHECK nothing broke visually:
+   [ ] Dashboard charts still render
+   [ ] TipTap editor still works
+   [ ] PDF preview still opens
+   [ ] File downloads still work
+ (No Content-Security-Policy was added, precisely because it could have
+  broken these. It is still on the to-do list.)
+
+
+===============================================================================
+ 7. RATE LIMITING                                                ~3 minutes
+===============================================================================
+
+-------------------------------------------------------------------------------
+ 7.1  Confirm the limit is applied and keyed correctly
+-------------------------------------------------------------------------------
+ DO   F12 -> Network -> reload a page while LOGGED IN -> click the document
+      request -> Response Headers.
+
+ PASS   X-RateLimit-Limit: 300      <- signed-in budget
+ THEN   Log out and load the login page.
+ PASS   X-RateLimit-Limit: 600      <- guest budget
+
+ WHY THIS MATTERS: 300 means it is keyed on your USER ACCOUNT. If it showed
+ 600 while logged in, it would be keyed on IP - and everyone in one office
+ sharing an internet connection would share one budget and lock each other
+ out.
+
+-------------------------------------------------------------------------------
+ 7.2  Normal use must never hit it
+-------------------------------------------------------------------------------
+ DO   Use the system normally for a few minutes - open pages, run an import,
+      generate a report, leave notifications polling.
+ PASS You never see a "429 Too Many Requests" error.
+      (Measured worst case is ~204/min against a 300 limit.)
+
+-------------------------------------------------------------------------------
+ 7.3  Login brute-force protection still works
+-------------------------------------------------------------------------------
+ DO   Enter a WRONG password 6 times in a row.
+ PASS On the 6th you are told to wait (5 per minute limit). This is the
+      pre-existing protection and must still work.
+
+
+===============================================================================
+ 8. TURNSTILE FIXES                                             ~10 minutes
+===============================================================================
+
+-------------------------------------------------------------------------------
+ 8.1  *** THE DEAD-END BUG - most important ***
+-------------------------------------------------------------------------------
+ Before the fix: solving the captcha then switching theme silently wiped your
+ token while the widget still showed a tick. Log in stayed grey forever and
+ only a refresh recovered it.
+
+ DO
+   1. Open the login page. Wait for the Turnstile widget to solve itself.
+   2. Confirm the "Log in" button is now ENABLED (not grey).
+   3. Click the sun/moon toggle in the TOP-RIGHT to switch theme.
+   4. Watch the widget.
+
+ PASS   The widget visibly restarts and re-solves within a second or two,
+        and "Log in" becomes enabled again ON ITS OWN.
+ FAIL   The widget keeps showing a solved tick but "Log in" stays grey
+        forever -> the fix is not active. Rebuild and retry.
+
+   5. Repeat toggling a few times, then actually log in.
+ PASS   Login succeeds normally.
+
+-------------------------------------------------------------------------------
+ 8.2  Silent failure now explains itself
+-------------------------------------------------------------------------------
+ Before the fix: if a browser shield blocked Cloudflare, NOTHING appeared -
+ no widget, no message, just a dead grey button.
+
+ DO
+   1. In Brave, click the Shields (lion) icon and turn Shields UP to
+      aggressive for 127.0.0.1. (Or use uBlock Origin to block
+      challenges.cloudflare.com.)
+   2. Reload the login page.
+   3. WAIT 12 SECONDS. (The watchdog is deliberately patient so a slow
+      connection is not mistaken for being blocked.)
+
+ PASS   A red message appears:
+        "Security check could not load, so logging in is blocked. An ad
+         blocker or browser shield is the usual cause - allow
+         challenges.cloudflare.com, then refresh this page."
+ FAIL   Still nothing after 12+ seconds -> report it.
+
+   4. Turn Shields back DOWN, refresh.
+ PASS   Widget loads normally, message is gone, login works.
+
+ NOTE: the button stays disabled when the check fails. That is correct - the
+ SERVER verifies the token independently, so enabling it would only produce a
+ confusing rejection. The point of the fix is to explain, not to bypass.
+
+-------------------------------------------------------------------------------
+ 8.3  Different window sizes
+-------------------------------------------------------------------------------
+ DO   Resize the browser narrow (mobile width) and wide.
+ PASS The widget resizes/reloads sensibly and login still works at both sizes.
+
+
+===============================================================================
+ 9. NOTHING ELSE BROKE - REGRESSION SWEEP                       ~10 minutes
+===============================================================================
+
+ AUTOMATED (run these first - fastest way to catch a problem):
+
+     php artisan test
+       -> 128 passed. Anything less: report which test failed.
+
+     npx tsc --noEmit --ignoreDeprecations 5.0
+       -> 14 errors expected. These are PRE-EXISTING and not from this work.
+          The bar is "no NEW errors", not zero.
+          (`npm run types` is broken by an unrelated tsconfig.json issue.)
+
+     npm run build
+       -> must finish with "built in ..."
+
+ BY HAND - the areas the changes touched:
+
+   LIQUIDATION
+     [ ] List loads, filters and sorting work
+     [ ] Open a liquidation - details render
+     [ ] Upload a PDF document
+     [ ] Download / preview a document
+     [ ] Submit, endorse, return - the whole workflow
+     [ ] Bulk import (also covers test 4)
+
+   DASHBOARD
+     [ ] All cards and charts render
+     [ ] Calendar shows due dates
+     [ ] Drag-and-drop card reordering still works
+     [ ] Fund source filter works
+
+   ANNOUNCEMENTS
+     [ ] Create, edit, delete
+     [ ] Cover image upload
+     [ ] Comments and reactions
+
+   ACTIVITY LOGS
+     [ ] Search, all filters, date range
+     [ ] Pagination
+     [ ] Expanding a row to see changes
+
+   AUTH
+     [ ] Log in / log out
+     [ ] Google sign-in
+     [ ] Two-factor if enabled
+
+   SETTINGS
+     [ ] Profile, appearance, density, font
+     [ ] Users, roles and permissions
+
+
+===============================================================================
+ IF SOMETHING LOOKS WRONG
+===============================================================================
+
+ Before reporting, rule out the two most common false alarms:
+
+   1. OLD JAVASCRIPT. Most "the fix did not work" reports are this.
+        npm run build
+        then hard-refresh:  Ctrl + Shift + R
+
+   2. OLD QUEUE CODE (bulk import only). A long-running worker keeps the
+      code it started with:
+        php artisan queue:restart
+
+ Still wrong? Useful details to capture:
+   - Which test number
+   - What you expected vs what you saw
+   - Screenshot
+   - F12 -> Console: any red errors
+   - F12 -> Network: any failed/red requests
+
+
+===============================================================================
+ WHAT IS STILL NOT DONE (do not test for these)
+===============================================================================
+
+   - Content-Security-Policy header       (deliberately deferred, can break pages)
+   - 42 dependency advisories             (needs composer update + own testing)
+   - Firewall origin to Cloudflare        (hosting setting, not code)
+   - Production .env values               (see SECURITY_NOTES.txt)
+   - Security event logging               (discussed, not built)
+
+===============================================================================
+ END OF FILE
+===============================================================================

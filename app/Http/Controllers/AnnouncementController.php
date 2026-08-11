@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Announcement;
+use App\Models\AnnouncementComment;
 use App\Models\LiquidationStatus;
 use App\Models\Program;
 use App\Models\Region;
 use App\Services\AnnouncementImageService;
+use App\Services\HtmlSanitizer;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -20,10 +22,10 @@ class AnnouncementController extends Controller
 
     public function welcome(Request $request)
     {
-        $regionId       = $request->query('region');
-        $programFilter  = $request->query('program');
+        $regionId = $request->query('region');
+        $programFilter = $request->query('program');
 
-        $programs   = Program::select('id', 'name', 'code', 'parent_id')
+        $programs = Program::select('id', 'name', 'code', 'parent_id')
             ->orderBy('name')
             ->get();
         $programIds = $this->resolveProgramFilter($programFilter, $programs);
@@ -35,10 +37,10 @@ class AnnouncementController extends Controller
         return Inertia::render('welcome', [
             'honorBoard' => $honorBoard,
             'shameBoard' => $shameBoard,
-            'regions'    => $regions,
-            'programs'   => $programs,
-            'filters'    => array_filter([
-                'region'  => $regionId,
+            'regions' => $regions,
+            'programs' => $programs,
+            'filters' => array_filter([
+                'region' => $regionId,
                 'program' => $programFilter,
             ]),
         ]);
@@ -46,7 +48,7 @@ class AnnouncementController extends Controller
 
     private function resolveProgramFilter(?string $value, $programs): ?array
     {
-        if (!$value || $value === 'all') {
+        if (! $value || $value === 'all') {
             return null;
         }
 
@@ -58,6 +60,7 @@ class AnnouncementController extends Controller
 
         if ($value === 'unifast') {
             $childIds = $programs->whereIn('parent_id', $unifastParentIds)->pluck('id');
+
             return $unifastParentIds->concat($childIds)->unique()->values()->all() ?: null;
         }
 
@@ -70,12 +73,13 @@ class AnnouncementController extends Controller
         }
 
         $program = $programs->firstWhere('id', $value);
-        if (!$program) {
+        if (! $program) {
             return [$value];
         }
 
         if ($program->parent_id === null) {
             $childIds = $programs->where('parent_id', $program->id)->pluck('id');
+
             return collect([$program->id])->concat($childIds)->unique()->values()->all();
         }
 
@@ -100,7 +104,7 @@ class AnnouncementController extends Controller
         if ($voidedId) {
             $query->where(function ($q) use ($voidedId) {
                 $q->where('liquidations.liquidation_status_id', '!=', $voidedId)
-                  ->orWhereNull('liquidations.liquidation_status_id');
+                    ->orWhereNull('liquidations.liquidation_status_id');
             });
         }
 
@@ -132,15 +136,14 @@ class AnnouncementController extends Controller
             ->selectRaw('ROUND(COALESCE(SUM(liquidation_financials.amount_liquidated), 0) / NULLIF(COALESCE(SUM(liquidation_financials.amount_received), 0), 0) * 100, 2) as pct_liquidation')
             ->selectRaw('COUNT(DISTINCT liquidations.id) as liquidation_count')
             ->when($fullyLiquidatedId, fn ($q) => $q
-                ->selectRaw("SUM(CASE WHEN liquidations.liquidation_status_id = ? THEN 1 ELSE 0 END) as fully_liquidated_count", [$fullyLiquidatedId])
-            , fn ($q) => $q
+                ->selectRaw('SUM(CASE WHEN liquidations.liquidation_status_id = ? THEN 1 ELSE 0 END) as fully_liquidated_count', [$fullyLiquidatedId]), fn ($q) => $q
                 ->selectRaw('0 as fully_liquidated_count')
             )
             ->groupBy('liquidations.hei_id', 'heis.name', 'heis.uii', 'regions.name')
             ->get();
 
         $honor = [];
-        $shame  = [];
+        $shame = [];
 
         foreach ($rows as $row) {
             $pct = (float) $row->pct_liquidation;
@@ -149,14 +152,14 @@ class AnnouncementController extends Controller
             $allFullyLiquidated = $total > 0 && $fullyLiquidated === $total;
 
             $item = [
-                'hei_id'              => $row->hei_id,
-                'hei_name'            => $row->hei_name,
-                'hei_uii'             => $row->hei_uii,
-                'region_name'         => $row->region_name,
+                'hei_id' => $row->hei_id,
+                'hei_name' => $row->hei_name,
+                'hei_uii' => $row->hei_uii,
+                'region_name' => $row->region_name,
                 'total_disbursements' => (float) $row->total_disbursements,
-                'total_liquidated'    => (float) $row->total_liquidated,
-                'pct_liquidation'     => $pct,
-                'liquidation_count'   => $total,
+                'total_liquidated' => (float) $row->total_liquidated,
+                'pct_liquidation' => $pct,
+                'liquidation_count' => $total,
             ];
 
             if ($allFullyLiquidated) {
@@ -166,8 +169,8 @@ class AnnouncementController extends Controller
             }
         }
 
-        usort($honor, fn($a, $b) => strcmp($a['hei_name'], $b['hei_name']));
-        usort($shame, fn($a, $b) => $a['pct_liquidation'] <=> $b['pct_liquidation']);
+        usort($honor, fn ($a, $b) => strcmp($a['hei_name'], $b['hei_name']));
+        usort($shame, fn ($a, $b) => $a['pct_liquidation'] <=> $b['pct_liquidation']);
 
         return [$honor, $shame];
     }
@@ -176,7 +179,14 @@ class AnnouncementController extends Controller
     // Announcement CRUD
     // ---------------------------------------------------------------------
 
-    public function index()
+    /**
+     * How many announcements load at once. Previously the whole table came back
+     * on every visit, and each post costs a signed cover URL, so the page grew
+     * heavier with every post ever published.
+     */
+    private const POSTS_PER_PAGE = 12;
+
+    public function index(Request $request)
     {
         $user = auth()->user();
         $userRole = $user->role?->name;
@@ -187,24 +197,37 @@ class AnnouncementController extends Controller
 
         // Only Admin/Super Admin can see scheduled + expired posts (for management).
         // Everyone else (RC, STUFAPS Focal, HEI) sees only currently-live posts.
-        if (!$isAdmin) {
+        if (! $isAdmin) {
             $query->visible();
             if ($isHei) {
                 $query->where('show_to_hei', true);
             }
         }
 
-        $posts = $query
+        $page = max(1, (int) $request->query('page', '1'));
+
+        $paginator = $query
             ->orderByDesc('is_featured')
             ->orderByDesc('published_at')
-            ->get()
-            ->map(fn (Announcement $a) => $this->toListPayload($a));
+            ->paginate(self::POSTS_PER_PAGE, ['*'], 'page', $page);
+
+        $posts = collect($paginator->items())
+            ->map(fn (Announcement $a) => $this->toListPayload($a))
+            ->values();
 
         return Inertia::render('announcement', [
-            'posts' => $posts,
+            // merge() appends on a partial reload instead of replacing, which is
+            // what makes "Load more" accumulate. The featured post keeps its place
+            // because the ordering is unchanged and page 1 always loads first.
+            'posts' => Inertia::merge($posts),
+            'pagination' => [
+                'page' => $paginator->currentPage(),
+                'has_more' => $paginator->hasMorePages(),
+                'total' => $paginator->total(),
+            ],
             'permissions' => [
                 'create' => $user?->hasPermission('create_announcements') ?? false,
-                'edit'   => $user?->hasPermission('edit_announcements') ?? false,
+                'edit' => $user?->hasPermission('edit_announcements') ?? false,
                 'delete' => $user?->hasPermission('delete_announcements') ?? false,
             ],
         ]);
@@ -229,22 +252,22 @@ class AnnouncementController extends Controller
         }
 
         $announcement = Announcement::create([
-            'title'                => $data['title'],
-            'slug'                 => Announcement::uniqueSlug($data['title']),
-            'category'             => $data['category'] ?? 'news',
-            'tag_color'            => $data['tag_color'] ?? null,
-            'excerpt'              => $data['excerpt'] ?? null,
-            'content'              => $data['content'],
-            'is_featured'          => (bool) ($data['is_featured'] ?? false),
-            'show_to_hei'          => (bool) ($data['show_to_hei'] ?? true),
-            'published_at'         => $this->toUtc($data['published_at'] ?? null) ?? now(),
-            'end_date'             => $this->toUtc($data['end_date'] ?? null),
-            'created_by'           => auth()->id(),
-            'cover_original_path'  => $paths['original'] ?? null,
-            'cover_display_path'   => $paths['display']  ?? null,
-            'cover_thumb_path'     => $paths['thumb']    ?? null,
-            'cover_focal_x'        => $this->focal($data['cover_focal_x'] ?? null),
-            'cover_focal_y'        => $this->focal($data['cover_focal_y'] ?? null),
+            'title' => $data['title'],
+            'slug' => Announcement::uniqueSlug($data['title']),
+            'category' => $data['category'] ?? 'news',
+            'tag_color' => $data['tag_color'] ?? null,
+            'excerpt' => $data['excerpt'] ?? null,
+            'content' => $data['content'],
+            'is_featured' => (bool) ($data['is_featured'] ?? false),
+            'show_to_hei' => (bool) ($data['show_to_hei'] ?? true),
+            'published_at' => $this->toUtc($data['published_at'] ?? null) ?? now(),
+            'end_date' => $this->toUtc($data['end_date'] ?? null),
+            'created_by' => auth()->id(),
+            'cover_original_path' => $paths['original'] ?? null,
+            'cover_display_path' => $paths['display'] ?? null,
+            'cover_thumb_path' => $paths['thumb'] ?? null,
+            'cover_focal_x' => $this->focal($data['cover_focal_x'] ?? null),
+            'cover_focal_y' => $this->focal($data['cover_focal_y'] ?? null),
         ]);
 
         if ($announcement->is_featured) {
@@ -262,19 +285,19 @@ class AnnouncementController extends Controller
         $userRole = $user?->role?->name;
         $isAdmin = in_array($userRole, ['Super Admin', 'Admin'], true);
 
-        if (!$isAdmin) {
+        if (! $isAdmin) {
             $now = now();
             $notYetPublished = $announcement->published_at && $announcement->published_at->gt($now);
-            $hasExpired      = $announcement->end_date && $announcement->end_date->lt($now);
-            $hiddenFromHei   = $userRole === 'HEI' && !$announcement->show_to_hei;
+            $hasExpired = $announcement->end_date && $announcement->end_date->lt($now);
+            $hiddenFromHei = $userRole === 'HEI' && ! $announcement->show_to_hei;
             abort_if($notYetPublished || $hasExpired || $hiddenFromHei, 404);
         }
 
         $announcement->load('author:id,name');
 
-        $commentQuery = \App\Models\AnnouncementComment::where('announcement_id', $announcement->id)
+        $commentQuery = AnnouncementComment::where('announcement_id', $announcement->id)
             ->whereNull('parent_id')
-            ->with(['user.role', 'reactions', 'allReplies.user.role', 'allReplies.reactions', 'allReplies.allReplies.user.role', 'allReplies.allReplies.reactions'])
+            ->with(['user.role', 'reactions.user:id,name', 'allReplies.user.role', 'allReplies.reactions.user:id,name', 'allReplies.allReplies.user.role', 'allReplies.allReplies.reactions.user:id,name'])
             ->orderBy('created_at');
 
         $totalComments = $commentQuery->count();
@@ -287,17 +310,17 @@ class AnnouncementController extends Controller
 
         return Inertia::render('announcement/show', [
             'post' => $this->toDetailPayload($announcement),
-            'comments'          => $comments,
+            'comments' => $comments,
             'comments_has_more' => $commentPage->hasMorePages(),
-            'comments_total'    => $totalComments,
+            'comments_total' => $totalComments,
             'viewer' => [
-                'id'            => $viewer?->id,
-                'name'          => $viewer?->name,
-                'avatar_url'    => $viewer?->avatar_url,
-                'can_moderate'  => $isPrivileged,
+                'id' => $viewer?->id,
+                'name' => $viewer?->name,
+                'avatar_url' => $viewer?->avatar_url,
+                'can_moderate' => $isPrivileged,
             ],
             'permissions' => [
-                'edit'   => $viewer?->hasPermission('edit_announcements') ?? false,
+                'edit' => $viewer?->hasPermission('edit_announcements') ?? false,
                 'delete' => $viewer?->hasPermission('delete_announcements') ?? false,
             ],
         ]);
@@ -319,15 +342,15 @@ class AnnouncementController extends Controller
         $data = $this->validatePayload($request, updating: true);
 
         $payload = [
-            'title'        => $data['title'],
-            'category'     => $data['category'] ?? $announcement->category,
-            'tag_color'    => $data['tag_color'] ?? null,
-            'excerpt'      => $data['excerpt'] ?? null,
-            'content'      => $data['content'],
-            'is_featured'  => (bool) ($data['is_featured'] ?? false),
-            'show_to_hei'  => (bool) ($data['show_to_hei'] ?? true),
+            'title' => $data['title'],
+            'category' => $data['category'] ?? $announcement->category,
+            'tag_color' => $data['tag_color'] ?? null,
+            'excerpt' => $data['excerpt'] ?? null,
+            'content' => $data['content'],
+            'is_featured' => (bool) ($data['is_featured'] ?? false),
+            'show_to_hei' => (bool) ($data['show_to_hei'] ?? true),
             'published_at' => $this->toUtc($data['published_at'] ?? null) ?? $announcement->published_at ?? now(),
-            'end_date'     => $this->toUtc($data['end_date'] ?? null),
+            'end_date' => $this->toUtc($data['end_date'] ?? null),
         ];
 
         if ($data['title'] !== $announcement->title) {
@@ -338,16 +361,16 @@ class AnnouncementController extends Controller
             $announcement->deleteCoverFiles();
             $paths = $images->store($request->file('cover'));
             $payload['cover_original_path'] = $paths['original'];
-            $payload['cover_display_path']  = $paths['display'];
-            $payload['cover_thumb_path']    = $paths['thumb'];
+            $payload['cover_display_path'] = $paths['display'];
+            $payload['cover_thumb_path'] = $paths['thumb'];
             // New cover → reset focal to center unless caller supplied one.
             $payload['cover_focal_x'] = $this->focal($data['cover_focal_x'] ?? null);
             $payload['cover_focal_y'] = $this->focal($data['cover_focal_y'] ?? null);
         } elseif ($request->boolean('remove_cover')) {
             $announcement->deleteCoverFiles();
             $payload['cover_original_path'] = null;
-            $payload['cover_display_path']  = null;
-            $payload['cover_thumb_path']    = null;
+            $payload['cover_display_path'] = null;
+            $payload['cover_thumb_path'] = null;
             $payload['cover_focal_x'] = 50;
             $payload['cover_focal_y'] = 50;
         } elseif (array_key_exists('cover_focal_x', $data) || array_key_exists('cover_focal_y', $data)) {
@@ -365,6 +388,7 @@ class AnnouncementController extends Controller
         }
 
         $slug = $announcement->slug;
+
         return redirect()->route('announcements.show', $slug)->with('success', 'Announcement updated.');
     }
 
@@ -384,21 +408,28 @@ class AnnouncementController extends Controller
 
     private function validatePayload(Request $request, bool $updating = false): array
     {
-        return $request->validate([
-            'title'         => ['required', 'string', 'max:255'],
-            'category'      => ['nullable', 'string', 'in:news,event,important,update'],
-            'tag_color'     => ['nullable', 'string', 'in:blue,emerald,violet,amber,sky,rose'],
-            'excerpt'       => ['nullable', 'string', 'max:500'],
-            'content'       => ['required', 'string'],
-            'is_featured'   => ['nullable', 'boolean'],
-            'show_to_hei'   => ['nullable', 'boolean'],
-            'published_at'  => ['nullable', 'date'],
-            'end_date'      => ['nullable', 'date'],
-            'cover'         => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
-            'remove_cover'  => ['nullable', 'boolean'],
+        $data = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+            'category' => ['nullable', 'string', 'in:news,event,important,update'],
+            'tag_color' => ['nullable', 'string', 'in:blue,emerald,violet,amber,sky,rose'],
+            'excerpt' => ['nullable', 'string', 'max:500'],
+            'content' => ['required', 'string'],
+            'is_featured' => ['nullable', 'boolean'],
+            'show_to_hei' => ['nullable', 'boolean'],
+            'published_at' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
+            'cover' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
+            'remove_cover' => ['nullable', 'boolean'],
             'cover_focal_x' => ['nullable', 'integer', 'between:0,100'],
             'cover_focal_y' => ['nullable', 'integer', 'between:0,100'],
         ]);
+
+        // The body is rendered as raw HTML on the public page, so strip anything
+        // executable before it reaches the database. Both store() and update()
+        // come through here, which keeps this the single place it can be missed.
+        $data['content'] = app(HtmlSanitizer::class)->clean($data['content']);
+
+        return $data;
     }
 
     /**
@@ -409,6 +440,7 @@ class AnnouncementController extends Controller
         if ($value === null || $value === '') {
             return 50;
         }
+
         return max(0, min(100, (int) $value));
     }
 
@@ -418,20 +450,22 @@ class AnnouncementController extends Controller
      */
     private function toUtc(?string $value): ?Carbon
     {
-        if (!$value) {
+        if (! $value) {
             return null;
         }
+
         return Carbon::parse($value, 'Asia/Manila')->utc();
     }
 
     /**
      * Format a UTC datetime back to Asia/Manila ISO for the frontend datetime-local input.
      */
-    private function toLocalIso(?\Carbon\Carbon $dt): ?string
+    private function toLocalIso(?Carbon $dt): ?string
     {
-        if (!$dt) {
+        if (! $dt) {
             return null;
         }
+
         return $dt->copy()->setTimezone('Asia/Manila')->format('Y-m-d\TH:i');
     }
 
@@ -446,45 +480,45 @@ class AnnouncementController extends Controller
         }
 
         return [
-            'id'            => $a->id,
-            'slug'          => $a->slug,
-            'title'         => $a->title,
-            'category'      => $a->category,
-            'tag_color'     => $a->tag_color,
-            'excerpt'       => $a->excerpt,
-            'is_featured'   => $a->is_featured,
-            'show_to_hei'   => $a->show_to_hei,
-            'status'        => $status,
-            'published_at'  => $a->published_at?->copy()->setTimezone('Asia/Manila')->toIso8601String(),
-            'end_date'      => $a->end_date?->copy()->setTimezone('Asia/Manila')->toIso8601String(),
-            'cover_thumb'   => $a->cover_thumb_url,
+            'id' => $a->id,
+            'slug' => $a->slug,
+            'title' => $a->title,
+            'category' => $a->category,
+            'tag_color' => $a->tag_color,
+            'excerpt' => $a->excerpt,
+            'is_featured' => $a->is_featured,
+            'show_to_hei' => $a->show_to_hei,
+            'status' => $status,
+            'published_at' => $a->published_at?->copy()->setTimezone('Asia/Manila')->toIso8601String(),
+            'end_date' => $a->end_date?->copy()->setTimezone('Asia/Manila')->toIso8601String(),
+            'cover_thumb' => $a->cover_thumb_url,
             'cover_display' => $a->cover_display_url,
             'cover_focal_x' => (int) ($a->cover_focal_x ?? 50),
             'cover_focal_y' => (int) ($a->cover_focal_y ?? 50),
-            'author_name'   => $a->author?->name,
+            'author_name' => $a->author?->name,
         ];
     }
 
     private function toDetailPayload(Announcement $a): array
     {
         return [
-            'id'             => $a->id,
-            'slug'           => $a->slug,
-            'title'          => $a->title,
-            'category'       => $a->category,
-            'tag_color'      => $a->tag_color,
-            'excerpt'        => $a->excerpt,
-            'content'        => $a->content,
-            'is_featured'    => $a->is_featured,
-            'show_to_hei'    => $a->show_to_hei,
-            'published_at'   => $this->toLocalIso($a->published_at),
-            'end_date'       => $this->toLocalIso($a->end_date),
-            'cover_thumb'    => $a->cover_thumb_url,
-            'cover_display'  => $a->cover_display_url,
+            'id' => $a->id,
+            'slug' => $a->slug,
+            'title' => $a->title,
+            'category' => $a->category,
+            'tag_color' => $a->tag_color,
+            'excerpt' => $a->excerpt,
+            'content' => $a->content,
+            'is_featured' => $a->is_featured,
+            'show_to_hei' => $a->show_to_hei,
+            'published_at' => $this->toLocalIso($a->published_at),
+            'end_date' => $this->toLocalIso($a->end_date),
+            'cover_thumb' => $a->cover_thumb_url,
+            'cover_display' => $a->cover_display_url,
             'cover_original' => $a->cover_original_url,
-            'cover_focal_x'  => (int) ($a->cover_focal_x ?? 50),
-            'cover_focal_y'  => (int) ($a->cover_focal_y ?? 50),
-            'author_name'    => $a->author?->name,
+            'cover_focal_x' => (int) ($a->cover_focal_x ?? 50),
+            'cover_focal_y' => (int) ($a->cover_focal_y ?? 50),
+            'author_name' => $a->author?->name,
         ];
     }
 }

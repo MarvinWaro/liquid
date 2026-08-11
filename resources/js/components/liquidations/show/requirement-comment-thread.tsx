@@ -9,11 +9,15 @@ import type { LiquidationComment, LiquidationCommentUser, CommentAttachment } fr
 import { getAvatarColor } from '@/types/liquidation';
 import axios from 'axios';
 import { toast } from '@/lib/toast';
+import { checkUploadSize } from '@/lib/upload';
+import { type SharedData } from '@/types';
+import { usePage } from '@inertiajs/react';
 import { Send, Reply, AtSign, X, MessageSquare, Paperclip, FileText, Download, Image as ImageIcon, Loader2, AlertCircle } from 'lucide-react';
 
 const MAX_DEPTH = 2;
 const MENTION_REGEX = /@\[(.+?)\]\(([a-f0-9-]+)\)/g;
 const URL_REGEX = /(https?:\/\/[^\s<>]+)/g;
+/** Policy cap for a comment attachment. The server's own limit may be lower. */
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_FILES = 3;
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -38,7 +42,7 @@ function isImageFile(name: string): boolean {
 
 function renderBody(body: string) {
     // First pass: split by mentions
-    const mentionParts: (string | JSX.Element)[] = [];
+    const mentionParts: (string | React.JSX.Element)[] = [];
     let lastIndex = 0;
     const mentionRegex = new RegExp(MENTION_REGEX.source, 'g');
     let match: RegExpExecArray | null;
@@ -55,7 +59,7 @@ function renderBody(body: string) {
     if (lastIndex < body.length) mentionParts.push(body.slice(lastIndex));
 
     // Second pass: split string parts by URLs
-    const result: (string | JSX.Element)[] = [];
+    const result: (string | React.JSX.Element)[] = [];
     let keyIdx = 0;
 
     for (const part of mentionParts) {
@@ -117,6 +121,9 @@ function CommentAttachment({ url, name, size }: { url: string; name: string; siz
         if (!isImage || !previewOpen) return;
 
         const controller = new AbortController();
+        // Marking the request in-flight before it starts, then clearing the previous
+        // error. Standard fetch bookkeeping, and the AbortController below cancels it.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setLoading(true);
         setError(null);
 
@@ -142,6 +149,9 @@ function CommentAttachment({ url, name, size }: { url: string; name: string; siz
     useEffect(() => {
         if (!previewOpen && blobUrl) {
             URL.revokeObjectURL(blobUrl);
+            // Cleanup: the object URL is revoked, so the state pointing at it must be
+            // dropped too or the component would render a dead blob: URL.
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setBlobUrl(null);
             setError(null);
         }
@@ -316,6 +326,8 @@ export default function RequirementCommentThread({
     currentUserId,
     defaultExpanded = false,
 }: RequirementCommentThreadProps) {
+    // Real ceiling for this server, read from PHP rather than assumed.
+    const { maxUploadBytes } = usePage<SharedData>().props;
     const [expanded, setExpanded] = useState(false);
     const [comments, setComments] = useState<LiquidationComment[]>([]);
     const [loaded, setLoaded] = useState(false);
@@ -362,6 +374,9 @@ export default function RequirementCommentThread({
                 setExpanded(true);
             }
         }
+    // Runs when the caller asks for the thread to start open. loadComments is
+    // redefined each render and is not what should re-trigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [defaultExpanded]);
 
     const toggle = useCallback(async () => {
@@ -455,6 +470,9 @@ export default function RequirementCommentThread({
                 handleSubmit();
             }
         },
+        // Same shape as comment-section: handleSubmit is declared further down, and
+        // insertMention already carries `body` into this handler.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [mentionQuery, mentionUsers, mentionIndex, insertMention],
     );
 
@@ -468,8 +486,9 @@ export default function RequirementCommentThread({
                 if (fileInputRef.current) fileInputRef.current.value = '';
                 return;
             }
-            if (file.size > MAX_ATTACHMENT_SIZE) {
-                toast.error(`"${file.name}" exceeds the 10MB limit.`);
+            const sizeError = checkUploadSize(file, MAX_ATTACHMENT_SIZE, maxUploadBytes);
+            if (sizeError) {
+                toast.error(`"${file.name}" — ${sizeError}`);
                 if (fileInputRef.current) fileInputRef.current.value = '';
                 return;
             }
@@ -485,7 +504,7 @@ export default function RequirementCommentThread({
         });
 
         if (fileInputRef.current) fileInputRef.current.value = '';
-    }, []);
+    }, [maxUploadBytes]);
 
     const removeAttachment = useCallback((index: number) => {
         setAttachments((prev) => prev.filter((_, i) => i !== index));

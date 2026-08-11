@@ -47,6 +47,13 @@ export interface AcademicYearOption {
     name: string;
 }
 
+/** Shape returned by Semester::getDropdownOptions(). */
+export interface SemesterOption {
+    id: string;
+    code: string;
+    name: string;
+}
+
 export interface RcNoteStatusOption {
     id: string;
     code: string;

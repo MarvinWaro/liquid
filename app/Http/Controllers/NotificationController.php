@@ -19,6 +19,7 @@ class NotificationController extends Controller
     {
         $user = $request->user();
         $filter = $request->get('filter', 'all');
+        $filters = $request->only(['search', 'action', 'module']);
 
         $query = Notification::where('user_id', $user->id)
             ->with('actor')
@@ -28,7 +29,20 @@ class NotificationController extends Controller
             $query->unread();
         }
 
-        $notifications = $query->paginate(20)->through(fn (Notification $n) => [
+        // These narrow the list further rather than replacing the All/Unread tab,
+        // so the two combine — filtering by type while on Unread shows unread
+        // notifications of that type.
+        if (! empty($filters['search'])) {
+            $query->where('description', 'like', '%'.$filters['search'].'%');
+        }
+        if (! empty($filters['action']) && $filters['action'] !== 'all') {
+            $query->where('action', $filters['action']);
+        }
+        if (! empty($filters['module']) && $filters['module'] !== 'all') {
+            $query->where('module', $filters['module']);
+        }
+
+        $notifications = $query->paginate(20)->withQueryString()->through(fn (Notification $n) => [
             'id' => $n->id,
             'actor_name' => $n->actor_name,
             'actor_avatar_url' => $n->actor?->avatar_url,
@@ -44,9 +58,16 @@ class NotificationController extends Controller
             'time_ago' => $n->created_at->diffForHumans(),
         ]);
 
+        // Dropdown options come from this user's own notifications, so nobody is
+        // offered a type they could never have received.
+        $ownNotifications = fn () => Notification::where('user_id', $user->id);
+
         return Inertia::render('notifications/index', [
             'notifications' => $notifications,
             'filter' => $filter,
+            'filters' => $filters,
+            'actions' => $ownNotifications()->select('action')->distinct()->orderBy('action')->pluck('action'),
+            'modules' => $ownNotifications()->whereNotNull('module')->select('module')->distinct()->orderBy('module')->pluck('module'),
             'unread_count' => Notification::where('user_id', $user->id)->unread()->count(),
         ]);
     }

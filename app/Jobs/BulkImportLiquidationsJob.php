@@ -176,6 +176,9 @@ class BulkImportLiquidationsJob implements ShouldQueue
                 "Bulk imported {$totalImported} liquidation(s) (batch: {$batch->id})",
                 $batch,
                 'Liquidation',
+                // Named so the entry credits the person who started the import.
+                // Without it this runs with no session and the log reads "System".
+                actor: $user,
             );
 
             $recipients = User::whereHas('role', fn ($q) => $q->whereIn('name', ['Admin', 'Super Admin']))

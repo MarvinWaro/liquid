@@ -15,17 +15,24 @@ interface AppLayoutProps {
 export default ({ children, breadcrumbs, ...props }: AppLayoutProps) => {
     const { flash } = usePage().props as any;
     const { layout } = useLayoutPreference();
-    const lastFlashRef = useRef<string | null>(null);
+    const lastFlashRef = useRef<unknown>(null);
 
     useEffect(() => {
-        const msg = flash?.success || flash?.error || null;
-        if (!msg || msg === lastFlashRef.current) return;
-        lastFlashRef.current = msg;
+        // Dedupe on the flash object, not on its text. HandleInertiaRequests
+        // rebuilds `flash` on every response, so each server reply arrives as a
+        // new object while a plain re-render keeps the same one — which makes
+        // "once per response" the right key. Comparing the message string instead
+        // silently swallowed every repeat of the same message, so pressing Save
+        // twice only ever toasted once.
+        if (flash === lastFlashRef.current) return;
+        lastFlashRef.current = flash;
 
         if (flash?.success) {
             toast.success(flash.success);
         } else if (flash?.error) {
             toast.error(flash.error);
+        } else if (flash?.info) {
+            toast.info(flash.info);
         }
     }, [flash]);
 

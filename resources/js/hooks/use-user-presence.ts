@@ -37,11 +37,17 @@ export function useUserPresence({
     enabled = true,
 }: Options = {}): Record<number, UserPresence> {
     const [presences, setPresences] = useState<Record<number, UserPresence>>({});
-    const lastActivityRef = useRef<number>(Date.now());
+    const lastActivityRef = useRef<number>(0);
     const abortRef = useRef<AbortController | null>(null);
 
     useEffect(() => {
         if (!enabled) return;
+
+        // Seeded here, not in the useRef initialiser: Date.now() during render is
+        // impure and was being re-evaluated on every render only to be discarded.
+        // Nothing reads this before the effect runs — the idle check below lives in
+        // this same effect.
+        lastActivityRef.current = Date.now();
 
         let timer: ReturnType<typeof setTimeout> | null = null;
         let cancelled = false;

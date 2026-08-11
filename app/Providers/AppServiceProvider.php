@@ -8,6 +8,7 @@ use App\Models\LiquidationDocument;
 use App\Observers\ImportBatchObserver;
 use App\Observers\LiquidationDocumentObserver;
 use App\Policies\LiquidationPolicy;
+use App\Services\HtmlSanitizer;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
@@ -19,7 +20,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Assembling HTMLPurifier's definition is costly, so share one instance
+        // rather than rebuilding it for every announcement saved.
+        $this->app->singleton(HtmlSanitizer::class);
     }
 
     /**

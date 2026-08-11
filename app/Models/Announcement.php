@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Services\SignedUrlCache;
 use App\Traits\HasUuid;
 use App\Traits\LogsActivity;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -28,8 +30,8 @@ use Illuminate\Support\Str;
  * @property string|null $cover_thumb_path
  * @property bool $is_featured
  * @property bool $show_to_hei
- * @property \Carbon\Carbon|null $published_at
- * @property \Carbon\Carbon|null $end_date
+ * @property Carbon|null $published_at
+ * @property Carbon|null $end_date
  * @property string|null $created_by
  */
 class Announcement extends Model
@@ -78,10 +80,10 @@ class Announcement extends Model
     protected static function getActivityFieldLabels(): array
     {
         return [
-            'is_featured'   => 'Featured',
-            'show_to_hei'   => 'Visible to HEI',
-            'end_date'      => 'End Date',
-            'published_at'  => 'Publish Date',
+            'is_featured' => 'Featured',
+            'show_to_hei' => 'Visible to HEI',
+            'end_date' => 'End Date',
+            'published_at' => 'Publish Date',
             'cover_focal_x' => 'Focal X',
             'cover_focal_y' => 'Focal Y',
         ];
@@ -98,7 +100,7 @@ class Announcement extends Model
             ->where('published_at', '<=', now())
             ->where(function ($q) {
                 $q->whereNull('end_date')
-                  ->orWhere('end_date', '>', now());
+                    ->orWhere('end_date', '>', now());
             });
     }
 
@@ -139,14 +141,9 @@ class Announcement extends Model
 
     private function s3TempUrl(?string $path): ?string
     {
-        if (!$path) {
-            return null;
-        }
-        try {
-            return Storage::disk('s3')->temporaryUrl($path, now()->addHours(2));
-        } catch (\Throwable) {
-            return null;
-        }
+        // Cached: the list page reads three of these per post, so signing them
+        // fresh every request was the single biggest cost on that page.
+        return SignedUrlCache::get($path);
     }
 
     /**

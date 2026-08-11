@@ -151,6 +151,9 @@ class SupportTicketController extends Controller
                 $updates['status'] = SupportTicket::STATUS_OPEN;
                 $updates['resolved_at'] = null;
                 $updates['resolved_by'] = null;
+                // Reopening drops the outcome too, or the banner would advertise a
+                // resolution for a ticket that is open again.
+                $updates['resolution_remarks'] = null;
             } elseif ($supportTicket->status === SupportTicket::STATUS_OPEN && $this->canManageTicket($user, $supportTicket)) {
                 $updates['status'] = SupportTicket::STATUS_IN_PROGRESS;
             }
@@ -185,9 +188,14 @@ class SupportTicketController extends Controller
         if ($validated['status'] === SupportTicket::STATUS_RESOLVED) {
             $updates['resolved_at'] = now();
             $updates['resolved_by'] = $user->id;
+            // Kept on the ticket as well as in the thread: the thread is history,
+            // this is the outcome shown beside "Resolved by X on Y". Blank remarks
+            // clear any note left by an earlier resolution.
+            $updates['resolution_remarks'] = $remarks !== '' ? $remarks : null;
         } else {
             $updates['resolved_at'] = null;
             $updates['resolved_by'] = null;
+            $updates['resolution_remarks'] = null;
         }
         if ($remarks !== '') {
             $updates['last_reply_at'] = now();
@@ -436,6 +444,7 @@ class SupportTicketController extends Controller
             'assignee_name' => $ticket->assignee?->name,
             'resolved_by_name' => $ticket->resolver?->name,
             'resolved_at' => $ticket->resolved_at?->timezone('Asia/Manila')->format('M d, Y H:i'),
+            'resolution_remarks' => $ticket->resolution_remarks,
             'liquidation' => $ticket->liquidation ? [
                 'id' => $ticket->liquidation->id,
                 'control_no' => $ticket->liquidation->control_no,

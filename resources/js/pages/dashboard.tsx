@@ -94,13 +94,6 @@ interface FundSourceStats {
 
 type ProgramFilter = 'all' | 'unifast' | 'tes' | 'tdp' | 'stufaps';
 
-interface ProgramStat {
-    code: string;
-    name: string;
-    grantees: number;
-    liquidation_count: number;
-}
-
 interface CardConfig {
     id: string;
     title: string;
@@ -136,6 +129,8 @@ interface DashboardProps {
     recentLiquidations?: RecentLiquidation[];
     userRole?: string;
     calendarDueDates?: CalendarDueDate[];
+    /** Today in Philippine time ("YYYY-MM-DD") — decides what counts as overdue. */
+    today?: string;
     fundSourceData?: {
         unifast: FundSourceStats;
         tes: FundSourceStats;
@@ -169,13 +164,13 @@ const formatCurrency = (amount: number | null | undefined) => {
 export default function Dashboard({
     isAdmin,
     summaryPerAY,
-    summaryPerHEI,
     statusDistribution,
     totalStats: rawTotalStats,
     userStats: rawUserStats,
     recentLiquidations,
     userRole,
     calendarDueDates = [],
+    today,
     fundSourceData,
     overviewStats,
     granteesTrend,
@@ -433,7 +428,9 @@ export default function Dashboard({
         }
 
         return cards;
-    }, [statCardDefs, showBarChart, showPieChart, isAdmin, recentLiquidations, chartsLoading]);
+        // chartsLoading is not listed: showBarChart/showPieChart are derived from
+        // it, so a change already reaches this memo through them.
+    }, [statCardDefs, showBarChart, showPieChart, isAdmin, recentLiquidations]);
 
     const storageKey = `dashboard-layout-v9-${isAdmin ? 'admin' : userRole || 'default'}`;
     const cardIds = useMemo(() => cardConfigs.map(c => c.id), [cardConfigs]);
@@ -626,7 +623,7 @@ export default function Dashboard({
                                             </div>
                                         </div>
                                     ) : (
-                                        <DashboardCalendar dueDates={deferredCalendarDueDates} />
+                                        <DashboardCalendar dueDates={deferredCalendarDueDates} today={today} />
                                     )}
                                 </CardContent>
                             </Card>

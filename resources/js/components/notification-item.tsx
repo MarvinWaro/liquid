@@ -7,10 +7,10 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useInitials } from '@/hooks/use-initials';
+import { liquidationSectionHash, visitWithHash } from '@/lib/liquidation-section';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import type { AppNotification } from '@/types';
-import { router } from '@inertiajs/react';
 import axios from 'axios';
 import {
     Check,
@@ -32,8 +32,10 @@ const actionColors: Record<string, string> = {
     returned_to_hei: 'bg-orange-500',
     returned_to_rc: 'bg-orange-500',
     uploaded_document: 'bg-cyan-500',
+    uploaded_rc_letter: 'bg-cyan-500',
     added_gdrive_link: 'bg-cyan-500',
     deleted_document: 'bg-red-500',
+    deleted_rc_letter: 'bg-red-500',
     imported_beneficiaries: 'bg-teal-500',
     bulk_imported: 'bg-teal-500',
     toggled_status: 'bg-amber-500',
@@ -48,6 +50,8 @@ const actionColors: Record<string, string> = {
     commented_on_requirement: 'bg-sky-500',
     mentioned_in_announcement_comment: 'bg-pink-500',
     replied_to_announcement_thread: 'bg-violet-500',
+    commented_on_announcement: 'bg-sky-500',
+    reacted_to_comment: 'bg-rose-500',
     report_ready: 'bg-emerald-500',
     report_failed: 'bg-red-500',
     created: 'bg-green-500',
@@ -65,20 +69,14 @@ function getSubjectUrl(subjectType: string | null, subjectId: string | null, act
     if (!subjectType || !subjectId) return null;
 
     const model = getModelBasename(subjectType);
-    const isCommentAction = action === 'mentioned_in_comment' || action === 'replied_to_thread' || action === 'commented_on_requirement';
-
     switch (model) {
         case 'Liquidation':
-            if (isCommentAction && metadata?.document_requirement_id) {
-                return `/liquidation/${subjectId}#doc-comment-${metadata.document_requirement_id}`;
-            }
-            if (isCommentAction) return `/liquidation/${subjectId}#document-requirements`;
-            if (action === 'updated_tracking') return `/liquidation/${subjectId}#document-tracking`;
-            if (action === 'updated_running_data') return `/liquidation/${subjectId}#running-data`;
-            if (action === 'uploaded_document' || action === 'added_gdrive_link' || action === 'deleted_document') {
-                return `/liquidation/${subjectId}#document-requirements`;
-            }
-            return `/liquidation/${subjectId}`;
+            // Section shared with the activity log's View button — see
+            // lib/liquidation-section.ts.
+            return `/liquidation/${subjectId}${liquidationSectionHash(
+                action,
+                metadata?.document_requirement_id,
+            )}`;
         case 'LiquidationFinancial':
         case 'LiquidationDocument':
         case 'LiquidationBeneficiary':
@@ -169,20 +167,7 @@ export function NotificationItem({ notification, onUpdate }: NotificationItemPro
 
         const url = getSubjectUrl(notification.subject_type, notification.subject_id, notification.action, notification.metadata);
         if (url) {
-            const hashIndex = url.indexOf('#');
-            const path = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
-            const hash = hashIndex >= 0 ? url.slice(hashIndex) : '';
-
-            if (hash) {
-                // Inertia strips hash fragments, so set it manually after navigation
-                router.visit(path, {
-                    onFinish: () => {
-                        window.location.hash = hash;
-                    },
-                });
-            } else {
-                router.visit(url);
-            }
+            visitWithHash(url);
         }
     };
 

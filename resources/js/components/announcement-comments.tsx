@@ -1,7 +1,8 @@
 import React, { useCallback, useRef, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { AtSign, Heart, MessageSquare, Send, X } from 'lucide-react';
+import { AtSign, MessageSquare, Send, X } from 'lucide-react';
+import { ReactorsBadge } from '@/components/announcement/reactors-badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -32,7 +33,13 @@ export interface AnnouncementComment {
     time_ago: string;
     reactions_count: number;
     has_reacted: boolean;
+    /** Names of the people who reacted, capped server-side; viewer shown as "You". */
+    reactor_names: string[];
     replies: AnnouncementComment[];
+    /** Total replies beneath this comment, including nested ones. Server-computed. */
+    replies_total: number;
+    /** True when `replies` is only a preview and the rest must be fetched. */
+    replies_has_more: boolean;
 }
 
 interface Props {
@@ -78,14 +85,32 @@ function addReplyToTree(tree: AnnouncementComment[], parentId: string, reply: An
     });
 }
 
+function replaceRepliesInTree(
+    tree: AnnouncementComment[],
+    commentId: string,
+    replies: AnnouncementComment[],
+): AnnouncementComment[] {
+    return tree.map((c) => {
+        if (c.id === commentId) return { ...c, replies, replies_has_more: false };
+        if (c.replies.length) return { ...c, replies: replaceRepliesInTree(c.replies, commentId, replies) };
+        return c;
+    });
+}
+
 function removeFromTree(tree: AnnouncementComment[], id: string): AnnouncementComment[] {
     return tree.filter((c) => c.id !== id).map((c) => ({ ...c, replies: removeFromTree(c.replies, id) }));
 }
 
-function updateReactionInTree(tree: AnnouncementComment[], commentId: string, hasReacted: boolean, count: number): AnnouncementComment[] {
+function updateReactionInTree(
+    tree: AnnouncementComment[],
+    commentId: string,
+    hasReacted: boolean,
+    count: number,
+    names: string[],
+): AnnouncementComment[] {
     return tree.map((c) => {
-        if (c.id === commentId) return { ...c, has_reacted: hasReacted, reactions_count: count };
-        if (c.replies.length) return { ...c, replies: updateReactionInTree(c.replies, commentId, hasReacted, count) };
+        if (c.id === commentId) return { ...c, has_reacted: hasReacted, reactions_count: count, reactor_names: names };
+        if (c.replies.length) return { ...c, replies: updateReactionInTree(c.replies, commentId, hasReacted, count, names) };
         return c;
     });
 }
@@ -297,6 +322,7 @@ function CommentItem({
     onDelete,
     onNewReply,
     onReaction,
+    onRepliesLoaded,
     isLast,
 }: {
     comment: AnnouncementComment;
@@ -306,21 +332,49 @@ function CommentItem({
     depth?: number;
     onDelete: (id: string) => void;
     onNewReply: (parentId: string, reply: AnnouncementComment) => void;
-    onReaction: (commentId: string, hasReacted: boolean, count: number) => void;
+    onReaction: (commentId: string, hasReacted: boolean, count: number, names: string[]) => void;
+    onRepliesLoaded: (commentId: string, replies: AnnouncementComment[]) => void;
     isLast?: boolean;
 }) {
     const getInitials = useInitials();
+    // Deleted comments carry a null name, and this avatar renders for them too,
+    // so the initials/colour helpers were being handed null. Mirrors the server's
+    // own fallback in AnnouncementComment::format().
+    const displayName = comment.user_name ?? 'Unknown';
     const canDelete = comment.user_id === currentUserId || canModerate;
     const [showReplyInput, setShowReplyInput] = useState(false);
     const [repliesExpanded, setRepliesExpanded] = useState(false);
     const [reacting, setReacting] = useState(false);
-    const hasReplies = comment.replies.length > 0;
-    const totalReplies = hasReplies ? countAllReplies(comment) : 0;
+    const [loadingReplies, setLoadingReplies] = useState(false);
+    // The array may be a preview now, so the count comes from the server.
+    const totalReplies = comment.replies_total ?? countAllReplies(comment);
+    const hasReplies = totalReplies > 0;
 
     const handleReplyPosted = (reply: AnnouncementComment) => {
         onNewReply(comment.id, reply);
         setShowReplyInput(false);
         setRepliesExpanded(true); // auto-expand after posting a reply
+    };
+
+    // Only the first few replies ship with the thread. Opening a comment that was
+    // truncated fetches the rest; one that already has all of them just expands.
+    const expandReplies = async () => {
+        if (!comment.replies_has_more) {
+            setRepliesExpanded(true);
+            return;
+        }
+        setLoadingReplies(true);
+        try {
+            const { data } = await axios.get(`/announcement/${slug}/comments/${comment.id}/replies`);
+            if (data.success) {
+                onRepliesLoaded(comment.id, data.replies);
+                setRepliesExpanded(true);
+            }
+        } catch {
+            toast.error('Failed to load replies');
+        } finally {
+            setLoadingReplies(false);
+        }
     };
 
     const handleToggleReaction = async () => {
@@ -329,7 +383,7 @@ function CommentItem({
         try {
             const { data } = await axios.post(`/announcement/${slug}/comments/${comment.id}/react`);
             if (data.success) {
-                onReaction(comment.id, data.has_reacted, data.reactions_count);
+                onReaction(comment.id, data.has_reacted, data.reactions_count, data.reactor_names ?? []);
             }
         } catch {
             toast.error('Failed to react');
@@ -374,9 +428,9 @@ function CommentItem({
                 {/* Avatar */}
                 <div className="relative flex flex-col items-center" style={{ width: 32 }}>
                     <Avatar className="size-8 shrink-0">
-                        {comment.user_avatar_url && <AvatarImage src={comment.user_avatar_url} alt={comment.user_name} />}
-                        <AvatarFallback className={cn('text-[11px] font-medium', getAvatarColor(comment.user_name))}>
-                            {getInitials(comment.user_name)}
+                        {comment.user_avatar_url && <AvatarImage src={comment.user_avatar_url} alt={displayName} />}
+                        <AvatarFallback className={cn('text-[11px] font-medium', getAvatarColor(displayName))}>
+                            {getInitials(displayName)}
                         </AvatarFallback>
                     </Avatar>
                 </div>
@@ -402,13 +456,14 @@ function CommentItem({
                         )}
                     </div>
 
-                    {/* Reaction badge — hidden for deleted comments */}
+                    {/* Reaction badge — hidden for deleted comments.
+                        Hover, tap or focus it to see who reacted. */}
                     {!comment.is_deleted && comment.reactions_count > 0 && (
                         <div className="flex justify-end -mt-2.5 mr-2 relative z-10">
-                            <span className="inline-flex items-center gap-0.5 rounded-full bg-background border shadow-sm px-1.5 py-0.5 text-[10px]">
-                                <Heart className="h-2.5 w-2.5 fill-red-500 text-red-500" />
-                                {comment.reactions_count}
-                            </span>
+                            <ReactorsBadge
+                                count={comment.reactions_count}
+                                names={comment.reactor_names}
+                            />
                         </div>
                     )}
 
@@ -454,11 +509,12 @@ function CommentItem({
                     {hasReplies && !repliesExpanded && (
                         <button
                             type="button"
-                            onClick={() => setRepliesExpanded(true)}
+                            onClick={expandReplies}
+                            disabled={loadingReplies}
                             className="flex items-center gap-1.5 text-[11px] font-semibold text-primary hover:text-primary/80 transition-colors mt-1 px-1"
                         >
                             <span className="inline-block w-5 h-px bg-primary/40" />
-                            View {totalReplies} {totalReplies === 1 ? 'reply' : 'replies'}
+                            {loadingReplies ? 'Loading replies...' : `View ${totalReplies} ${totalReplies === 1 ? 'reply' : 'replies'}`}
                         </button>
                     )}
                 </div>
@@ -478,6 +534,7 @@ function CommentItem({
                             onDelete={onDelete}
                             onNewReply={onNewReply}
                             onReaction={onReaction}
+                            onRepliesLoaded={onRepliesLoaded}
                             isLast={i === comment.replies.length - 1 && !showReplyInput}
                         />
                     ))}
@@ -561,8 +618,12 @@ export default function AnnouncementComments({ slug, initialComments, initialHas
         setTotalCount((n) => n + 1);
     }, []);
 
-    const handleReaction = useCallback((commentId: string, hasReacted: boolean, count: number) => {
-        setComments((prev) => updateReactionInTree(prev, commentId, hasReacted, count));
+    const handleReaction = useCallback((commentId: string, hasReacted: boolean, count: number, names: string[]) => {
+        setComments((prev) => updateReactionInTree(prev, commentId, hasReacted, count, names));
+    }, []);
+
+    const handleRepliesLoaded = useCallback((commentId: string, replies: AnnouncementComment[]) => {
+        setComments((prev) => replaceRepliesInTree(prev, commentId, replies));
     }, []);
 
     const handleTopLevelPosted = useCallback((comment: AnnouncementComment) => {
@@ -590,6 +651,7 @@ export default function AnnouncementComments({ slug, initialComments, initialHas
                             onDelete={handleDelete}
                             onNewReply={handleNewReply}
                             onReaction={handleReaction}
+                            onRepliesLoaded={handleRepliesLoaded}
                             isLast={i === comments.length - 1}
                         />
                     ))}

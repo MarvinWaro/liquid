@@ -13,10 +13,30 @@ trait LogsActivity
      */
     public static bool $loggingEnabled = true;
 
+    /**
+     * Whether this model's creation is worth its own log entry.
+     *
+     * Override to false on records that only ever come into existence as part of
+     * creating their parent. Those are not a separate thing the user did, and a
+     * second entry at the same second — usually labelled with a bare UUID,
+     * because such records have no control number or name — makes the log harder
+     * to read without adding a fact anyone can act on.
+     *
+     * Only creation is suppressed. Later edits still log, since changing a stored
+     * value after the fact is exactly what an audit needs to show.
+     */
+    protected static function logsCreation(): bool
+    {
+        return true;
+    }
+
     protected static function bootLogsActivity(): void
     {
         static::created(function ($model) {
             if (! static::$loggingEnabled) {
+                return;
+            }
+            if (! static::logsCreation()) {
                 return;
             }
             if ($model instanceof ActivityLog) {

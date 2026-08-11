@@ -38,12 +38,12 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import axios from 'axios';
 import {
-    SEMESTERS,
     DOCUMENT_STATUSES,
     getDueDateDays,
     type Program,
     type HEIOption,
     type AcademicYearOption,
+    type SemesterOption,
     type RcNoteStatusOption,
 } from './liquidation-constants';
 
@@ -97,6 +97,7 @@ interface CreateLiquidationModalProps {
     onClose: () => void;
     programs: Program[];
     academicYears: AcademicYearOption[];
+    semesters: SemesterOption[];
     rcNoteStatuses: RcNoteStatusOption[];
     heis: HEIOption[];
     onSuccess: () => void;
@@ -107,6 +108,7 @@ export function CreateLiquidationModal({
     onClose,
     programs,
     academicYears,
+    semesters,
     rcNoteStatuses,
     heis,
     onSuccess,
@@ -518,9 +520,12 @@ export function CreateLiquidationModal({
                                     <SelectValue placeholder="Select semester" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {SEMESTERS.map((sem) => (
-                                        <SelectItem key={sem.value} value={sem.value}>
-                                            {sem.label}
+                                    {/* Value stays the semester NAME: that is
+                                        what findSemesterId() resolves against and
+                                        what saved drafts already contain. */}
+                                    {semesters.map((sem) => (
+                                        <SelectItem key={sem.id} value={sem.name}>
+                                            {sem.name}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>

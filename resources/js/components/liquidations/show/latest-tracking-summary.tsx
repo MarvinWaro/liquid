@@ -53,7 +53,16 @@ export default function LatestTrackingSummary({ trackingEntries, avatarMap, regi
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-4">
                     {/* Row 1 */}
                     <div>
-                        <p className="text-xs text-muted-foreground mb-1.5">Received by</p>
+                        {/*
+                            Qualified because this field alone breaks the card's
+                            "latest entry" framing: allReceivers flattens every
+                            entry, so a liquidation whose newest entry had two
+                            receivers can still show eight avatars here. The other
+                            fields describe the latest entry and are left unmarked.
+                        */}
+                        <p className="text-xs text-muted-foreground mb-1.5">
+                            Received by <span className="opacity-70">(all entries)</span>
+                        </p>
                         {allReceivers.length > 0
                             ? <AvatarStack namesStr={joinNames(allReceivers)} avatarMap={avatarMap} knownNames={knownNames} />
                             : <p className="text-sm font-medium text-foreground">—</p>
@@ -64,7 +73,9 @@ export default function LatestTrackingSummary({ trackingEntries, avatarMap, regi
                         <p className="text-sm font-medium text-foreground">{formatDate(latest.date_received)}</p>
                     </div>
                     <div>
-                        <p className="text-xs text-muted-foreground mb-1.5">Reviewed by</p>
+                        <p className="text-xs text-muted-foreground mb-1.5">
+                            Reviewed by <span className="opacity-70">(all entries)</span>
+                        </p>
                         {allReviewers.length > 0
                             ? <AvatarStack namesStr={joinNames(allReviewers)} avatarMap={avatarMap} knownNames={knownNames} />
                             : <p className="text-sm font-medium text-foreground">—</p>

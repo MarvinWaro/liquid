@@ -16,12 +16,29 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { useInitials } from '@/hooks/use-initials';
+import {
+    ActionsBreakdownChart,
+    type ActionCount,
+} from '@/components/activity-logs/actions-breakdown-chart';
+import {
+    ActivityTrendChart,
+    type ActivityTrendPoint,
+} from '@/components/activity-logs/activity-trend-chart';
+import { TopUsersChart, type TopUser } from '@/components/activity-logs/top-users-chart';
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { useInsightsPanel } from '@/hooks/use-insights-panel';
+import { liquidationSectionHash, visitWithHash } from '@/lib/liquidation-section';
 import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
 import { format } from 'date-fns';
 import {
+    BarChart3,
     CalendarIcon,
     ChevronDown,
     ChevronRight,
@@ -66,6 +83,14 @@ interface PaginatedData {
     links: PaginationLink[];
 }
 
+interface Insights {
+    trend: ActivityTrendPoint[];
+    actions: ActionCount[];
+    /** Null for self-scoped viewers — a chart of just yourself says nothing. */
+    topUsers: TopUser[] | null;
+    trendRangeLabel: string;
+}
+
 interface Props {
     logs: PaginatedData;
     users: { id: string; name: string }[];
@@ -73,6 +98,8 @@ interface Props {
     modules: string[];
     filters: Record<string, string>;
     scopedToOwn?: boolean;
+    /** Deferred: undefined on first paint, then filled in. */
+    insights?: Insights;
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -92,6 +119,7 @@ const actionColors: Record<string, string> = {
     returned_to_hei: 'border-orange-200 bg-orange-50 text-orange-700',
     returned_to_rc: 'border-orange-200 bg-orange-50 text-orange-700',
     uploaded_document: 'border-cyan-200 bg-cyan-50 text-cyan-700',
+    uploaded_rc_letter: 'border-cyan-200 bg-cyan-50 text-cyan-700',
     added_gdrive_link: 'border-cyan-200 bg-cyan-50 text-cyan-700',
     deleted_document: 'border-red-200 bg-red-50 text-red-700',
     bulk_imported: 'border-teal-200 bg-teal-50 text-teal-700',
@@ -115,6 +143,7 @@ const actionLeftBorder: Record<string, string> = {
     returned_to_hei: 'border-l-orange-500',
     returned_to_rc: 'border-l-orange-500',
     uploaded_document: 'border-l-cyan-500',
+    uploaded_rc_letter: 'border-l-cyan-500',
     added_gdrive_link: 'border-l-cyan-500',
     deleted_document: 'border-l-red-500',
     bulk_imported: 'border-l-teal-500',
@@ -170,7 +199,21 @@ function getViewUrl(log: ActivityLog): string | null {
     const routeFn = subjectRouteMap[log.subject_type];
     if (!routeFn) return null;
 
-    return routeFn(log.subject_id);
+    const url = routeFn(log.subject_id);
+
+    // Land on the section the action actually concerns rather than the top of the
+    // record — an upload should open at Document Requirements, the way the
+    // matching notification already does. Only liquidations have sections to
+    // target; every other subject keeps its plain index URL.
+    //
+    // Activity logs carry no metadata, so a comment action resolves to the
+    // requirements section instead of the individual thread. That is the same
+    // fallback a notification uses when it arrives without a requirement id.
+    if (url && log.subject_type === 'Liquidation') {
+        return `${url}${liquidationSectionHash(log.action)}`;
+    }
+
+    return url;
 }
 
 function formatAction(action: string): string {
@@ -247,9 +290,11 @@ export default function Index({
     modules,
     filters,
     scopedToOwn = false,
+    insights,
 }: Props) {
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
     const getInitials = useInitials();
+    const { open: insightsOpen, setOpen: setInsightsOpen } = useInsightsPanel();
 
     const initialRange: DateRange | undefined =
         filters.date_from || filters.date_to
@@ -355,6 +400,55 @@ export default function Index({
                                     : 'Monitor all system transactions and user activities.'}
                             </p>
                         </div>
+
+                        {/* Insights — collapsible, remembered per browser */}
+                        <Collapsible
+                            open={insightsOpen}
+                            onOpenChange={setInsightsOpen}
+                            className="mb-6 rounded-lg border bg-card"
+                        >
+                            <CollapsibleTrigger className="flex w-full items-center justify-between p-4 text-left transition-colors hover:bg-muted/40">
+                                <div className="flex items-center gap-2">
+                                    <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-sm font-medium">Insights</span>
+                                </div>
+                                <ChevronDown
+                                    className={`h-4 w-4 text-muted-foreground transition-transform ${
+                                        insightsOpen ? 'rotate-180' : ''
+                                    }`}
+                                />
+                            </CollapsibleTrigger>
+
+                            <CollapsibleContent>
+                                <div className="grid grid-cols-1 gap-4 border-t p-4 lg:grid-cols-2">
+                                    <div className="lg:col-span-2">
+                                        <ActivityTrendChart
+                                            data={insights?.trend}
+                                            rangeLabel={insights?.trendRangeLabel}
+                                        />
+                                    </div>
+
+                                    <div className="rounded-lg border p-4">
+                                        <p className="mb-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                                            Actions Breakdown
+                                        </p>
+                                        <ActionsBreakdownChart
+                                            data={insights?.actions}
+                                            onSelect={(action) => applyFilter('action', action)}
+                                        />
+                                    </div>
+
+                                    {!scopedToOwn && (
+                                        <div className="rounded-lg border p-4">
+                                            <p className="mb-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                                                Most Active Users
+                                            </p>
+                                            <TopUsersChart data={insights?.topUsers ?? undefined} />
+                                        </div>
+                                    )}
+                                </div>
+                            </CollapsibleContent>
+                        </Collapsible>
 
                         {/* Filters */}
                         <div className="mb-6 rounded-lg border bg-card p-4">
@@ -567,7 +661,7 @@ export default function Index({
                                                             size="sm"
                                                             className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
                                                             onClick={() =>
-                                                                router.visit(
+                                                                visitWithHash(
                                                                     viewUrl,
                                                                 )
                                                             }

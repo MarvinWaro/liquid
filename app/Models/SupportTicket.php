@@ -15,19 +15,29 @@ class SupportTicket extends Model
     use HasFactory, HasUuid;
 
     public const STATUS_OPEN = 'open';
+
     public const STATUS_IN_PROGRESS = 'in_progress';
+
     public const STATUS_RESOLVED = 'resolved';
 
     public const PRIORITY_LOW = 'low';
+
     public const PRIORITY_NORMAL = 'normal';
+
     public const PRIORITY_HIGH = 'high';
+
     public const PRIORITY_URGENT = 'urgent';
 
     public const CATEGORY_LIQUIDATION_RECORD = 'liquidation_record';
+
     public const CATEGORY_STATUS_FOLLOW_UP = 'status_follow_up';
+
     public const CATEGORY_DOCUMENT_UPLOAD = 'document_upload';
+
     public const CATEGORY_ACCOUNT_ACCESS = 'account_access';
+
     public const CATEGORY_TECHNICAL_ISSUE = 'technical_issue';
+
     public const CATEGORY_OTHER = 'other';
 
     protected $fillable = [
@@ -43,6 +53,7 @@ class SupportTicket extends Model
         'last_reply_at',
         'resolved_at',
         'resolved_by',
+        'resolution_remarks',
     ];
 
     protected function casts(): array

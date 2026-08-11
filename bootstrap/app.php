@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\TrackUserActivity;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -46,6 +47,11 @@ return Application::configure(basePath: dirname(__DIR__))
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
             TrackUserActivity::class,
+            SecurityHeaders::class,
+            // Appended, so it runs after StartSession and can key the limit on the
+            // authenticated user rather than the IP. See the 'global' limiter in
+            // FortifyServiceProvider for the reasoning behind the numbers.
+            'throttle:global',
         ]);
 
         $middleware->alias([

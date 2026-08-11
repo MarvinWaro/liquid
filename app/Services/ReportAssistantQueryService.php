@@ -702,7 +702,7 @@ class ReportAssistantQueryService
         bool $useId = true,
     ): void {
         foreach ($this->strings($requested) as $value) {
-            $record = $resolver($value);
+            $record = $this->firstMatch($value, $resolver);
             if (! $record) {
                 $unmatched[$resultKey][] = $value;
 
@@ -729,5 +729,115 @@ class ReportAssistantQueryService
     private function normalizeCode(string $value): string
     {
         return strtoupper(str_replace([' ', '-'], '_', trim($value)));
+    }
+
+    /**
+     * Try a filter value against a resolver, then the ways people actually write it.
+     *
+     * Every lookup here matches exactly, so a value that reads correctly to a
+     * human could still miss: "AY 2025-2026" failed against a stored "2025-2026"
+     * even with 333 records sitting behind it, and the assistant then reported
+     * the year as invalid. Each variant below is a deterministic rewrite of the
+     * same value — no fuzzy or partial matching, because quietly filtering to the
+     * wrong academic year is worse than admitting no match.
+     */
+    private function firstMatch(string $value, callable $resolver): mixed
+    {
+        foreach ($this->matchCandidates($value) as $candidate) {
+            if ($record = $resolver($candidate)) {
+                return $record;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<string> the original value first, then safe rewrites of it
+     */
+    private function matchCandidates(string $value): array
+    {
+        $candidates = [$value];
+
+        // "Region  12" — a stray double space should not decide a query.
+        $collapsed = preg_replace('/\s+/', ' ', trim($value)) ?? $value;
+        $candidates[] = $collapsed;
+
+        // "AY 2025-2026", "A.Y. 2025-2026", "SY 2025-2026" -> "2025-2026".
+        // The prefix is how the year is written throughout the UI, so users
+        // reasonably type it that way.
+        $withoutYearPrefix = preg_replace('/^(A\.?\s?Y\.?|S\.?\s?Y\.?)\s+/i', '', $collapsed) ?? $collapsed;
+        $candidates[] = $withoutYearPrefix;
+
+        // "Region XII" -> "Region 12". The login page itself reads
+        // "CHED REGION XII", while the record is stored as "Region 12".
+        //
+        // Guarded to values containing "region" on purpose: converting roman
+        // numerals everywhere could turn a program or status code like "IX" into
+        // "9" and match an unrelated record.
+        if (preg_match('/\bregion\b/i', $collapsed) === 1) {
+            $arabic = preg_replace_callback(
+                '/\b([IVXL]+)\b/i',
+                function (array $matches): string {
+                    $number = $this->romanToInt(strtoupper($matches[1]));
+
+                    return $number > 0 ? (string) $number : $matches[1];
+                },
+                $collapsed,
+            );
+
+            if (is_string($arabic)) {
+                $candidates[] = $arabic;
+            }
+        }
+
+        return array_values(array_unique(array_filter($candidates, fn (string $c): bool => $c !== '')));
+    }
+
+    /**
+     * Roman numeral to integer, or 0 when the text is not a valid numeral.
+     *
+     * Returning 0 for something like "XIIX" matters: an invalid numeral must
+     * produce no candidate rather than a plausible-looking wrong number.
+     */
+    private function romanToInt(string $roman): int
+    {
+        $values = ['I' => 1, 'V' => 5, 'X' => 10, 'L' => 50, 'C' => 100, 'D' => 500, 'M' => 1000];
+        $total = 0;
+        $previous = 0;
+
+        foreach (array_reverse(str_split($roman)) as $character) {
+            if (! isset($values[$character])) {
+                return 0;
+            }
+
+            $current = $values[$character];
+            $total += $current < $previous ? -$current : $current;
+            $previous = max($previous, $current);
+        }
+
+        // Round-trips only for well-formed numerals, so "XIIX" is rejected.
+        return $this->intToRoman($total) === $roman ? $total : 0;
+    }
+
+    private function intToRoman(int $number): string
+    {
+        if ($number <= 0) {
+            return '';
+        }
+
+        $map = ['M' => 1000, 'CM' => 900, 'D' => 500, 'CD' => 400, 'C' => 100, 'XC' => 90,
+            'L' => 50, 'XL' => 40, 'X' => 10, 'IX' => 9, 'V' => 5, 'IV' => 4, 'I' => 1];
+
+        $roman = '';
+
+        foreach ($map as $symbol => $value) {
+            while ($number >= $value) {
+                $roman .= $symbol;
+                $number -= $value;
+            }
+        }
+
+        return $roman;
     }
 }

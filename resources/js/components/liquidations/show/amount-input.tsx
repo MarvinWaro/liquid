@@ -29,11 +29,17 @@ export default function AmountInput({
     useEffect(() => {
         const expected = value ? Math.round(value * 100).toString() : '';
         if (!isFocused.current) {
+            // The isFocused ref is what makes this safe: syncing while the field has focus
+            // would eat digits mid-typing. The else-branch is the one case where syncing
+            // anyway is correct - the parent clamped the value, so the display must follow.
             setDigits(expected);
         } else if (digits && expected && parseInt(digits, 10) !== parseInt(expected, 10)) {
             // Parent clamped the value — sync even while focused
             setDigits(expected);
         }
+    // `digits` is read but deliberately not a dep: this effect exists to push the
+    // parent's value in, not to react to local edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value]);
 
     const display = useMemo(() => {

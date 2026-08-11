@@ -56,6 +56,9 @@ export default function RunningDataTable({
     // Remove empty unsaved rows when switching to "Unliquidated"
     useEffect(() => {
         if (isDisabled && !prevDisabled.current) {
+            // The prevDisabled ref limits this to the false->true transition, so it fires
+            // once when the row is switched to Unliquidated - not on every render.
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setEntries(prev => {
                 const filled = prev.filter(e => e.id || isRunningDataEntryFilled(e));
                 return filled.length > 0 ? filled : prev.slice(0, 1);

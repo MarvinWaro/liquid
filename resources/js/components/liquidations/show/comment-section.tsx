@@ -289,6 +289,11 @@ export default function CommentSection({
                 handleSubmit();
             }
         },
+        // handleSubmit is declared below, so it cannot go in this array without a
+        // temporal-dead-zone error. It stays current anyway: insertMention depends on
+        // `body`, and this handler depends on insertMention, so it is rebuilt on every
+        // keystroke. Indirect, so worth knowing before reordering either one.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [mentionQuery, mentionUsers, mentionIndex, insertMention],
     );
 

@@ -108,6 +108,16 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Users', href: '/users' },
 ];
 
+/**
+ * Rows drawn at once. Matches the activity log's page size.
+ *
+ * Every user is still loaded and searched — this only caps how many reach the
+ * DOM. Rendering all 200-plus at ~33 elements each put roughly 7,000 nodes on
+ * the page, enough that the theme toggle's view transition had to rasterise it
+ * twice and visibly stuttered.
+ */
+const USERS_PER_PAGE = 25;
+
 export default function Index({
     auth,
     users,
@@ -129,6 +139,28 @@ export default function Index({
     const [regionFilter, setRegionFilter] = useState<string>('all');
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [presenceFilter, setPresenceFilter] = useState<string>('all');
+    const [page, setPage] = useState(1);
+
+    /**
+     * Narrowing the list has to send you back to the front of it. Filtering while
+     * on page 5 and staying there would show an empty table even though there are
+     * matches.
+     *
+     * Done here rather than in an effect on purpose: the lint config forbids
+     * setState inside an effect body (react-hooks/set-state-in-effect).
+     */
+    const withPageReset =
+        <T,>(setter: (value: T) => void) =>
+        (value: T): void => {
+            setter(value);
+            setPage(1);
+        };
+
+    const applySearch = withPageReset(setSearchQuery);
+    const applyRoleFilter = withPageReset(setRoleFilter);
+    const applyRegionFilter = withPageReset(setRegionFilter);
+    const applyStatusFilter = withPageReset(setStatusFilter);
+    const applyPresenceFilter = withPageReset(setPresenceFilter);
 
     // Live presence map keyed by user id. Smart-polled (paused on hidden tab / idle).
     const presences = useUserPresence();
@@ -182,6 +214,18 @@ export default function Index({
 
         return matchesSearch && matchesRole && matchesRegion && matchesStatus && matchesPresence;
     });
+
+    // Paging is applied to the FILTERED result, never to `users` itself — the
+    // search above must keep looking at every user, so typing a name from the
+    // last page finds it while you are sitting on the first.
+    const totalPages = Math.max(1, Math.ceil(filteredUsers.length / USERS_PER_PAGE));
+
+    // Clamped rather than corrected through state, so the table can never render
+    // blank when the list shrinks underneath the current page — deleting the last
+    // user on the final page, for example.
+    const safePage = Math.min(page, totalPages);
+    const firstIndex = (safePage - 1) * USERS_PER_PAGE;
+    const visibleUsers = filteredUsers.slice(firstIndex, firstIndex + USERS_PER_PAGE);
 
     const handleDelete = (userId: number) => {
         router.delete(route('users.destroy', userId), {
@@ -259,14 +303,14 @@ export default function Index({
                                     placeholder="Search by name, email, or role..."
                                     value={searchQuery}
                                     onChange={(e) =>
-                                        setSearchQuery(e.target.value)
+                                        applySearch(e.target.value)
                                     }
                                     className="pl-8"
                                 />
                             </div>
                             <Select
                                 value={roleFilter}
-                                onValueChange={setRoleFilter}
+                                onValueChange={applyRoleFilter}
                             >
                                 <SelectTrigger className="w-[150px]">
                                     <SelectValue placeholder="All Roles" />
@@ -287,7 +331,7 @@ export default function Index({
                             </Select>
                             <Select
                                 value={regionFilter}
-                                onValueChange={setRegionFilter}
+                                onValueChange={applyRegionFilter}
                             >
                                 <SelectTrigger className="w-[180px]">
                                     <SelectValue placeholder="All Regions" />
@@ -308,7 +352,7 @@ export default function Index({
                             </Select>
                             <Select
                                 value={statusFilter}
-                                onValueChange={setStatusFilter}
+                                onValueChange={applyStatusFilter}
                             >
                                 <SelectTrigger className="w-[150px]">
                                     <SelectValue placeholder="All Status" />
@@ -333,7 +377,7 @@ export default function Index({
                             </Select>
                             <Select
                                 value={presenceFilter}
-                                onValueChange={setPresenceFilter}
+                                onValueChange={applyPresenceFilter}
                             >
                                 <SelectTrigger className="w-[160px]">
                                     <SelectValue placeholder="All Presence" />
@@ -399,7 +443,7 @@ export default function Index({
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                filteredUsers.map((user) => (
+                                visibleUsers.map((user) => (
                                     <TableRow
                                         key={user.id}
                                         className="transition-colors hover:bg-muted/50"
@@ -592,10 +636,108 @@ export default function Index({
                         </TableBody>
                     </Table>
                     </div>
+
+                    {filteredUsers.length > 0 && (
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-t px-6 py-3">
+                            {/* Spelled out so it is clear the search covered every
+                                user, not just the ones currently drawn. */}
+                            <p className="text-xs text-muted-foreground">
+                                Showing {firstIndex + 1}-
+                                {firstIndex + visibleUsers.length} of{' '}
+                                {filteredUsers.length} user
+                                {filteredUsers.length === 1 ? '' : 's'}
+                                {filteredUsers.length !== users.length && (
+                                    <> (filtered from {users.length})</>
+                                )}
+                            </p>
+
+                            {totalPages > 1 && (
+                                <UsersPager
+                                    page={safePage}
+                                    totalPages={totalPages}
+                                    onChange={setPage}
+                                />
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
             </SettingsLayout>
         </AppLayout>
+    );
+}
+
+/**
+ * Page buttons for the user table.
+ *
+ * Collapses to first / last / current +- 1 with gaps, so nine pages of users does
+ * not become nine buttons.
+ */
+function UsersPager({
+    page,
+    totalPages,
+    onChange,
+}: {
+    page: number;
+    totalPages: number;
+    onChange: (page: number) => void;
+}) {
+    const pages: (number | 'gap')[] = [];
+
+    for (let i = 1; i <= totalPages; i++) {
+        const isEdge = i === 1 || i === totalPages;
+        const isNearCurrent = Math.abs(i - page) <= 1;
+
+        if (isEdge || isNearCurrent) {
+            pages.push(i);
+        } else if (pages[pages.length - 1] !== 'gap') {
+            pages.push('gap');
+        }
+    }
+
+    return (
+        <div className="flex items-center gap-1">
+            <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                disabled={page === 1}
+                onClick={() => onChange(page - 1)}
+            >
+                Previous
+            </Button>
+
+            {pages.map((entry, index) =>
+                entry === 'gap' ? (
+                    <span
+                        key={`gap-${index}`}
+                        className="px-1 text-xs text-muted-foreground"
+                    >
+                        &hellip;
+                    </span>
+                ) : (
+                    <Button
+                        key={entry}
+                        variant={entry === page ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-8 min-w-[32px]"
+                        onClick={() => onChange(entry)}
+                    >
+                        {entry}
+                    </Button>
+                ),
+            )}
+
+            <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                disabled={page === totalPages}
+                onClick={() => onChange(page + 1)}
+            >
+                Next
+            </Button>
+        </div>
     );
 }
 

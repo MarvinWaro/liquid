@@ -71,6 +71,7 @@ class DashboardController extends Controller
 
         return Inertia::render('dashboard', [
             'isAdmin' => true,
+            'today' => $this->todayInManila(),
             'regions' => $regions,
             'programs' => $programs,
             'academicYears' => $academicYears,
@@ -212,6 +213,7 @@ class DashboardController extends Controller
 
         return Inertia::render('dashboard', [
             'isAdmin' => false,
+            'today' => $this->todayInManila(),
             'totalStats' => $totalStats,
             'userStats' => $userStats,
             'userRole' => $userRole,
@@ -1275,6 +1277,22 @@ class DashboardController extends Controller
             ->orderBy('name')
             ->get(['id', 'code', 'name'])
             ->toArray();
+    }
+
+    /**
+     * Today's date in Philippine time as "YYYY-MM-DD".
+     *
+     * The dashboard calendar marks a liquidation overdue by comparing its due date
+     * against this. That comparison has to come from the server: a laptop in another
+     * timezone, or with a wrong clock, would otherwise disagree with Manila about what
+     * day it is and show a late liquidation as still on time.
+     *
+     * Passed to Inertia directly, never through DashboardCache — a cached date would
+     * keep reporting yesterday after midnight.
+     */
+    private function todayInManila(): string
+    {
+        return now('Asia/Manila')->toDateString();
     }
 
     /**

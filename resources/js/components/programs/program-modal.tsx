@@ -61,6 +61,8 @@ export function ProgramModal({ isOpen, onClose, program, parentOptions }: Progra
         } else {
             reset();
         }
+    // reset/setData come from Inertia's useForm; adding them would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [program, isOpen]);
 
     // Filter out the current program from parent options (can't be its own parent)

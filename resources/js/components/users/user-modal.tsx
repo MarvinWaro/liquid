@@ -175,8 +175,12 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis, program
                 });
             }
             clearErrors();
+            // Loads the opened user into the form and clears the permission search.
+            // Guarded by isOpen, so it runs once per opening.
             setPermissionSearch('');
         }
+    // reset/setData/clearErrors come from Inertia's useForm; adding them would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, user]);
 
     const handleProgramToggle = (programId: string, checked: boolean) => {
@@ -344,13 +348,17 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis, program
                                 regions={regions}
                                 value={data.hei_id}
                                 onChange={(value) => {
-                                    // Auto-populate region when HEI is selected
+                                    // Auto-populate region when HEI is selected.
+                                    // Held in a local so the truthiness check narrows
+                                    // away the null — TypeScript will not carry that
+                                    // narrowing through the property into the closure.
                                     const selectedHEI = heis.find(h => h.id === value);
-                                    if (selectedHEI?.region_id) {
+                                    const regionId = selectedHEI?.region_id;
+                                    if (regionId) {
                                         setData(data => ({
                                             ...data,
                                             hei_id: value,
-                                            region_id: selectedHEI.region_id,
+                                            region_id: regionId,
                                         }));
                                     } else {
                                         setData('hei_id', value);

@@ -8,6 +8,7 @@ import {
     TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
+import { manilaToday } from '@/lib/date';
 
 export interface CalendarDueDate {
     id: string;
@@ -23,21 +24,26 @@ export interface CalendarDueDate {
 
 interface Props {
     dueDates: CalendarDueDate[];
+    /**
+     * Today's date in Philippine time ("YYYY-MM-DD"), supplied by the server.
+     *
+     * Overdue is a business decision, so it must not depend on the viewer's machine:
+     * a laptop in another timezone — or with a wrong clock — would otherwise mark a
+     * liquidation "Due today" while Manila already counts it late. Falls back to the
+     * browser's Manila date only if the prop is missing.
+     */
+    today?: string;
 }
 
 const COMPLETED_STATUSES = ['fully liquidated', 'voided'];
 
-const todayString = () => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-};
-
-export const DashboardCalendar = memo(function DashboardCalendar({ dueDates }: Props) {
-    const todayStr = useMemo(todayString, []);
+export const DashboardCalendar = memo(function DashboardCalendar({ dueDates, today }: Props) {
+    const todayStr = useMemo(() => today ?? manilaToday(), [today]);
 
     const [calendarDate, setCalendarDate] = useState(() => {
-        const now = new Date();
-        return { year: now.getFullYear(), month: now.getMonth() };
+        // Open on the month that contains the server's today, not the laptop's.
+        const [year, month] = todayStr.split('-');
+        return { year: Number(year), month: Number(month) - 1 };
     });
     const [dueListSearch, setDueListSearch] = useState('');
     // Defer the search value so typing stays instant; filter/render runs at low priority.
@@ -47,6 +53,9 @@ export const DashboardCalendar = memo(function DashboardCalendar({ dueDates }: P
     const [visibleCount, setVisibleCount] = useState(DUE_LIST_PAGE_SIZE);
     // Reset page whenever the effective (deferred) search changes.
     useEffect(() => {
+        // Paging back to the first page when the search term changes. Deliberate: the
+        // old offset is meaningless against a different result set.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setVisibleCount(DUE_LIST_PAGE_SIZE);
     }, [deferredDueListSearch]);
 

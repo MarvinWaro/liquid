@@ -32,10 +32,12 @@ use App\Models\ProgramDueDateRule;
 use App\Models\RcNoteStatus;
 use App\Models\Region;
 use App\Models\ReviewType;
+use App\Models\Semester;
 use App\Models\User;
 use App\Services\CacheService;
 use App\Services\LiquidationService;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -193,6 +195,11 @@ class LiquidationController extends Controller
                 return $allPrograms;
             }),
             'academicYears' => AcademicYear::getDropdownOptions(),
+            // The create and bulk-entry semester dropdowns used to map over a
+            // hardcoded list, so anything added under Settings > Semesters never
+            // appeared in them. Served from the table instead, using the same
+            // helper the academic-year dropdown above already uses.
+            'semesters' => Semester::getDropdownOptions(),
             'rcNoteStatuses' => RcNoteStatus::getDropdownOptions(),
             'regions' => in_array($user->role->name, self::REGION_FILTER_ROLES)
                 ? Region::where('status', 'active')->orderBy('code')->get(['id', 'code', 'name'])
@@ -1678,7 +1685,20 @@ class LiquidationController extends Controller
             'uploaded_by' => $request->user()->id,
         ]);
 
-        ActivityLog::log('uploaded_document', 'Uploaded document '.$file->getClientOriginalName().' to liquidation '.$liquidation->control_no, $liquidation, 'Liquidation');
+        // Names the requirement as well as the file. File names repeat — the same
+        // scan uploaded against two requirements produced two identical entries,
+        // so a reviewer had to open the record to tell them apart. $documentType
+        // is the requirement's own name, already resolved above.
+        // An RC letter is the branch with no requirement behind it, and it lives in
+        // its own card rather than under Document Requirements. It gets its own
+        // action so a notification about it can deep-link to that card — sharing
+        // 'uploaded_document' sent the HEI to the requirements list instead.
+        ActivityLog::log(
+            $requirementId ? 'uploaded_document' : 'uploaded_rc_letter',
+            'Uploaded '.$file->getClientOriginalName().' for '.$documentType.' in liquidation '.$liquidation->control_no,
+            $liquidation,
+            'Liquidation',
+        );
 
         return response()->json(['message' => 'Document uploaded successfully.', 'success' => true]);
     }
@@ -1733,7 +1753,16 @@ class LiquidationController extends Controller
             'uploaded_by' => $request->user()->id,
         ]);
 
-        ActivityLog::log('added_gdrive_link', 'Added Google Drive link for liquidation '.$liquidation->control_no, $liquidation, 'Liquidation');
+        // Names the requirement so several links added to one liquidation are
+        // tellable apart. Without it a reviewer saw the same sentence repeated
+        // once per upload and had to open the record to find out what arrived —
+        // the PDF path already named its file, this one did not.
+        ActivityLog::log(
+            'added_gdrive_link',
+            'Added Google Drive link for '.$requirement->name.' in liquidation '.$liquidation->control_no,
+            $liquidation,
+            'Liquidation',
+        );
 
         return response()->json(['message' => 'Google Drive link added successfully.', 'success' => true]);
     }
@@ -1795,10 +1824,22 @@ class LiquidationController extends Controller
             Storage::disk('s3')->delete($document->file_path);
         }
 
+        // Captured before the delete. document_type carries the requirement name,
+        // which matters most for Drive links: those are stored with the literal
+        // file_name "Google Drive Link", so the old message named nothing at all.
         $documentName = $document->file_name;
+        $documentType = $document->document_type;
+        // Captured before the delete too: it decides which section the resulting
+        // notification points at, the same split as the upload above.
+        $wasRequirementDocument = (bool) $document->document_requirement_id;
         $document->delete();
 
-        ActivityLog::log('deleted_document', 'Deleted document '.$documentName.' from liquidation '.$liquidation->control_no, $liquidation, 'Liquidation');
+        ActivityLog::log(
+            $wasRequirementDocument ? 'deleted_document' : 'deleted_rc_letter',
+            'Deleted '.$documentName.' for '.$documentType.' from liquidation '.$liquidation->control_no,
+            $liquidation,
+            'Liquidation',
+        );
 
         return redirect()->back()->with('success', 'Document deleted successfully.');
     }
@@ -2038,7 +2079,7 @@ class LiquidationController extends Controller
 
         // Detect which fields changed by comparing incoming request data against old snapshot
         $trackingFieldMap = [
-            'document_status' => ['label' => 'Status of Documents',   'db_field' => 'document_status_id',   'lookup' => $docStatusMap],
+            'document_status' => ['label' => 'Status of Documents',   'db_field' => 'document_status_id',   'lookup' => $docStatusMap, 'fallback' => $noneId],
             'received_by' => ['label' => 'Received by',           'db_field' => 'received_by'],
             'date_received' => ['label' => 'Date Received',         'db_field' => 'date_received'],
             'document_location' => ['label' => 'Document Location'],
@@ -2046,7 +2087,7 @@ class LiquidationController extends Controller
             'date_reviewed' => ['label' => 'Date Reviewed',         'db_field' => 'date_reviewed'],
             'rc_note' => ['label' => 'RC Note',               'db_field' => 'rc_note'],
             'date_endorsement' => ['label' => 'Date of Endorsement',   'db_field' => 'date_endorsement'],
-            'liquidation_status' => ['label' => 'Status of Liquidation', 'db_field' => 'liquidation_status_id', 'lookup' => $liqStatusMap],
+            'liquidation_status' => ['label' => 'Status of Liquidation', 'db_field' => 'liquidation_status_id', 'lookup' => $liqStatusMap, 'fallback' => $unliquidatedId],
         ];
 
         $changedFields = [];
@@ -2077,9 +2118,13 @@ class LiquidationController extends Controller
 
                 $dbField = $config['db_field'];
 
-                // For lookup fields (status name → UUID), resolve incoming name to UUID
+                // For lookup fields (status name → UUID), resolve incoming name to UUID.
+                // The fallback has to match what the upsert above actually wrote: an
+                // unrecognised name is stored as $noneId / $unliquidatedId, so comparing
+                // it against '' would report a change on every save even when the row
+                // never moved — and notify the HEI for it.
                 if (isset($config['lookup'])) {
-                    $incomingValue = (string) ($config['lookup'][$incomingValue] ?? '');
+                    $incomingValue = (string) ($config['lookup'][$incomingValue] ?? $config['fallback'] ?? '');
                 }
 
                 // Normalize: cast old DB value to string, trim dates of time portion for date-only fields
@@ -2103,7 +2148,16 @@ class LiquidationController extends Controller
         }
 
         $changedFields = array_values(array_unique($changedFields));
-        $fieldSummary = ! empty($changedFields) ? ' ('.implode(', ', $changedFields).')' : '';
+
+        // Nothing actually moved, so there is nothing to announce. ActivityLog::log()
+        // is what dispatches the HEI notification, so skipping it here stops both the
+        // phantom log line ("Updated document tracking" when nothing was) and the
+        // notification that used to fire every time someone pressed Save out of habit.
+        if (empty($changedFields)) {
+            return redirect()->back()->with('info', 'No changes to save.');
+        }
+
+        $fieldSummary = ' ('.implode(', ', $changedFields).')';
 
         ActivityLog::log(
             'updated_tracking',
@@ -2242,7 +2296,13 @@ class LiquidationController extends Controller
         }
 
         $changedRunningFields = array_values(array_unique($changedRunningFields));
-        $runningFieldSummary = ! empty($changedRunningFields) ? ' ('.implode(', ', $changedRunningFields).')' : '';
+
+        // Same rule as document tracking above: no change, no log, no notification.
+        if (empty($changedRunningFields)) {
+            return redirect()->back()->with('info', 'No changes to save.');
+        }
+
+        $runningFieldSummary = ' ('.implode(', ', $changedRunningFields).')';
 
         ActivityLog::log(
             'updated_running_data',
@@ -2544,6 +2604,19 @@ class LiquidationController extends Controller
             ->get(['id', 'name', 'avatar', 'region_id']);
     }
 
+    /**
+     * Serialize a timestamp for the frontend as an ISO 8601 string carrying the
+     * Asia/Manila offset (e.g. "2026-08-04T13:30:00+08:00").
+     *
+     * A bare 'Y-m-d H:i:s' has no timezone marker, so the browser reads the digits
+     * as its own local time and the value lands hours off. Matching the ISO format
+     * already used for announcements keeps every timestamp unambiguous.
+     */
+    private function toManilaIso(?CarbonInterface $value): ?string
+    {
+        return $value?->copy()->setTimezone('Asia/Manila')->toIso8601String();
+    }
+
     private function formatLiquidationDetails(Liquidation $liquidation, Collection $requirements, bool $isHEIUser): array
     {
         $financial = $liquidation->financial;
@@ -2604,7 +2677,7 @@ class LiquidationController extends Controller
             'folder_location_number' => $transmittal?->folder_location_number,
             'group_transmittal' => $transmittal?->group_transmittal,
             'reviewed_by_name' => $liquidation->reviewer?->name ?? $transmittal?->endorser?->name,
-            'reviewed_at' => $liquidation->reviewed_at?->format('Y-m-d H:i:s') ?? $transmittal?->endorsed_at?->format('Y-m-d H:i:s'),
+            'reviewed_at' => $this->toManilaIso($liquidation->reviewed_at) ?? $this->toManilaIso($transmittal?->endorsed_at),
             'date_fund_released' => $financial?->date_fund_released?->format('Y-m-d'),
             'due_date' => $financial?->due_date?->format('Y-m-d'),
             'fund_source' => $financial?->fund_source,
@@ -2614,10 +2687,10 @@ class LiquidationController extends Controller
             'lapsing_period' => $financial?->lapsing_period ?? 0,
             'document_status' => $liquidation->documentStatus?->name ?? 'N/A',
             'liquidation_status' => $liquidation->liquidationStatus?->name ?? 'Unliquidated',
-            'date_submitted' => $liquidation->date_submitted?->format('Y-m-d H:i:s'),
-            'coa_endorsed_at' => $liquidation->coa_endorsed_at?->format('Y-m-d H:i:s'),
+            'date_submitted' => $this->toManilaIso($liquidation->date_submitted),
+            'coa_endorsed_at' => $this->toManilaIso($liquidation->coa_endorsed_at),
             'accountant_reviewed_by_name' => $liquidation->accountantReviewer?->name,
-            'accountant_reviewed_at' => $liquidation->accountant_reviewed_at?->format('Y-m-d H:i:s'),
+            'accountant_reviewed_at' => $this->toManilaIso($liquidation->accountant_reviewed_at),
             'rc_endorsement_remarks' => $liquidation->getRcEndorsementRemarks(),
             'accountant_endorsement_remarks' => $liquidation->getAccountantEndorsementRemarks(),
             'updated_at' => $liquidation->updated_at?->toIso8601String(),
@@ -2651,7 +2724,7 @@ class LiquidationController extends Controller
                     'file_name' => $doc->file_name,
                     'file_path' => $doc->file_path,
                     'file_size' => $doc->file_size,
-                    'uploaded_at' => $doc->created_at->format('Y-m-d H:i:s'),
+                    'uploaded_at' => $this->toManilaIso($doc->created_at),
                     'is_gdrive' => $doc->is_gdrive ?? false,
                     'gdrive_link' => $doc->gdrive_link,
                 ])

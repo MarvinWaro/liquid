@@ -6,7 +6,9 @@ namespace App\Http\Controllers;
 
 use App\Models\ActivityLog;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
 
@@ -32,33 +34,8 @@ class ActivityLogController extends Controller
 
         $filters = $request->only(['search', 'user', 'action', 'module', 'date_from', 'date_to']);
 
-        $query = ActivityLog::query()
+        $query = $this->filteredQuery($filters, $user, $scopedToOwn)
             ->orderBy('created_at', 'desc');
-
-        if (! empty($filters['search'])) {
-            $query->search($filters['search']);
-        }
-        // Self-scoped viewers are locked to their own activity; any ?user= override
-        // is ignored. Full-access viewers may filter by a chosen user.
-        if ($scopedToOwn) {
-            $query->byUser($user->id);
-        } elseif (! empty($filters['user']) && $filters['user'] !== 'all') {
-            $query->byUser($filters['user']);
-        }
-        if (! empty($filters['action']) && $filters['action'] !== 'all') {
-            $query->byAction($filters['action']);
-        }
-        // Hide logout entries from the default feed to keep it compact, but still
-        // surface them when the user explicitly filters by the Logout action.
-        if (($filters['action'] ?? null) !== 'logout') {
-            $query->where('action', '!=', 'logout');
-        }
-        if (! empty($filters['module']) && $filters['module'] !== 'all') {
-            $query->byModule($filters['module']);
-        }
-        if (! empty($filters['date_from']) || ! empty($filters['date_to'])) {
-            $query->byDateRange($filters['date_from'] ?? null, $filters['date_to'] ?? null);
-        }
 
         $logs = $query->with('user:id,name,avatar')->paginate(25)->through(fn ($log) => [
             'id' => $log->id,
@@ -97,6 +74,151 @@ class ActivityLogController extends Controller
             'modules' => $modules,
             'filters' => $filters,
             'scopedToOwn' => $scopedToOwn,
+
+            // Deferred so the table paints immediately. activity_logs grows without
+            // bound, so these aggregates must never sit in front of first paint.
+            'insights' => Inertia::defer(fn () => [
+                'trend' => $this->activityTrend($filters, $user, $scopedToOwn),
+                'actions' => $this->actionsBreakdown($filters, $user, $scopedToOwn),
+                // A one-bar chart of yourself is noise, so self-scoped viewers do
+                // not get this computed at all — not merely hidden in the browser.
+                'topUsers' => $scopedToOwn ? null : $this->topUsers($filters, $user, $scopedToOwn),
+                'trendRangeLabel' => $this->trendRangeLabel($filters),
+            ], 'insights'),
         ]);
+    }
+
+    /**
+     * The one place the log feed is narrowed down.
+     *
+     * Both the paginated table and every chart start here, so a filter can never
+     * apply to one and not the other — a chart reporting 500 events above a table
+     * showing 12 would make the whole page untrustworthy.
+     */
+    private function filteredQuery(array $filters, User $user, bool $scopedToOwn): Builder
+    {
+        $query = ActivityLog::query();
+
+        if (! empty($filters['search'])) {
+            $query->search($filters['search']);
+        }
+        // Self-scoped viewers are locked to their own activity; any ?user= override
+        // is ignored. Full-access viewers may filter by a chosen user.
+        if ($scopedToOwn) {
+            $query->byUser($user->id);
+        } elseif (! empty($filters['user']) && $filters['user'] !== 'all') {
+            $query->byUser($filters['user']);
+        }
+        if (! empty($filters['action']) && $filters['action'] !== 'all') {
+            $query->byAction($filters['action']);
+        }
+        // Hide logout entries from the default feed to keep it compact, but still
+        // surface them when the user explicitly filters by the Logout action.
+        if (($filters['action'] ?? null) !== 'logout') {
+            $query->where('action', '!=', 'logout');
+        }
+        if (! empty($filters['module']) && $filters['module'] !== 'all') {
+            $query->byModule($filters['module']);
+        }
+        if (! empty($filters['date_from']) || ! empty($filters['date_to'])) {
+            $query->byDateRange($filters['date_from'] ?? null, $filters['date_to'] ?? null);
+        }
+
+        return $query;
+    }
+
+    /**
+     * Daily counts for the trend chart.
+     *
+     * When no date filter is set this looks back 30 days rather than over all of
+     * history: an unbounded series would be unreadable and would grow slower every
+     * month. The window is spelled out on the chart via trendRangeLabel().
+     */
+    private function activityTrend(array $filters, User $user, bool $scopedToOwn): array
+    {
+        $query = $this->filteredQuery($filters, $user, $scopedToOwn);
+
+        if (empty($filters['date_from']) && empty($filters['date_to'])) {
+            $query->where('created_at', '>=', now('Asia/Manila')->subDays(29)->startOfDay());
+        }
+
+        $day = $this->manilaDayExpression();
+
+        return $query->selectRaw("{$day} as date, COUNT(*) as count")
+            ->groupByRaw($day)
+            ->orderByRaw($day)
+            ->get()
+            ->map(fn ($row) => [
+                'date' => (string) $row->date,
+                'count' => (int) $row->count,
+            ])
+            ->all();
+    }
+
+    /**
+     * Counts per action, biggest first.
+     */
+    private function actionsBreakdown(array $filters, User $user, bool $scopedToOwn): array
+    {
+        return $this->filteredQuery($filters, $user, $scopedToOwn)
+            ->selectRaw('action, COUNT(*) as count')
+            ->groupBy('action')
+            ->orderByDesc('count')
+            ->get()
+            ->map(fn ($row) => [
+                'action' => (string) $row->action,
+                'count' => (int) $row->count,
+            ])
+            ->all();
+    }
+
+    /**
+     * The eight busiest people in the current filter.
+     */
+    private function topUsers(array $filters, User $user, bool $scopedToOwn): array
+    {
+        return $this->filteredQuery($filters, $user, $scopedToOwn)
+            ->selectRaw('user_name, COUNT(*) as count')
+            ->whereNotNull('user_name')
+            ->groupBy('user_name')
+            ->orderByDesc('count')
+            ->limit(8)
+            ->get()
+            ->map(fn ($row) => [
+                'name' => (string) $row->user_name,
+                'count' => (int) $row->count,
+            ])
+            ->all();
+    }
+
+    private function trendRangeLabel(array $filters): string
+    {
+        if (empty($filters['date_from']) && empty($filters['date_to'])) {
+            return 'Last 30 days';
+        }
+
+        return 'Selected range';
+    }
+
+    /**
+     * SQL that buckets created_at into a Philippine calendar day.
+     *
+     * Timestamps are stored in UTC (config/app.php), so grouping on the raw column
+     * would push everything logged after 4:00 PM Manila into the next day's bar and
+     * disagree with the timestamps printed in the table. The Philippines has no
+     * daylight saving, so a flat +8 is exact — and unlike CONVERT_TZ it needs no
+     * timezone tables loaded in MySQL.
+     *
+     * Driver-aware because production runs MySQL while the test suite runs SQLite
+     * (see phpunit.xml); a query that only worked on one would hide the bug in the
+     * other. The expression is a fixed string — no user input reaches it.
+     */
+    private function manilaDayExpression(): string
+    {
+        return match (DB::connection()->getDriverName()) {
+            'sqlite' => "date(created_at, '+8 hours')",
+            'pgsql' => "date(created_at + interval '8 hours')",
+            default => 'DATE(created_at + INTERVAL 8 HOUR)',
+        };
     }
 }

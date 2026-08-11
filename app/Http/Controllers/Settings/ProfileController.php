@@ -9,9 +9,11 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use Throwable;
 
 class ProfileController extends Controller
 {
@@ -53,7 +55,7 @@ class ProfileController extends Controller
 
         if ($request->hasFile('avatar')) {
             if ($user->avatar) {
-                Storage::disk('s3')->delete($user->avatar);
+                $this->forgetAvatarFile($user->avatar);
             }
 
             $path = $request->file('avatar')->store('avatars', 's3');
@@ -82,7 +84,7 @@ class ProfileController extends Controller
         $user = $request->user();
 
         if ($user->avatar) {
-            Storage::disk('s3')->delete($user->avatar);
+            $this->forgetAvatarFile($user->avatar);
             $user->avatar = null;
             $user->save();
 
@@ -105,7 +107,7 @@ class ProfileController extends Controller
         $user = $request->user();
 
         if ($user->avatar) {
-            Storage::disk('s3')->delete($user->avatar);
+            $this->forgetAvatarFile($user->avatar);
         }
 
         Auth::logout();
@@ -116,5 +118,38 @@ class ProfileController extends Controller
         $request->session()->regenerateToken();
 
         return redirect('/');
+    }
+
+    /**
+     * Remove an old avatar from storage, tolerating a file that is no longer there.
+     *
+     * The s3 disk is configured with 'throw' => true (config/filesystems.php), so a
+     * failed delete raises UnableToDeleteFile instead of returning false. That made
+     * a stale avatar path fatal: replacing your picture would 500 and the profile —
+     * name and email included — could not be saved at all.
+     *
+     * Deleting the previous file is cleanup. Whether it succeeds has no bearing on
+     * whether the user's new details are valid, so it must never abort the request.
+     * Still logged, so a genuinely misconfigured bucket surfaces rather than every
+     * failure disappearing quietly.
+     *
+     * Scoped to avatars on purpose. The same unguarded call exists elsewhere for
+     * liquidation documents, where losing a file silently would matter more and
+     * deserves its own think.
+     */
+    private function forgetAvatarFile(?string $path): void
+    {
+        if (! $path) {
+            return;
+        }
+
+        try {
+            Storage::disk('s3')->delete($path);
+        } catch (Throwable $e) {
+            Log::warning('Could not delete old avatar; continuing.', [
+                'path' => $path,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 }

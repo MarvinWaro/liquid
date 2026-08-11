@@ -71,7 +71,11 @@ export function TemplateModal({ isOpen, onClose, template }: TemplateModalProps)
         } else {
             reset();
         }
+        // Loads the opened template into the form and clears the previously chosen
+        // file name. Guarded by isOpen, so it runs once per opening.
         setSelectedFileName(null);
+    // reset/setData come from Inertia's useForm; adding them would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [template, isOpen]);
 
     const handleSubmit = (e: React.FormEvent) => {

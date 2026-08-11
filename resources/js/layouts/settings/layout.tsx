@@ -131,7 +131,12 @@ export default function SettingsLayout({ children, wide = false }: SettingsLayou
     const filterByAbility = (items: AdminNavItem[]) =>
         items.filter((item) => !item.ability || can[item.ability] === true);
 
+    // filterByAbility is redefined each render but reads only `can`, which is the
+    // dep already listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const filteredUserManagement = useMemo(() => filterByAbility(userManagementNavItems), [can]);
+    // Same as above: filterByAbility reads only `can`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const filteredSystemConfig = useMemo(() => filterByAbility(systemConfigNavItems), [can]);
 
     // When server-side rendering, we only render the layout on the client...
