@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class ActivityLog extends Model
@@ -188,13 +189,44 @@ class ActivityLog extends Model
         return $query->where('module', $module);
     }
 
+    /**
+     * SQL that buckets created_at into a Philippine calendar day.
+     *
+     * Timestamps are stored in UTC (config/app.php), so comparing the raw column
+     * would push everything logged after 4:00 PM Manila onto the next day and
+     * disagree with the timestamps printed in the table. The Philippines has no
+     * daylight saving, so a flat +8 is exact — and unlike CONVERT_TZ it needs no
+     * timezone tables loaded in MySQL.
+     *
+     * Driver-aware because production runs MySQL while the test suite runs SQLite
+     * (see phpunit.xml); a query that only worked on one would hide the bug in the
+     * other. The expression is a fixed string — no user input reaches it.
+     *
+     * Lives on the model so the date filter and the insight charts share one
+     * definition. They used to hold separate copies, and only the charts were
+     * corrected — which is exactly how the filter came to disagree with the list.
+     */
+    public static function manilaDayExpression(): string
+    {
+        return match (DB::connection()->getDriverName()) {
+            'sqlite' => "date(created_at, '+8 hours')",
+            'pgsql' => "date(created_at + interval '8 hours')",
+            default => 'DATE(created_at + INTERVAL 8 HOUR)',
+        };
+    }
+
     public function scopeByDateRange(Builder $query, ?string $from, ?string $to): Builder
     {
+        // Compared as Philippine days on both sides. whereDate() on the raw column
+        // matched the UTC date, so a login at 06:19 Manila (22:19 UTC the previous
+        // day) was invisible when filtering for the date the table displayed.
+        $day = self::manilaDayExpression();
+
         if ($from) {
-            $query->whereDate('created_at', '>=', $from);
+            $query->whereRaw("{$day} >= ?", [$from]);
         }
         if ($to) {
-            $query->whereDate('created_at', '<=', $to);
+            $query->whereRaw("{$day} <= ?", [$to]);
         }
 
         return $query;

@@ -8,7 +8,6 @@ use App\Models\ActivityLog;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
 
@@ -139,7 +138,12 @@ class ActivityLogController extends Controller
         $query = $this->filteredQuery($filters, $user, $scopedToOwn);
 
         if (empty($filters['date_from']) && empty($filters['date_to'])) {
-            $query->where('created_at', '>=', now('Asia/Manila')->subDays(29)->startOfDay());
+            // ->utc() matters: Laravel formats a bound date in the instance's own
+            // timezone, so a Manila-midnight Carbon would be written as its wall
+            // clock and compared against a UTC column — opening the window 8 hours
+            // late and dropping that morning's activity. The intent is unchanged:
+            // 29 days back from midnight in Manila.
+            $query->where('created_at', '>=', now('Asia/Manila')->subDays(29)->startOfDay()->utc());
         }
 
         $day = $this->manilaDayExpression();
@@ -203,22 +207,12 @@ class ActivityLogController extends Controller
     /**
      * SQL that buckets created_at into a Philippine calendar day.
      *
-     * Timestamps are stored in UTC (config/app.php), so grouping on the raw column
-     * would push everything logged after 4:00 PM Manila into the next day's bar and
-     * disagree with the timestamps printed in the table. The Philippines has no
-     * daylight saving, so a flat +8 is exact — and unlike CONVERT_TZ it needs no
-     * timezone tables loaded in MySQL.
-     *
-     * Driver-aware because production runs MySQL while the test suite runs SQLite
-     * (see phpunit.xml); a query that only worked on one would hide the bug in the
-     * other. The expression is a fixed string — no user input reaches it.
+     * Defined on ActivityLog so the date filter (scopeByDateRange) and these charts
+     * cannot drift apart — a second copy here is what let the filter keep comparing
+     * raw UTC after the charts were corrected.
      */
     private function manilaDayExpression(): string
     {
-        return match (DB::connection()->getDriverName()) {
-            'sqlite' => "date(created_at, '+8 hours')",
-            'pgsql' => "date(created_at + interval '8 hours')",
-            default => 'DATE(created_at + INTERVAL 8 HOUR)',
-        };
+        return ActivityLog::manilaDayExpression();
     }
 }
