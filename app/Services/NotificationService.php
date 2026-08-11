@@ -26,6 +26,8 @@ class NotificationService
         'uploaded_document',
         'added_gdrive_link',
         'deleted_document',
+        'uploaded_rc_letter',
+        'deleted_rc_letter',
         'imported_beneficiaries',
         'bulk_imported',
         'toggled_status',

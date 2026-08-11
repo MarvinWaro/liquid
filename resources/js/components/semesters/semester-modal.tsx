@@ -50,6 +50,8 @@ export function SemesterModal({ isOpen, onClose, semester }: SemesterModalProps)
         } else {
             reset();
         }
+    // reset/setData come from Inertia's useForm; adding them would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [semester, isOpen]);
 
     const handleSubmit = (e: React.FormEvent) => {

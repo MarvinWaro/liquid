@@ -1,27 +1,36 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
-use Inertia\Inertia;
-use App\Http\Controllers\Auth\GoogleAuthController;
-use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\RoleController;
-use App\Http\Controllers\UserController;
-use App\Http\Controllers\HEIController;
-use App\Http\Controllers\RegionController;
-use App\Http\Controllers\AnnouncementController;
-use App\Http\Controllers\BulkEntryDraftController;
-use App\Http\Controllers\LiquidationController;
-use App\Http\Controllers\ProgramController;
-use App\Http\Controllers\ActivityLogController;
-use App\Http\Controllers\DocumentRequirementController;
-use App\Http\Controllers\TemplateController;
-use App\Http\Controllers\LiquidationCommentController;
-use App\Http\Controllers\NotificationController;
-use App\Http\Controllers\SemesterController;
 use App\Http\Controllers\AcademicYearController;
 use App\Http\Controllers\AcademicYearRequirementController;
-use App\Http\Controllers\SupportTicketController;
+use App\Http\Controllers\ActivityLogController;
+use App\Http\Controllers\AnnouncementCommentController;
+use App\Http\Controllers\AnnouncementController;
+use App\Http\Controllers\Auth\GoogleAuthController;
+use App\Http\Controllers\BulkEntryDraftController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DocumentRequirementController;
+use App\Http\Controllers\HEIController;
+use App\Http\Controllers\LiquidationCommentController;
+use App\Http\Controllers\LiquidationController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\ProgramController;
+use App\Http\Controllers\RegionController;
 use App\Http\Controllers\ReportAssistantController;
+use App\Http\Controllers\ReportJobController;
+use App\Http\Controllers\RoleController;
+use App\Http\Controllers\SemesterController;
+use App\Http\Controllers\SupportTicketController;
+use App\Http\Controllers\TemplateController;
+use App\Http\Controllers\UserController;
+use App\Models\AcademicYear;
+use App\Models\DocumentStatus;
+use App\Models\HEI;
+use App\Models\LiquidationStatus;
+use App\Models\RcNoteStatus;
+use App\Models\Region;
+use App\Services\CacheService;
+use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
 
 Route::get('/', [AnnouncementController::class, 'welcome'])->name('home');
 
@@ -41,11 +50,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('announcement/{announcement:slug}', [AnnouncementController::class, 'destroy'])->name('announcements.destroy');
 
     // Announcement Comments (threaded + mentions)
-    Route::get('announcement/{announcement:slug}/comments', [\App\Http\Controllers\AnnouncementCommentController::class, 'index'])->name('announcement-comments.index');
-    Route::post('announcement/{announcement:slug}/comments', [\App\Http\Controllers\AnnouncementCommentController::class, 'store'])->name('announcement-comments.store');
-    Route::delete('announcement/{announcement:slug}/comments/{comment}', [\App\Http\Controllers\AnnouncementCommentController::class, 'destroy'])->name('announcement-comments.destroy');
-    Route::post('announcement/{announcement:slug}/comments/{comment}/react', [\App\Http\Controllers\AnnouncementCommentController::class, 'toggleReaction'])->name('announcement-comments.react');
-    Route::get('announcement/{announcement:slug}/mentionable-users', [\App\Http\Controllers\AnnouncementCommentController::class, 'mentionableUsers'])->name('announcement-comments.mentionable-users');
+    Route::get('announcement/{announcement:slug}/comments', [AnnouncementCommentController::class, 'index'])->name('announcement-comments.index');
+    Route::post('announcement/{announcement:slug}/comments', [AnnouncementCommentController::class, 'store'])->name('announcement-comments.store');
+    Route::delete('announcement/{announcement:slug}/comments/{comment}', [AnnouncementCommentController::class, 'destroy'])->name('announcement-comments.destroy');
+    Route::get('announcement/{announcement:slug}/comments/{comment}/replies', [AnnouncementCommentController::class, 'replies'])->name('announcement-comments.replies');
+    Route::post('announcement/{announcement:slug}/comments/{comment}/react', [AnnouncementCommentController::class, 'toggleReaction'])->name('announcement-comments.react');
+    Route::get('announcement/{announcement:slug}/mentionable-users', [AnnouncementCommentController::class, 'mentionableUsers'])->name('announcement-comments.mentionable-users');
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('contact-support', [SupportTicketController::class, 'index'])->name('contact-support');
     Route::post('contact-support/tickets', [SupportTicketController::class, 'store'])
@@ -64,7 +74,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         // HEIs — scope by role: HEI users see only their institution; RCs see only their region.
         // Eager-load one user with an avatar so we can fall back to user_avatar when the HEI has no logo
         // (mirrors HEIController::index so report cards match HEI Management).
-        $heisQuery = \App\Models\HEI::with([
+        $heisQuery = HEI::with([
             'region:id,code,name',
             'users' => fn ($q) => $q->whereNotNull('avatar')->select('id', 'hei_id', 'avatar')->limit(1),
         ])->orderBy('name');
@@ -79,12 +89,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
                 unset($hei->users);
             });
 
-        $regions = \App\Models\Region::where('status', 'active')
+        $regions = Region::where('status', 'active')
             ->orderBy('name')
             ->get(['id', 'code', 'name']);
 
         // Role-scoped selectable programs (mirrors LiquidationController's createPrograms logic).
-        $allPrograms = app(\App\Services\CacheService::class)->getSelectablePrograms();
+        $allPrograms = app(CacheService::class)->getSelectablePrograms();
         if (in_array($roleName, ['Regional Coordinator', 'Encoder'])) {
             $programs = $allPrograms
                 ->filter(fn ($p) => $p->parent_id === null && ($p->children_count ?? 0) === 0)
@@ -102,10 +112,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
             'heis' => $heis,
             'regions' => $regions,
             'programs' => $programs,
-            'academicYears' => \App\Models\AcademicYear::getDropdownOptions(),
-            'rcNoteStatuses' => \App\Models\RcNoteStatus::getDropdownOptions(),
-            'documentStatuses' => \App\Models\DocumentStatus::orderBy('sort_order')->get(['id', 'code', 'name']),
-            'liquidationStatuses' => \App\Models\LiquidationStatus::orderBy('sort_order')->get(['id', 'code', 'name']),
+            'academicYears' => AcademicYear::getDropdownOptions(),
+            'rcNoteStatuses' => RcNoteStatus::getDropdownOptions(),
+            'documentStatuses' => DocumentStatus::orderBy('sort_order')->get(['id', 'code', 'name']),
+            'liquidationStatuses' => LiquidationStatus::orderBy('sort_order')->get(['id', 'code', 'name']),
             'canFilterByRegion' => in_array($roleName, ['Super Admin', 'Admin']),
             'userRole' => $roleName,
         ]);
@@ -236,12 +246,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Async Report Pipeline — queue a Print/Excel/CSV job, then download via the
     // notification that fires when it's ready. Survives page refresh; uses the
     // existing notification dropdown to surface "report ready" to the user.
-    Route::post('reports/queue', [\App\Http\Controllers\ReportJobController::class, 'queue'])->name('reports.queue');
-    Route::get('reports/status/{requestId}', [\App\Http\Controllers\ReportJobController::class, 'status'])
+    Route::post('reports/queue', [ReportJobController::class, 'queue'])->name('reports.queue');
+    Route::get('reports/status/{requestId}', [ReportJobController::class, 'status'])
         ->whereUuid('requestId')
         ->name('reports.status');
-    Route::get('reports/download/{notification}', [\App\Http\Controllers\ReportJobController::class, 'download'])->name('reports.download');
-    Route::post('reports/notifications/{notification}/claim-delivery', [\App\Http\Controllers\ReportJobController::class, 'claimDelivery'])->name('reports.claim-delivery');
+    Route::get('reports/download/{notification}', [ReportJobController::class, 'download'])->name('reports.download');
+    Route::post('reports/notifications/{notification}/claim-delivery', [ReportJobController::class, 'claimDelivery'])->name('reports.claim-delivery');
 
     // RC Bulk Liquidation Routes
     Route::get('liquidation/rc-template/download', [LiquidationController::class, 'downloadRCTemplate'])->name('liquidation.download-rc-template');

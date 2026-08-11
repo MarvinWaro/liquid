@@ -1689,8 +1689,12 @@ class LiquidationController extends Controller
         // scan uploaded against two requirements produced two identical entries,
         // so a reviewer had to open the record to tell them apart. $documentType
         // is the requirement's own name, already resolved above.
+        // An RC letter is the branch with no requirement behind it, and it lives in
+        // its own card rather than under Document Requirements. It gets its own
+        // action so a notification about it can deep-link to that card — sharing
+        // 'uploaded_document' sent the HEI to the requirements list instead.
         ActivityLog::log(
-            'uploaded_document',
+            $requirementId ? 'uploaded_document' : 'uploaded_rc_letter',
             'Uploaded '.$file->getClientOriginalName().' for '.$documentType.' in liquidation '.$liquidation->control_no,
             $liquidation,
             'Liquidation',
@@ -1825,10 +1829,13 @@ class LiquidationController extends Controller
         // file_name "Google Drive Link", so the old message named nothing at all.
         $documentName = $document->file_name;
         $documentType = $document->document_type;
+        // Captured before the delete too: it decides which section the resulting
+        // notification points at, the same split as the upload above.
+        $wasRequirementDocument = (bool) $document->document_requirement_id;
         $document->delete();
 
         ActivityLog::log(
-            'deleted_document',
+            $wasRequirementDocument ? 'deleted_document' : 'deleted_rc_letter',
             'Deleted '.$documentName.' for '.$documentType.' from liquidation '.$liquidation->control_no,
             $liquidation,
             'Liquidation',
@@ -2072,7 +2079,7 @@ class LiquidationController extends Controller
 
         // Detect which fields changed by comparing incoming request data against old snapshot
         $trackingFieldMap = [
-            'document_status' => ['label' => 'Status of Documents',   'db_field' => 'document_status_id',   'lookup' => $docStatusMap],
+            'document_status' => ['label' => 'Status of Documents',   'db_field' => 'document_status_id',   'lookup' => $docStatusMap, 'fallback' => $noneId],
             'received_by' => ['label' => 'Received by',           'db_field' => 'received_by'],
             'date_received' => ['label' => 'Date Received',         'db_field' => 'date_received'],
             'document_location' => ['label' => 'Document Location'],
@@ -2080,7 +2087,7 @@ class LiquidationController extends Controller
             'date_reviewed' => ['label' => 'Date Reviewed',         'db_field' => 'date_reviewed'],
             'rc_note' => ['label' => 'RC Note',               'db_field' => 'rc_note'],
             'date_endorsement' => ['label' => 'Date of Endorsement',   'db_field' => 'date_endorsement'],
-            'liquidation_status' => ['label' => 'Status of Liquidation', 'db_field' => 'liquidation_status_id', 'lookup' => $liqStatusMap],
+            'liquidation_status' => ['label' => 'Status of Liquidation', 'db_field' => 'liquidation_status_id', 'lookup' => $liqStatusMap, 'fallback' => $unliquidatedId],
         ];
 
         $changedFields = [];
@@ -2111,9 +2118,13 @@ class LiquidationController extends Controller
 
                 $dbField = $config['db_field'];
 
-                // For lookup fields (status name → UUID), resolve incoming name to UUID
+                // For lookup fields (status name → UUID), resolve incoming name to UUID.
+                // The fallback has to match what the upsert above actually wrote: an
+                // unrecognised name is stored as $noneId / $unliquidatedId, so comparing
+                // it against '' would report a change on every save even when the row
+                // never moved — and notify the HEI for it.
                 if (isset($config['lookup'])) {
-                    $incomingValue = (string) ($config['lookup'][$incomingValue] ?? '');
+                    $incomingValue = (string) ($config['lookup'][$incomingValue] ?? $config['fallback'] ?? '');
                 }
 
                 // Normalize: cast old DB value to string, trim dates of time portion for date-only fields
@@ -2137,7 +2148,16 @@ class LiquidationController extends Controller
         }
 
         $changedFields = array_values(array_unique($changedFields));
-        $fieldSummary = ! empty($changedFields) ? ' ('.implode(', ', $changedFields).')' : '';
+
+        // Nothing actually moved, so there is nothing to announce. ActivityLog::log()
+        // is what dispatches the HEI notification, so skipping it here stops both the
+        // phantom log line ("Updated document tracking" when nothing was) and the
+        // notification that used to fire every time someone pressed Save out of habit.
+        if (empty($changedFields)) {
+            return redirect()->back()->with('info', 'No changes to save.');
+        }
+
+        $fieldSummary = ' ('.implode(', ', $changedFields).')';
 
         ActivityLog::log(
             'updated_tracking',
@@ -2276,7 +2296,13 @@ class LiquidationController extends Controller
         }
 
         $changedRunningFields = array_values(array_unique($changedRunningFields));
-        $runningFieldSummary = ! empty($changedRunningFields) ? ' ('.implode(', ', $changedRunningFields).')' : '';
+
+        // Same rule as document tracking above: no change, no log, no notification.
+        if (empty($changedRunningFields)) {
+            return redirect()->back()->with('info', 'No changes to save.');
+        }
+
+        $runningFieldSummary = ' ('.implode(', ', $changedRunningFields).')';
 
         ActivityLog::log(
             'updated_running_data',

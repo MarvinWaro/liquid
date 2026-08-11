@@ -53,6 +53,9 @@ export const DashboardCalendar = memo(function DashboardCalendar({ dueDates, tod
     const [visibleCount, setVisibleCount] = useState(DUE_LIST_PAGE_SIZE);
     // Reset page whenever the effective (deferred) search changes.
     useEffect(() => {
+        // Paging back to the first page when the search term changes. Deliberate: the
+        // old offset is meaningless against a different result set.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setVisibleCount(DUE_LIST_PAGE_SIZE);
     }, [deferredDueListSearch]);
 

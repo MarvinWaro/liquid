@@ -59,6 +59,9 @@ export function AcademicYearModal({ isOpen, onClose, academicYear }: AcademicYea
         } else {
             reset();
         }
+    // Inertia's useForm returns reset/setData; listing them re-runs this on every
+    // render. The effect is keyed on which record the modal opened with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [academicYear, isOpen]);
 
     const generatedCode = `${data.start_year}-${data.start_year + 1}`;

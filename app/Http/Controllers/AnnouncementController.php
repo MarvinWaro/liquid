@@ -179,7 +179,14 @@ class AnnouncementController extends Controller
     // Announcement CRUD
     // ---------------------------------------------------------------------
 
-    public function index()
+    /**
+     * How many announcements load at once. Previously the whole table came back
+     * on every visit, and each post costs a signed cover URL, so the page grew
+     * heavier with every post ever published.
+     */
+    private const POSTS_PER_PAGE = 12;
+
+    public function index(Request $request)
     {
         $user = auth()->user();
         $userRole = $user->role?->name;
@@ -197,14 +204,27 @@ class AnnouncementController extends Controller
             }
         }
 
-        $posts = $query
+        $page = max(1, (int) $request->query('page', '1'));
+
+        $paginator = $query
             ->orderByDesc('is_featured')
             ->orderByDesc('published_at')
-            ->get()
-            ->map(fn (Announcement $a) => $this->toListPayload($a));
+            ->paginate(self::POSTS_PER_PAGE, ['*'], 'page', $page);
+
+        $posts = collect($paginator->items())
+            ->map(fn (Announcement $a) => $this->toListPayload($a))
+            ->values();
 
         return Inertia::render('announcement', [
-            'posts' => $posts,
+            // merge() appends on a partial reload instead of replacing, which is
+            // what makes "Load more" accumulate. The featured post keeps its place
+            // because the ordering is unchanged and page 1 always loads first.
+            'posts' => Inertia::merge($posts),
+            'pagination' => [
+                'page' => $paginator->currentPage(),
+                'has_more' => $paginator->hasMorePages(),
+                'total' => $paginator->total(),
+            ],
             'permissions' => [
                 'create' => $user?->hasPermission('create_announcements') ?? false,
                 'edit' => $user?->hasPermission('edit_announcements') ?? false,

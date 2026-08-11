@@ -119,6 +119,7 @@ const actionColors: Record<string, string> = {
     returned_to_hei: 'border-orange-200 bg-orange-50 text-orange-700',
     returned_to_rc: 'border-orange-200 bg-orange-50 text-orange-700',
     uploaded_document: 'border-cyan-200 bg-cyan-50 text-cyan-700',
+    uploaded_rc_letter: 'border-cyan-200 bg-cyan-50 text-cyan-700',
     added_gdrive_link: 'border-cyan-200 bg-cyan-50 text-cyan-700',
     deleted_document: 'border-red-200 bg-red-50 text-red-700',
     bulk_imported: 'border-teal-200 bg-teal-50 text-teal-700',
@@ -142,6 +143,7 @@ const actionLeftBorder: Record<string, string> = {
     returned_to_hei: 'border-l-orange-500',
     returned_to_rc: 'border-l-orange-500',
     uploaded_document: 'border-l-cyan-500',
+    uploaded_rc_letter: 'border-l-cyan-500',
     added_gdrive_link: 'border-l-cyan-500',
     deleted_document: 'border-l-red-500',
     bulk_imported: 'border-l-teal-500',
@@ -430,7 +432,10 @@ export default function Index({
                                         <p className="mb-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
                                             Actions Breakdown
                                         </p>
-                                        <ActionsBreakdownChart data={insights?.actions} />
+                                        <ActionsBreakdownChart
+                                            data={insights?.actions}
+                                            onSelect={(action) => applyFilter('action', action)}
+                                        />
                                     </div>
 
                                     {!scopedToOwn && (

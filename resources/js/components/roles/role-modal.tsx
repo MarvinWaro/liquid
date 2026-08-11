@@ -71,8 +71,12 @@ export function RoleModal({ isOpen, onClose, role, permissions }: RoleModalProps
                 reset();
             }
             clearErrors();
+            // Loads the opened role into the form and collapses the permission groups.
+            // Guarded by isOpen, so it runs once per opening.
             setCollapsedCategories(new Set());
         }
+    // reset/setData/clearErrors come from Inertia's useForm; adding them would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, role]);
 
     const handleSubmit = (e: React.FormEvent) => {

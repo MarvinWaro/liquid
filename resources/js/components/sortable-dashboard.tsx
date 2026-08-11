@@ -7,7 +7,7 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { GripVertical, Maximize2, Minimize2, Plus, RotateCcw, Square, X } from 'lucide-react';
+import { GripVertical, Maximize2, Minimize2, Plus, RotateCcw, X } from 'lucide-react';
 import { memo, type ReactNode, useEffect, useRef } from 'react';
 import Sortable from 'sortablejs';
 
@@ -25,7 +25,15 @@ export function SortableDashboard({ children, onOrderChange, className }: Sortab
     const containerRef = useRef<HTMLDivElement>(null);
     const sortableRef = useRef<Sortable | null>(null);
     const cbRef = useRef(onOrderChange);
-    cbRef.current = onOrderChange;
+    // Assigned after commit, not during render. Sortable is created once with an
+    // empty dep array, so onEnd needs a way to reach the *current* callback — but
+    // writing the ref during render would also record callbacks from renders React
+    // abandoned, and a drag could then save an order built from state that was
+    // never committed. onEnd only fires from a user drag, always post-commit, so
+    // an effect is both safe and equivalent.
+    useEffect(() => {
+        cbRef.current = onOrderChange;
+    });
 
     useEffect(() => {
         if (!containerRef.current) return;

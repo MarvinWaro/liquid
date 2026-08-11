@@ -42,7 +42,7 @@ function isImageFile(name: string): boolean {
 
 function renderBody(body: string) {
     // First pass: split by mentions
-    const mentionParts: (string | JSX.Element)[] = [];
+    const mentionParts: (string | React.JSX.Element)[] = [];
     let lastIndex = 0;
     const mentionRegex = new RegExp(MENTION_REGEX.source, 'g');
     let match: RegExpExecArray | null;
@@ -59,7 +59,7 @@ function renderBody(body: string) {
     if (lastIndex < body.length) mentionParts.push(body.slice(lastIndex));
 
     // Second pass: split string parts by URLs
-    const result: (string | JSX.Element)[] = [];
+    const result: (string | React.JSX.Element)[] = [];
     let keyIdx = 0;
 
     for (const part of mentionParts) {
@@ -121,6 +121,9 @@ function CommentAttachment({ url, name, size }: { url: string; name: string; siz
         if (!isImage || !previewOpen) return;
 
         const controller = new AbortController();
+        // Marking the request in-flight before it starts, then clearing the previous
+        // error. Standard fetch bookkeeping, and the AbortController below cancels it.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setLoading(true);
         setError(null);
 
@@ -146,6 +149,9 @@ function CommentAttachment({ url, name, size }: { url: string; name: string; siz
     useEffect(() => {
         if (!previewOpen && blobUrl) {
             URL.revokeObjectURL(blobUrl);
+            // Cleanup: the object URL is revoked, so the state pointing at it must be
+            // dropped too or the component would render a dead blob: URL.
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setBlobUrl(null);
             setError(null);
         }
@@ -368,6 +374,9 @@ export default function RequirementCommentThread({
                 setExpanded(true);
             }
         }
+    // Runs when the caller asks for the thread to start open. loadComments is
+    // redefined each render and is not what should re-trigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [defaultExpanded]);
 
     const toggle = useCallback(async () => {
@@ -461,6 +470,9 @@ export default function RequirementCommentThread({
                 handleSubmit();
             }
         },
+        // Same shape as comment-section: handleSubmit is declared further down, and
+        // insertMention already carries `body` into this handler.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [mentionQuery, mentionUsers, mentionIndex, insertMention],
     );
 

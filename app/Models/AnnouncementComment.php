@@ -68,6 +68,17 @@ class AnnouncementComment extends Model
      */
     public const REACTOR_NAMES_LIMIT = 10;
 
+    /**
+     * How many direct replies a comment ships with.
+     *
+     * The thread already hides replies behind a "View N replies" toggle, but it
+     * used to send every one of them anyway — and each reply costs a signed
+     * avatar URL to format. A comment with 300 replies paid for all 300 before
+     * the reader had asked for any. The rest load on demand from the replies
+     * endpoint.
+     */
+    public const REPLIES_PREVIEW = 3;
+
     public function reactions(): HasMany
     {
         // Oldest first, so the names in the tooltip stay in a stable order
@@ -119,7 +130,7 @@ class AnnouncementComment extends Model
      * Format this comment for API / Inertia responses.
      * Prefer the allReplies relation (includes trashed) when loaded, fall back to replies.
      */
-    public function format(?string $viewerId = null): array
+    public function format(?string $viewerId = null, ?int $replyLimit = self::REPLIES_PREVIEW): array
     {
         $reactions = $this->relationLoaded('reactions') ? $this->reactions : collect();
         $isDeleted = ! is_null($this->deleted_at);
@@ -129,6 +140,12 @@ class AnnouncementComment extends Model
             $this->relationLoaded('replies') => 'replies',
             default => null,
         };
+
+        $allReplies = $repliesKey ? $this->$repliesKey : collect();
+        // Counted before truncating, and across the whole subtree, so the
+        // "View N replies" label still shows the real total.
+        $repliesTotal = self::countDescendants($allReplies, $repliesKey);
+        $shownReplies = $replyLimit === null ? $allReplies : $allReplies->take($replyLimit);
 
         return [
             'id' => $this->id,
@@ -145,9 +162,29 @@ class AnnouncementComment extends Model
             'reactions_count' => $isDeleted ? 0 : $reactions->count(),
             'has_reacted' => $isDeleted ? false : ($viewerId ? $reactions->contains('user_id', $viewerId) : false),
             'reactor_names' => $isDeleted ? [] : self::reactorNames($reactions, $viewerId),
-            'replies' => $repliesKey
-                ? $this->$repliesKey->map(fn ($r) => $r->format($viewerId))->toArray()
-                : [],
+            'replies' => $shownReplies->map(fn ($r) => $r->format($viewerId, $replyLimit))->values()->toArray(),
+            'replies_total' => $repliesTotal,
+            'replies_has_more' => $allReplies->count() > $shownReplies->count(),
         ];
+    }
+
+    /**
+     * Total replies beneath a comment, including replies of replies.
+     *
+     * @param  Collection<int, self>  $replies
+     */
+    private static function countDescendants(Collection $replies, ?string $repliesKey): int
+    {
+        if ($repliesKey === null) {
+            return 0;
+        }
+
+        return $replies->reduce(
+            fn (int $carry, self $reply) => $carry + 1 + self::countDescendants(
+                $reply->relationLoaded($repliesKey) ? $reply->$repliesKey : collect(),
+                $repliesKey,
+            ),
+            0,
+        );
     }
 }

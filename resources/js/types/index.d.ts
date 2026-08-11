@@ -28,6 +28,19 @@ export interface NavItem {
     children?: NavItem[];
 }
 
+/**
+ * A nav entry that is shown or hidden by a permission.
+ *
+ * `Omit` matters: NavItem already declares `children?: NavItem[]`, and
+ * intersecting that with a narrower children type leaves TypeScript resolving
+ * `.filter()` callbacks to the plain NavItem, which then has no `ability`.
+ * Dropping the property before redefining it avoids that collision.
+ */
+export type NavItemWithAbility = Omit<NavItem, 'children'> & {
+    ability?: keyof NavigationAbilities;
+    children?: NavItemWithAbility[];
+};
+
 export interface NavigationAbilities {
     canViewDashboard: boolean;
     canViewLiquidation: boolean;

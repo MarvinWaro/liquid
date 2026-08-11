@@ -2,6 +2,7 @@ import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
+import { ImageWithSkeleton } from '@/components/ui/image-with-skeleton';
 import { ArrowLeft, Calendar, Pencil, Trash2, User as UserIcon } from 'lucide-react';
 import {
     AlertDialog,
@@ -122,13 +123,32 @@ export default function ShowAnnouncement() {
                     </div>
 
                     <article className="rounded-xl border bg-card shadow-sm overflow-hidden">
-                        {(post.cover_original || post.cover_display) && (
+                        {(post.cover_display || post.cover_original) && (
                             <div className="w-full bg-muted flex justify-center">
-                                <img
-                                    src={post.cover_original ?? post.cover_display ?? ''}
-                                    alt=""
-                                    className="w-full h-auto object-contain"
-                                />
+                                {/*
+                                    Renders the 1600px WebP, not the raw upload — measured
+                                    at 206 KB against 2,333 KB for the same picture, and
+                                    indistinguishable at this width. The original is still
+                                    one click away for anyone who needs to zoom in.
+
+                                    fill={false}: this cover's height comes from the image
+                                    itself, so the skeleton holds the space in flow rather
+                                    than overlaying a box that does not exist yet.
+                                */}
+                                <a
+                                    href={post.cover_original ?? post.cover_display ?? ''}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title="Open the full-size image"
+                                    className="block w-full cursor-zoom-in"
+                                >
+                                    <ImageWithSkeleton
+                                        src={post.cover_display ?? post.cover_original ?? ''}
+                                        className="w-full h-auto object-contain"
+                                        fill={false}
+                                        skeletonClassName="h-64 sm:h-96 rounded-none"
+                                    />
+                                </a>
                             </div>
                         )}
                         <div className="p-6 sm:p-10 space-y-6">

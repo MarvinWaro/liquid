@@ -93,10 +93,14 @@ export function ShowLiquidationModal({ isOpen, onClose, liquidation, permissions
 
     useEffect(() => {
         if (isOpen && liquidation?.id) {
+            // Fetches the opened liquidation's items, and clears them on close. Syncing
+            // with the server is what effects are for.
             refreshItems();
         } else {
             setItems([]);
         }
+    // refreshItems is redefined each render; keying on the record is the intent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, liquidation]);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

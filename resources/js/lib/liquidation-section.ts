@@ -29,6 +29,15 @@ const DOCUMENT_ACTIONS = [
 ];
 
 /**
+ * Actions on an RC letter. These are documents too, but they live in their own
+ * card above Document Requirements, so they need their own destination.
+ */
+const RC_LETTER_ACTIONS = [
+    'uploaded_rc_letter',
+    'deleted_rc_letter',
+];
+
+/**
  * The URL fragment for an action on a liquidation, or '' for the top of the page.
  *
  * `documentRequirementId` deep-links a comment action to its specific thread.
@@ -50,6 +59,7 @@ export function liquidationSectionHash(
 
     if (action === 'updated_tracking') return '#document-tracking';
     if (action === 'updated_running_data') return '#running-data';
+    if (RC_LETTER_ACTIONS.includes(action)) return '#rc-letters';
     if (DOCUMENT_ACTIONS.includes(action)) return '#document-requirements';
 
     return '';

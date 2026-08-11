@@ -86,6 +86,9 @@ class HandleInertiaRequests extends Middleware
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
+                // Neutral channel for outcomes that are neither a win nor a
+                // failure, e.g. "nothing changed, so nothing was saved".
+                'info' => fn () => $request->session()->get('info'),
             ],
 
             'notifications_unread_count' => fn () => $user

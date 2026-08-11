@@ -27,6 +27,7 @@ import {
     type BreadcrumbItem,
     type NavigationAbilities,
     type NavItem,
+    type NavItemWithAbility,
     type SharedData,
 } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
@@ -44,7 +45,7 @@ import { HatGlasses } from '@/components/icons/hat-glasses';
 import { useMemo } from 'react';
 
 // Define all navigation items with their required ability key
-const allNavItems: (NavItem & { ability?: keyof NavigationAbilities; children?: (NavItem & { ability?: keyof NavigationAbilities })[] })[] = [
+const allNavItems: NavItemWithAbility[] = [
     {
         title: 'Announcement',
         href: '/announcement',
@@ -133,7 +134,12 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
     const { urlIsActive } = useActiveUrl();
     const { toggleLayout } = useLayoutPreference();
 
-    const can = page.props.can || {
+    // Partial: the fallback lists only a few keys, and indexing an incomplete
+    // literal with keyof NavigationAbilities is what produced the implicit any.
+    // `can` is rebuilt each render by the || fallback, so it can never be a stable
+    // dep. The nav is derived from it purely, so a recompute is harmless.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const can: Partial<NavigationAbilities> = page.props.can || {
         canViewDashboard: false,
         canViewLiquidation: false,
         canViewRoles: false,

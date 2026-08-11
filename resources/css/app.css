@@ -95,6 +95,20 @@
     --chart-3: oklch(0.398 0.07 227.392);
     --chart-4: oklch(0.828 0.189 84.429);
     --chart-5: oklch(0.769 0.188 70.08);
+
+    /* Activity Logs ramp — neutral, darkest first, so the insights match the
+       greyscale UI instead of the stock shadcn palette. Shade doubles as size:
+       the biggest slice is the darkest.
+
+       Deliberately separate from --chart-*: the dashboard and Liqui plot several
+       categories on one chart (Disbursed vs Liquidated vs Unliquidated), where
+       distinguishable hues carry real meaning. Here the legend labels every
+       slice, so colour only has to look like it belongs. */
+    --activity-1: oklch(0.28 0 0);
+    --activity-2: oklch(0.42 0 0);
+    --activity-3: oklch(0.56 0 0);
+    --activity-4: oklch(0.7 0 0);
+    --activity-5: oklch(0.82 0 0);
     --radius: 0.625rem;
     --sidebar: oklch(0.961 0 0);                     /* gray-100 — matches header */
     --sidebar-foreground: oklch(0.27 0.01 260);      /* dark text */
@@ -132,6 +146,14 @@
     --chart-3: oklch(0.769 0.188 70.08);
     --chart-4: oklch(0.627 0.265 303.9);
     --chart-5: oklch(0.645 0.246 16.439);
+
+    /* Same ramp inverted: on a dark ground the biggest slice is the lightest,
+       so "darkest = biggest" becomes "strongest = biggest" in both themes. */
+    --activity-1: oklch(0.93 0 0);
+    --activity-2: oklch(0.78 0 0);
+    --activity-3: oklch(0.63 0 0);
+    --activity-4: oklch(0.5 0 0);
+    --activity-5: oklch(0.38 0 0);
     --sidebar: oklch(0.07 0 0);                 /* matches background */
     --sidebar-foreground: oklch(0.93 0 0);
     --sidebar-primary: oklch(0.93 0 0);

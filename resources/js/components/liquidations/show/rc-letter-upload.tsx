@@ -84,6 +84,9 @@ export default function RcLetterUpload({ liquidationId, documents, userRole, isS
             setIsUploading(false);
             if (fileInputRef.current) fileInputRef.current.value = '';
         }
+    // isFocalContext is derived from props that cannot change without this whole
+    // component re-rendering with new props anyway.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [liquidationId, canUploadMore, maxUploadBytes]);
 
     const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -113,7 +116,9 @@ export default function RcLetterUpload({ liquidationId, documents, userRole, isS
     }, []);
 
     return (
-        <Card className="mb-3">
+        // The anchor a notification about an RC letter scrolls to. Must stay in
+        // step with RC_LETTER_ACTIONS in lib/liquidation-section.ts.
+        <Card id="rc-letters" className="mb-3">
             <CardHeader className="flex flex-row items-center justify-between pb-3">
                 <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-md bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">

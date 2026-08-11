@@ -305,6 +305,9 @@ export default function Requirements({ academicYear, groupedRequirements, otherY
 
     // Re-sync local state when props refresh (after save/copy/reset)
     useEffect(() => {
+        // Re-syncs the editable rows after Inertia sends fresh props (save, copy or
+        // reset). Without it the table would keep showing pre-save values.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setRows(buildRows(groupedRequirements));
         setGroups(groupedRequirements);
     }, [groupedRequirements, buildRows]);

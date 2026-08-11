@@ -11,13 +11,13 @@ import {
 } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 import { dashboard } from '@/routes';
-import { type NavItem, type SharedData, type NavigationAbilities } from '@/types';
+import { type NavItemWithAbility, type SharedData, type NavigationAbilities } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
 import { FileText, LayoutGrid, BarChart3, Megaphone, FileBarChart } from 'lucide-react';
 import { HatGlasses } from '@/components/icons/hat-glasses';
 
 // Define all navigation items with their required ability key
-const allNavItems: (NavItem & { ability?: keyof NavigationAbilities; children?: (NavItem & { ability?: keyof NavigationAbilities })[] })[] = [
+const allNavItems: NavItemWithAbility[] = [
     {
         title: 'Announcement',
         href: '/announcement',
@@ -69,7 +69,10 @@ const allNavItems: (NavItem & { ability?: keyof NavigationAbilities; children?: 
 
 export function AppSidebar() {
     const page = usePage<SharedData>();
-    const can = page.props.can || {
+    // Partial, because the fallback below deliberately lists only a few keys —
+    // typing it as the full NavigationAbilities would be a lie, and indexing an
+    // incomplete literal is what produced the implicit-any error.
+    const can: Partial<NavigationAbilities> = page.props.can || {
         canViewDashboard: false,
         canViewLiquidation: false,
         canViewRoles: false,

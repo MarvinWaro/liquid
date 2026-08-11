@@ -68,6 +68,26 @@ interface Props {
 export const RecentLiquidationsTable = memo(function RecentLiquidationsTable({ data }: Props) {
     const [search, setSearch] = useState('');
 
+    // Declared before the loading bail-out below, because every hook has to run
+    // on every render. `data` is a deferred prop: the dashboard keeps this
+    // component mounted and swaps undefined for the real array once it arrives
+    // (dashboard.tsx passes `chartsLoading ? undefined : recentLiquidations`).
+    // With the useMemo after the early return, that swap took the hook count
+    // from one to two on the same instance, which is the "Rendered more hooks
+    // than during the previous render" crash.
+    const filtered = useMemo(() => {
+        if (!data) return [];
+        if (!search.trim()) return data;
+        const q = search.toLowerCase();
+        return data.filter(item =>
+            item.control_no.toLowerCase().includes(q) ||
+            item.hei?.name.toLowerCase().includes(q) ||
+            item.academic_year.toLowerCase().includes(q) ||
+            item.semester.toLowerCase().includes(q) ||
+            item.status.toLowerCase().includes(q),
+        );
+    }, [data, search]);
+
     if (!data) {
         return (
             <div>
@@ -89,18 +109,6 @@ export const RecentLiquidationsTable = memo(function RecentLiquidationsTable({ d
             </div>
         );
     }
-
-    const filtered = useMemo(() => {
-        if (!search.trim()) return data;
-        const q = search.toLowerCase();
-        return data.filter(item =>
-            item.control_no.toLowerCase().includes(q) ||
-            item.hei?.name.toLowerCase().includes(q) ||
-            item.academic_year.toLowerCase().includes(q) ||
-            item.semester.toLowerCase().includes(q) ||
-            item.status.toLowerCase().includes(q),
-        );
-    }, [data, search]);
 
     return (
         <div>

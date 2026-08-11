@@ -60,7 +60,9 @@ export const TopUsersChart = memo(function TopUsersChart({ data }: Props) {
                             className="h-full rounded-full transition-all"
                             style={{
                                 width: `${Math.max((user.count / max) * 100, 2)}%`,
-                                background: 'var(--chart-1)',
+                                // Single series again: match the app's own
+                                // foreground rather than a chart palette hue.
+                                background: 'var(--primary)',
                             }}
                         />
                     </div>

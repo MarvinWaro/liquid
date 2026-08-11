@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
@@ -130,7 +129,6 @@ interface Props {
     canReview?: boolean;
     userRole?: string;
     regionalCoordinators?: User[];
-    accountants?: User[];
 }
 
 export function ViewLiquidationModal({
@@ -142,7 +140,6 @@ export function ViewLiquidationModal({
     canReview = false,
     userRole = '',
     regionalCoordinators = [],
-    accountants = []
 }: Props) {
     const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -179,25 +176,16 @@ export function ViewLiquidationModal({
         });
     }, [liquidation, onClose]);
 
-    const handleEndorseToAccounting = useCallback((data: {
-        reviewRemarks: string;
-        receiverName: string;
-        documentLocation: string;
-        transmittalRefNo: string;
-        numberOfFolders: string;
-        folderLocationNumber: string;
-        groupTransmittal: string;
-    }) => {
+    // Only the remark travels. EndorseToAccountingModal calls onSubmit({ reviewRemarks })
+    // and EndorseToAccountingRequest validates review_remarks alone, so the transmittal
+    // fields this used to send were undefined on the wire and dropped by validated().
+    // They belong to ReturnToHEIModal, which does collect them. pages/liquidation/show.tsx
+    // already declares this same handler correctly.
+    const handleEndorseToAccounting = useCallback((data: { reviewRemarks: string }) => {
         if (!liquidation) return;
         setIsProcessing(true);
         router.post(route('liquidation.endorse-to-accounting', liquidation.id), {
             review_remarks: data.reviewRemarks,
-            receiver_name: data.receiverName,
-            document_location: data.documentLocation,
-            transmittal_reference_no: data.transmittalRefNo,
-            number_of_folders: data.numberOfFolders ? parseInt(data.numberOfFolders) : null,
-            folder_location_number: data.folderLocationNumber,
-            group_transmittal: data.groupTransmittal,
         }, {
             onSuccess: () => {
                 setIsProcessing(false);
@@ -949,7 +937,6 @@ export function ViewLiquidationModal({
             onClose={() => setIsEndorseModalOpen(false)}
             onSubmit={handleEndorseToAccounting}
             isProcessing={isProcessing}
-            accountants={accountants}
         />
 
         {/* Return to HEI Modal */}

@@ -129,11 +129,18 @@ function toSupportTicketLiquidationOption(liquidation: Liquidation): SupportTick
 // (pagination, filter changes, partial reloads) can keep rendering the
 // previous data instead of flashing a skeleton on every request.
 function useStaleWhileRevalidate<T>(value: T | undefined): T | undefined {
-    const ref = useRef<T | undefined>(value);
-    if (value !== undefined) {
-        ref.current = value;
+    // Held in state rather than a ref. The returned value decides what the table
+    // renders, and a ref written during render also captures renders React threw
+    // away — so a discarded response could end up on screen. Setting state during
+    // render is React's sanctioned way to adjust on a changed prop: it re-renders
+    // immediately, before anything is committed, so there is no flash.
+    const [retained, setRetained] = useState<T | undefined>(value);
+
+    if (value !== undefined && !Object.is(value, retained)) {
+        setRetained(value);
     }
-    return ref.current;
+
+    return value !== undefined ? value : retained;
 }
 
 /** Deferred props whose in-flight refreshes drive the "Refreshing" indicator. */
@@ -401,7 +408,8 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                 return prev;
             }
             const next = new Set(prev);
-            checked ? next.add(id) : next.delete(id);
+            if (checked) next.add(id);
+            else next.delete(id);
             return next;
         });
     }, [MAX_SELECTION]);
@@ -896,6 +904,48 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
 
 /* ── Table + Pagination (only renders when liquidations is loaded) ── */
 
+type SortProps = {
+    sortKey: SortKey | null;
+    sortDir: 'asc' | 'desc';
+    onSort: (key: SortKey) => void;
+};
+
+function SortIcon({ col, sortKey, sortDir }: { col: SortKey } & Omit<SortProps, 'onSort'>) {
+    if (sortKey !== col) return <ChevronsUpDown className="h-3 w-3 ml-1 opacity-40" />;
+    return sortDir === 'asc'
+        ? <ChevronUp className="h-3 w-3 ml-1 text-primary" />
+        : <ChevronDown className="h-3 w-3 ml-1 text-primary" />;
+}
+
+/**
+ * A header cell that sorts on click.
+ *
+ * Declared at module scope on purpose. Defined inside the table's render it was a
+ * brand-new component type on every render, so React tore down and rebuilt all
+ * eleven header cells each time instead of updating them. Non-sortable columns
+ * keep their plain TableHead and are unaffected.
+ */
+function SortableHead({ col, label, className = '', align = 'left', sortKey, sortDir, onSort }: {
+    col: SortKey;
+    label: React.ReactNode;
+    className?: string;
+    align?: 'left' | 'right' | 'center';
+} & SortProps) {
+    const alignCls = align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start';
+    return (
+        <TableHead
+            className={`h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase cursor-pointer select-none hover:text-foreground transition-colors ${className}`}
+            onClick={() => onSort(col)}
+            aria-sort={sortKey === col ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+        >
+            <span className={`inline-flex items-center ${alignCls} w-full`}>
+                {label}
+                <SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
+            </span>
+        </TableHead>
+    );
+}
+
 const LiquidationTable = React.memo(function LiquidationTable({
     liquidations,
     pinnedLiquidations,
@@ -925,7 +975,7 @@ const LiquidationTable = React.memo(function LiquidationTable({
     onVoid: (l: Liquidation) => void;
     onRestore: (l: Liquidation) => void;
     onEndorse: (l: Liquidation) => void;
-    onCreateSupportTicket: (l: Liquidation) => void;
+    onCreateSupportTicket?: (l: Liquidation) => void;
     onTogglePin: (l: Liquidation) => void;
     lastImportCount: number | null;
     onDismissImport: () => void;
@@ -933,35 +983,9 @@ const LiquidationTable = React.memo(function LiquidationTable({
     sortDir: 'asc' | 'desc';
     onSort: (key: SortKey) => void;
 }) {
-    const renderSortIcon = (key: SortKey) => {
-        if (sortKey !== key) return <ChevronsUpDown className="h-3 w-3 ml-1 opacity-40" />;
-        return sortDir === 'asc'
-            ? <ChevronUp className="h-3 w-3 ml-1 text-primary" />
-            : <ChevronDown className="h-3 w-3 ml-1 text-primary" />;
-    };
-
-    // Wrapper that makes a header cell clickable and renders the sort icon.
-    // Non-sortable columns keep their original static TableHead and are unaffected.
-    const SortableHead = ({ col, label, className = '', align = 'left' }: {
-        col: SortKey;
-        label: React.ReactNode;
-        className?: string;
-        align?: 'left' | 'right' | 'center';
-    }) => {
-        const alignCls = align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start';
-        return (
-            <TableHead
-                className={`h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase cursor-pointer select-none hover:text-foreground transition-colors ${className}`}
-                onClick={() => onSort(col)}
-                aria-sort={sortKey === col ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-            >
-                <span className={`inline-flex items-center ${alignCls} w-full`}>
-                    {label}
-                    {renderSortIcon(col)}
-                </span>
-            </TableHead>
-        );
-    };
+    // Bundled so the eleven header cells below stay terse. A plain object is fine
+    // as props — unlike a component, its identity does not affect reconciliation.
+    const sortProps = { sortKey, sortDir, onSort };
     const pageSelectableIds = liquidations.data
         .filter(l => !l.is_voided && !l.is_endorsed)
         .map(l => l.id);
@@ -1033,20 +1057,20 @@ const LiquidationTable = React.memo(function LiquidationTable({
                                     />
                                 )}
                             </TableHead>
-                            <SortableHead col="program" label="Program" />
-                            <SortableHead col="hei" label="HEI" className="max-w-[300px]" />
+                            <SortableHead {...sortProps} col="program" label="Program" />
+                            <SortableHead {...sortProps} col="hei" label="HEI" className="max-w-[300px]" />
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Period</TableHead>
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">Dates</TableHead>
-                            <SortableHead col="batch" label="Batch" />
-                            <SortableHead col="control_no" label="Control / Ledger No." />
-                            <SortableHead col="grantees" label="Grantees" className="text-right" align="right" />
-                            <SortableHead col="disbursements" label="Disbursements" className="text-right" align="right" />
-                            <SortableHead col="liquidated" label="Liquidated" className="text-right" align="right" />
-                            <SortableHead col="unliquidated" label="Unliquidated" className="text-right" align="right" />
-                            <SortableHead col="document_status" label="Documents Status" />
+                            <SortableHead {...sortProps} col="batch" label="Batch" />
+                            <SortableHead {...sortProps} col="control_no" label="Control / Ledger No." />
+                            <SortableHead {...sortProps} col="grantees" label="Grantees" className="text-right" align="right" />
+                            <SortableHead {...sortProps} col="disbursements" label="Disbursements" className="text-right" align="right" />
+                            <SortableHead {...sortProps} col="liquidated" label="Liquidated" className="text-right" align="right" />
+                            <SortableHead {...sortProps} col="unliquidated" label="Unliquidated" className="text-right" align="right" />
+                            <SortableHead {...sortProps} col="document_status" label="Documents Status" />
                             <TableHead className="h-9 text-xs font-medium tracking-wider text-muted-foreground uppercase">RC Notes</TableHead>
-                            <SortableHead col="liquidation_status" label="Liquidation Status" />
-                            <SortableHead col="percentage" label={<>Percentage of<br />Liquidation</>} className="text-center px-3 leading-tight" align="center" />
+                            <SortableHead {...sortProps} col="liquidation_status" label="Liquidation Status" />
+                            <SortableHead {...sortProps} col="percentage" label={<>Percentage of<br />Liquidation</>} className="text-center px-3 leading-tight" align="center" />
                             <TableHead className="h-9 text-right text-xs font-medium tracking-wider text-muted-foreground uppercase">Lapsing</TableHead>
                             <TableHead className="h-9 text-right pr-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">Actions</TableHead>
                         </TableRow>

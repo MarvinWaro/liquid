@@ -17,7 +17,10 @@ export interface ActivityTrendPoint {
 const chartConfig = {
     count: {
         label: 'Actions',
-        color: 'var(--chart-1)',
+        // One series, so colour encodes nothing — using the same token as the
+        // sidebar's active state makes the chart read as part of the UI rather
+        // than a stock widget dropped into it.
+        color: 'var(--primary)',
     },
 } satisfies ChartConfig;
 

@@ -1,8 +1,10 @@
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
+import { useState } from 'react';
 import { Calendar, ChevronRight, Megaphone, Pencil, Plus, Trash2, User as UserIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ImageWithSkeleton } from '@/components/ui/image-with-skeleton';
 import { cn } from '@/lib/utils';
 import {
     AlertDialog,
@@ -48,6 +50,7 @@ const focalStyle = (post: Post): React.CSSProperties => ({
 
 interface PageProps {
     posts: Post[];
+    pagination?: { page: number; has_more: boolean; total: number };
     permissions: { create: boolean; edit: boolean; delete: boolean };
     [key: string]: unknown;
 }
@@ -84,7 +87,21 @@ function StatusBadge({ status }: { status: PostStatus }) {
 }
 
 export default function Announcement() {
-    const { posts, permissions: can } = usePage<PageProps>().props;
+    const { posts, pagination, permissions: can } = usePage<PageProps>().props;
+    const [loadingMore, setLoadingMore] = useState(false);
+
+    // Inertia::merge appends the next page onto `posts`, so this only has to ask
+    // for the next page number and let the prop grow.
+    const loadMore = () => {
+        if (loadingMore || !pagination?.has_more) return;
+        setLoadingMore(true);
+        // reload() already preserves scroll and state, so the grid grows in place.
+        router.reload({
+            only: ['posts', 'pagination'],
+            data: { page: (pagination?.page ?? 1) + 1 },
+            onFinish: () => setLoadingMore(false),
+        });
+    };
 
     const featured = posts.find((p) => p.is_featured) ?? null;
     // Sidebar only renders when a featured post exists — so only dedupe against
@@ -187,6 +204,14 @@ export default function Announcement() {
                             </div>
                         </section>
                     )}
+
+                    {pagination?.has_more && (
+                        <div className="flex justify-center pt-2">
+                            <Button variant="outline" onClick={loadMore} disabled={loadingMore}>
+                                {loadingMore ? 'Loading...' : `Load more (${pagination.total - posts.length} left)`}
+                            </Button>
+                        </div>
+                    )}
                 </div>
             </div>
         </AppLayout>
@@ -199,9 +224,8 @@ function HeroFeatured({ post, can, onDelete }: { post: Post; can: PageProps['per
     return (
         <article className="relative overflow-hidden rounded-lg group h-full min-h-[340px] flex flex-col">
             {post.cover_display ? (
-                <img
+                <ImageWithSkeleton
                     src={post.cover_display}
-                    alt=""
                     className="absolute inset-0 h-full w-full object-cover rounded-lg transition-transform duration-500 group-hover:scale-105"
                     style={focalStyle(post)}
                 />
@@ -266,9 +290,8 @@ function SidebarCard({
         return (
             <article className="relative overflow-hidden rounded-lg group flex flex-col min-h-0 shadow-sm hover:shadow-lg transition-shadow">
                 {post.cover_display ? (
-                    <img
+                    <ImageWithSkeleton
                         src={post.cover_display}
-                        alt=""
                         className="absolute inset-0 h-full w-full object-cover rounded-lg transition-transform duration-500 group-hover:scale-105"
                         loading="lazy"
                         style={focalStyle(post)}
@@ -317,7 +340,7 @@ function SidebarCard({
         <article className={cn('flex gap-3 group min-h-0 items-center', variant === 'compact' ? 'py-2 first:pt-0 last:pb-0' : 'py-3 first:pt-0 last:pb-0')}>
             <Link href={`/announcement/${post.slug}`} className="shrink-0 relative self-center">
                 {post.cover_thumb ? (
-                    <img src={post.cover_thumb} alt="" className={cn(thumbClass, 'rounded-lg object-cover')} loading="lazy" style={focalStyle(post)} />
+                    <ImageWithSkeleton src={post.cover_thumb} className={cn(thumbClass, 'rounded-lg object-cover')} loading="lazy" style={focalStyle(post)} />
                 ) : (
                     <div className={cn(thumbClass, 'rounded-lg flex items-center justify-center', PLACEHOLDER_BG)}>
                         <Megaphone className="h-5 w-5 text-muted-foreground/30" />
@@ -358,9 +381,8 @@ function PostCard({ post, can, onDelete }: { post: Post; can: PageProps['permiss
     return (
         <article className={`relative overflow-hidden rounded-lg group h-64 flex flex-col shadow-sm hover:shadow-lg transition-shadow ${post.status === 'expired' ? 'opacity-60' : ''}`}>
             {post.cover_thumb ? (
-                <img
+                <ImageWithSkeleton
                     src={post.cover_thumb}
-                    alt=""
                     className="absolute inset-0 h-full w-full object-cover rounded-lg transition-transform duration-500 group-hover:scale-105"
                     loading="lazy"
                     style={focalStyle(post)}

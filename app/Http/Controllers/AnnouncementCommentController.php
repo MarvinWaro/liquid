@@ -152,6 +152,35 @@ class AnnouncementCommentController extends Controller
     }
 
     /**
+     * Every reply beneath one comment.
+     *
+     * The thread ships only the first few replies per comment (see
+     * AnnouncementComment::REPLIES_PREVIEW). This backs the "View N replies"
+     * toggle, so the full subtree is only ever built for the one comment a reader
+     * actually opened.
+     */
+    public function replies(Request $request, Announcement $announcement, AnnouncementComment $comment): JsonResponse
+    {
+        abort_unless($comment->announcement_id === $announcement->id, 404);
+        $this->ensureVisible($request, $announcement);
+
+        $comment->load([
+            'allReplies.user.role',
+            'allReplies.reactions.user:id,name',
+            'allReplies.allReplies.user.role',
+            'allReplies.allReplies.reactions.user:id,name',
+        ]);
+
+        // null lifts the preview cap for this subtree only.
+        $formatted = $comment->format($request->user()?->id, null);
+
+        return response()->json([
+            'success' => true,
+            'replies' => $formatted['replies'],
+        ]);
+    }
+
+    /**
      * Toggle heart reaction on a comment (like/unlike).
      */
     public function toggleReaction(Request $request, Announcement $announcement, AnnouncementComment $comment): JsonResponse

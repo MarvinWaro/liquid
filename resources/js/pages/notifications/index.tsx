@@ -2,7 +2,7 @@ import { NotificationItem } from '@/components/notification-item';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
 import { type AppNotification, type BreadcrumbItem } from '@/types';
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import axios from 'axios';
 import { Bell, CheckCheck, Search, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';

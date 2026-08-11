@@ -143,6 +143,8 @@ export function DocumentRequirementModal({
                 reference_image: null,
                 remove_reference_image: false,
             });
+            // Loads the opened record into the form. Guarded by isOpen above, so it runs
+            // once per opening rather than on every render.
             setPreviewUrl(requirement.reference_image_url ?? null);
         } else {
             reset();
@@ -151,6 +153,8 @@ export function DocumentRequirementModal({
                 setData('program_id', defaultProgramId);
             }
         }
+    // reset/setData come from Inertia's useForm; adding them would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [requirement, isOpen]);
 
     const handleSubmit = (e: React.FormEvent) => {

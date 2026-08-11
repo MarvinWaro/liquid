@@ -3,20 +3,21 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Services\SignedUrlCache;
 use App\Traits\HasUuid;
 use App\Traits\LogsActivity;
+use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Support\Facades\Storage;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
 class User extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable, TwoFactorAuthenticatable, HasUuid, LogsActivity;
+    /** @use HasFactory<UserFactory> */
+    use HasFactory, HasUuid, LogsActivity, Notifiable, TwoFactorAuthenticatable;
 
     protected static function getActivityModule(): string
     {
@@ -94,15 +95,9 @@ class User extends Authenticatable
 
     public function getAvatarUrlAttribute(): ?string
     {
-        if (!$this->avatar) {
-            return null;
-        }
-
-        try {
-            return Storage::disk('s3')->temporaryUrl($this->avatar, now()->addHours(2));
-        } catch (\Throwable) {
-            return null;
-        }
+        // Cached: a comment thread reads this once per comment, and the same
+        // handful of authors write most of them. See SignedUrlCache.
+        return SignedUrlCache::get($this->avatar);
     }
 
     /**

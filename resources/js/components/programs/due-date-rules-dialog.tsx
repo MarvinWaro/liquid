@@ -79,6 +79,9 @@ export function DueDateRulesDialog({
             resetAddForm();
             editForm.reset();
         }
+    // Both form helpers are recreated each render; the dialog closing is the event
+    // this cares about.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
 
     const resetAddForm = () => {

@@ -1,6 +1,5 @@
 {
     "compilerOptions": {
-        "ignoreDeprecations": "6.0",
         /* Visit https://aka.ms/tsconfig to read more about this file */
 
         /* Projects */
@@ -108,7 +107,11 @@
         /* Completeness */
         // "skipDefaultLibCheck": true,                      /* Skip type checking .d.ts files that are included with TypeScript. */
         "skipLibCheck": true /* Skip type checking all .d.ts files. */,
-        "baseUrl": ".",
+        /* No "baseUrl": it is deprecated in TS 6 and was only here to anchor the
+           alias below. Paths beginning with "./" already resolve relative to this
+           file, so the alias behaves identically without it — and dropping it
+           removes the need for an "ignoreDeprecations" flag, whose value differs
+           between the CLI compiler and the editor's. */
         "paths": {
             "@/*": ["./resources/js/*"]
         },
