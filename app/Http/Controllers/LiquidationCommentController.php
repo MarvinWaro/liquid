@@ -187,12 +187,14 @@ class LiquidationCommentController extends Controller
             ->where(function ($q) use ($liquidation, $isSTUFAPSProgram, $rcRegionIds) {
                 // HEI users for this liquidation's institution
                 $q->where('hei_id', $liquidation->hei_id);
-                // For STUFAPS sub-programs: show STUFAPS Focals assigned to the program
+                // For STUFAPS sub-programs: show STUFAPS Focals scoped to this program.
+                // Role only — the Gate::allows('view') filter below decides which of
+                // them actually cover this liquidation. Matching programs.id directly
+                // here was stricter than the policy (see getParentScopedProgramIds)
+                // and hid Focals assigned to the parent or to a sibling sub-program,
+                // so they could not be mentioned even though they can open the record.
                 if ($isSTUFAPSProgram) {
-                    $q->orWhere(function ($sub) use ($liquidation) {
-                        $sub->whereHas('role', fn ($r) => $r->where('name', 'STUFAPS Focal'))
-                            ->whereHas('programs', fn ($r) => $r->where('programs.id', $liquidation->program_id));
-                    });
+                    $q->orWhereHas('role', fn ($r) => $r->where('name', 'STUFAPS Focal'));
                 } else {
                     // For non-STUFAPS: show RCs for the same region
                     if ($rcRegionIds !== []) {
@@ -405,11 +407,18 @@ class LiquidationCommentController extends Controller
         // Helper to fetch RC/STUFAPS Focal users for this liquidation
         $getRcFocalUsers = function (array $excludeIds) use ($actor, $liquidation, $isSTUFAPSProgram) {
             if ($isSTUFAPSProgram) {
+                // Role only — the program scoping is left to the Gate::allows('view')
+                // filter applied to every recipient below. Narrowing to
+                // programs.id = $liquidation->program_id here used to look right, but
+                // it is a stricter rule than the policy: LiquidationPolicy leans on
+                // User::getParentScopedProgramIds(), which also covers sibling
+                // sub-programs and the children of an assigned parent. A Focal ticked
+                // against STUFAPS or against TES could open a TDP liquidation and
+                // still never be notified about it.
                 return User::where('status', 'active')
                     ->where('id', '!=', $actor->id)
                     ->whereNotIn('id', $excludeIds)
                     ->whereHas('role', fn ($q) => $q->where('name', 'STUFAPS Focal'))
-                    ->whereHas('programs', fn ($q) => $q->where('programs.id', $liquidation->program_id))
                     ->get();
             }
             $regionIds = collect([

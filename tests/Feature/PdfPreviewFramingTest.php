@@ -109,10 +109,14 @@ it('lets our own page frame the inline document stream', function () {
 
     // Fails before the fix: SecurityHeaders overwrote this with DENY, which blocks
     // same-origin framing too — the preview would be blank even with no CSP.
-    test()->actingAs($viewer)
+    $response = test()->actingAs($viewer)
         ->get("/liquidation-documents/{$document->id}/view")
-        ->assertOk()
-        ->assertHeader('X-Frame-Options', 'SAMEORIGIN');
+        ->assertOk();
+
+    // Every value, not just the first. assertHeader() reads only the first one, so
+    // it stayed green while the response actually carried SAMEORIGIN *and* DENY —
+    // and a browser seeing two that disagree falls back to deny and blanks the frame.
+    expect($response->headers->all('X-Frame-Options'))->toBe(['SAMEORIGIN']);
 });
 
 it('still streams the document inline as a PDF', function () {
@@ -149,18 +153,19 @@ it('keeps DENY on the download route beside it', function () {
 
     // The sibling route shares the middleware and was not opted down. This is what
     // proves the relaxation is scoped to the one response that needs it.
-    test()->actingAs($viewer)
+    $response = test()->actingAs($viewer)
         ->get("/liquidation-documents/{$document->id}/download")
-        ->assertOk()
-        ->assertHeader('X-Frame-Options', 'DENY');
+        ->assertOk();
+
+    expect($response->headers->all('X-Frame-Options'))->toBe(['DENY']);
 });
 
 it('keeps DENY on ordinary pages', function () {
-    // Guards the middleware default. Passing $replace = false must not turn into
+    // Guards the middleware default. Letting a response opt out must not turn into
     // "stop setting the header" for everything that does not set its own.
-    test()->get('/login')
-        ->assertOk()
-        ->assertHeader('X-Frame-Options', 'DENY');
+    $response = test()->get('/login')->assertOk();
+
+    expect($response->headers->all('X-Frame-Options'))->toBe(['DENY']);
 });
 
 it('still refuses a user who may not see the liquidation', function () {
