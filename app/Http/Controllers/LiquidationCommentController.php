@@ -176,7 +176,6 @@ class LiquidationCommentController extends Controller
 
         $liquidation->loadMissing(['hei', 'program']);
         $currentUserId = $request->user()->id;
-        $isSTUFAPSProgram = $liquidation->program && $liquidation->program->parent_id;
         $rcRegionIds = collect([
             $liquidation->hei?->region_id,
             $liquidation->processing_region_id,
@@ -184,26 +183,27 @@ class LiquidationCommentController extends Controller
 
         $users = User::where('status', 'active')
             ->where('id', '!=', $currentUserId)
-            ->where(function ($q) use ($liquidation, $isSTUFAPSProgram, $rcRegionIds) {
+            ->where(function ($q) use ($liquidation, $rcRegionIds) {
                 // HEI users for this liquidation's institution
                 $q->where('hei_id', $liquidation->hei_id);
-                // For STUFAPS sub-programs: show STUFAPS Focals scoped to this program.
-                // Role only — the Gate::allows('view') filter below decides which of
-                // them actually cover this liquidation. Matching programs.id directly
-                // here was stricter than the policy (see getParentScopedProgramIds)
-                // and hid Focals assigned to the parent or to a sibling sub-program,
-                // so they could not be mentioned even though they can open the record.
-                if ($isSTUFAPSProgram) {
-                    $q->orWhereHas('role', fn ($r) => $r->where('name', 'STUFAPS Focal'));
-                } else {
-                    // For non-STUFAPS: show RCs for the same region
-                    if ($rcRegionIds !== []) {
-                        $q->orWhere(function ($sub) use ($rcRegionIds) {
-                            $sub->whereHas('role', fn ($r) => $r->where('name', 'Regional Coordinator'))
-                                ->whereIn('region_id', $rcRegionIds);
-                        });
-                    }
+                // RCs for the same region
+                if ($rcRegionIds !== []) {
+                    $q->orWhere(function ($sub) use ($rcRegionIds) {
+                        $sub->whereHas('role', fn ($r) => $r->where('name', 'Regional Coordinator'))
+                            ->whereIn('region_id', $rcRegionIds);
+                    });
                 }
+                // STUFAPS Focals are always candidates; the Gate::allows('view') filter
+                // below is the authority on which of them cover this liquidation.
+                //
+                // This deliberately does NOT gate on the program having a parent_id.
+                // That gate made the two groups mutually exclusive, so a liquidation on
+                // a top-level program (TES, TDP) queried RCs only and no Focal could
+                // ever be mentioned there. The policy already keeps each side honest —
+                // it admits a Focal only via getParentScopedProgramIds(), and refuses an
+                // RC outright on a sub-program — so listing both here changes nothing
+                // except letting the Focals through.
+                $q->orWhereHas('role', fn ($r) => $r->where('name', 'STUFAPS Focal'));
                 // Accountants and admins
                 $q->orWhereHas('role', fn ($r) => $r->whereIn('name', ['Accountant', 'COA', 'Admin', 'Super Admin']));
             })
@@ -397,30 +397,22 @@ class LiquidationCommentController extends Controller
         $isActorHei = $actor->hei_id && $actor->hei_id === $liquidation->hei_id;
         $actor->loadMissing('role');
         $liquidation->loadMissing('program');
-        $isSTUFAPSProgram = $liquidation->program && $liquidation->program->parent_id;
         $isEndorsedToAccounting = $liquidation->reviewed_at !== null;
         $isEndorsedToCOA = $liquidation->coa_endorsed_at !== null;
         $actorRoleName = $actor->role?->name;
 
         $recipients = collect();
 
-        // Helper to fetch RC/STUFAPS Focal users for this liquidation
-        $getRcFocalUsers = function (array $excludeIds) use ($actor, $liquidation, $isSTUFAPSProgram) {
-            if ($isSTUFAPSProgram) {
-                // Role only — the program scoping is left to the Gate::allows('view')
-                // filter applied to every recipient below. Narrowing to
-                // programs.id = $liquidation->program_id here used to look right, but
-                // it is a stricter rule than the policy: LiquidationPolicy leans on
-                // User::getParentScopedProgramIds(), which also covers sibling
-                // sub-programs and the children of an assigned parent. A Focal ticked
-                // against STUFAPS or against TES could open a TDP liquidation and
-                // still never be notified about it.
-                return User::where('status', 'active')
-                    ->where('id', '!=', $actor->id)
-                    ->whereNotIn('id', $excludeIds)
-                    ->whereHas('role', fn ($q) => $q->where('name', 'STUFAPS Focal'))
-                    ->get();
-            }
+        // Helper to fetch RC/STUFAPS Focal users for this liquidation.
+        //
+        // Both groups are gathered together and narrowed by the Gate::allows('view')
+        // filter applied to every recipient below — the same set the mention picker
+        // offers. Picking one group or the other on the program's parent_id made them
+        // mutually exclusive, so a liquidation on a top-level program (TES, TDP) never
+        // reached a single STUFAPS Focal. The policy already sorts them out: it admits
+        // a Focal only through getParentScopedProgramIds(), and refuses an RC outright
+        // on a sub-program, so gathering both cannot widen who actually gets notified.
+        $getRcFocalUsers = function (array $excludeIds) use ($actor, $liquidation) {
             $regionIds = collect([
                 $liquidation->hei?->region_id,
                 $liquidation->processing_region_id,
@@ -429,8 +421,16 @@ class LiquidationCommentController extends Controller
             return User::where('status', 'active')
                 ->where('id', '!=', $actor->id)
                 ->whereNotIn('id', $excludeIds)
-                ->whereIn('region_id', $regionIds)
-                ->whereHas('role', fn ($q) => $q->where('name', 'Regional Coordinator'))
+                ->where(function ($q) use ($regionIds) {
+                    $q->whereHas('role', fn ($r) => $r->where('name', 'STUFAPS Focal'));
+
+                    if ($regionIds !== []) {
+                        $q->orWhere(function ($sub) use ($regionIds) {
+                            $sub->whereHas('role', fn ($r) => $r->where('name', 'Regional Coordinator'))
+                                ->whereIn('region_id', $regionIds);
+                        });
+                    }
+                })
                 ->get();
         };
 
