@@ -64,7 +64,13 @@ class DashboardCache
         }
 
         if (!Cache::has(self::VERSION_KEY)) {
-            Cache::forever(self::VERSION_KEY, 1);
+            // Seeded above the default key() falls back to when the entry is
+            // missing. Writing 1 here would land on the very version reads are
+            // already using, so the first flush after a cache clear invalidated
+            // nothing — a deploy (which clears the cache) followed by an import
+            // left the dashboard showing pre-import figures for the full TTL,
+            // while uncached panels on the same page showed the new data.
+            Cache::forever(self::VERSION_KEY, 2);
             return;
         }
         Cache::increment(self::VERSION_KEY);
