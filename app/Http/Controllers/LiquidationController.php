@@ -1801,6 +1801,14 @@ class LiquidationController extends Controller
         return Storage::disk('s3')->response($document->file_path, $document->file_name, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="'.$document->file_name.'"',
+
+            // The preview dialog frames this URL, and the app-wide default is
+            // X-Frame-Options: DENY, which would refuse even our own page. Set
+            // here so SecurityHeaders leaves it alone (it passes $replace = false).
+            // SAMEORIGIN still shuts out every other site, and what is exposed is
+            // a PDF byte stream rather than an interactive page — there are no
+            // controls here for a clickjacker to trick anyone into pressing.
+            'X-Frame-Options' => 'SAMEORIGIN',
         ]);
     }
 

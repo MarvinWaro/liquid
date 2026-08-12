@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Download, ExternalLink, Loader2, AlertCircle } from 'lucide-react';
@@ -12,6 +12,17 @@ interface PdfPreviewDialogProps {
     downloadUrl?: string;
 }
 
+/**
+ * Previews a liquidation PDF by framing the app's own streaming route.
+ *
+ * It used to download the file and frame a `blob:` URL instead. That works with no
+ * Content-Security-Policy, but a browser treats `blob:` as a source of its own, and
+ * production's CSP only lists it under `img-src` — so every preview came up blank
+ * while the Download button beside it kept working.
+ *
+ * Framing the route directly is allowed by `frame-src 'self'` and lets the browser
+ * stream the PDF, so the first page paints without waiting for the whole file.
+ */
 export default function PdfPreviewDialog({
     open,
     onOpenChange,
@@ -19,22 +30,29 @@ export default function PdfPreviewDialog({
     fileName,
     downloadUrl,
 }: PdfPreviewDialogProps) {
-    const [blobUrl, setBlobUrl] = useState<string | null>(null);
+    const [src, setSrc] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const abortRef = useRef<AbortController | null>(null);
 
     useEffect(() => {
         if (!open) return;
 
         const controller = new AbortController();
-        abortRef.current = controller;
+        const viewUrl = route('liquidation.view-document', documentId);
+
         setLoading(true);
         setError(null);
+        setSrc(null);
 
-        const fetchPdf = async () => {
+        // Checked before framing rather than after. An expired session or a missing
+        // file answers with an HTML error page, and those responses keep the app-wide
+        // X-Frame-Options: DENY — so framing blind would show an empty box and no
+        // explanation. HEAD is cheap: Laravel suppresses the body, so the file is
+        // never read out of S3, and the authorisation check it runs writes nothing.
+        const checkAccess = async () => {
             try {
-                const res = await fetch(route('liquidation.view-document', documentId), {
+                const res = await fetch(viewUrl, {
+                    method: 'HEAD',
                     credentials: 'same-origin',
                     signal: controller.signal,
                     headers: { Accept: 'application/pdf' },
@@ -55,39 +73,32 @@ export default function PdfPreviewDialog({
                     throw new Error('The server did not return a PDF. Your session may have expired.');
                 }
 
-                const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
-                setBlobUrl(url);
-            } catch (err: any) {
-                if (err.name === 'AbortError') return;
-                setError(err.message ?? 'Failed to load document.');
-                toast.error(err.message ?? 'Failed to load document.');
-            } finally {
+                // Deliberately leaves `loading` on: the iframe has not fetched anything
+                // yet. Its onLoad below clears the spinner once there is a page to see.
+                setSrc(viewUrl);
+            } catch (err) {
+                if (err instanceof DOMException && err.name === 'AbortError') return;
+
+                const message = err instanceof Error ? err.message : 'Failed to load document.';
+                setError(message);
                 setLoading(false);
+                toast.error(message);
             }
         };
 
-        fetchPdf();
+        checkAccess();
 
-        return () => {
-            controller.abort();
-        };
+        return () => controller.abort();
     }, [open, documentId]);
 
     useEffect(() => {
-        if (!open && blobUrl) {
-            URL.revokeObjectURL(blobUrl);
-            setBlobUrl(null);
+        // Cleared on close so reopening cannot flash the previous document for a
+        // frame before the effect above has run.
+        if (!open) {
+            setSrc(null);
             setError(null);
         }
-    }, [open, blobUrl]);
-
-    useEffect(() => {
-        return () => {
-            if (blobUrl) URL.revokeObjectURL(blobUrl);
-            abortRef.current?.abort();
-        };
-    }, [blobUrl]);
+    }, [open]);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -111,8 +122,10 @@ export default function PdfPreviewDialog({
                 </DialogHeader>
 
                 <div className="flex-1 bg-muted/30 relative overflow-hidden">
+                    {/* Opaque and above the frame — the iframe is mounted underneath while
+                        it loads, and a half-painted PDF should not show through. */}
                     {loading && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-background">
                             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                             <p className="text-sm text-muted-foreground">Loading preview…</p>
                         </div>
@@ -134,10 +147,11 @@ export default function PdfPreviewDialog({
                         </div>
                     )}
 
-                    {blobUrl && !loading && !error && (
+                    {src && !error && (
                         <iframe
-                            src={blobUrl}
+                            src={src}
                             title={fileName}
+                            onLoad={() => setLoading(false)}
                             className="w-full h-full border-0"
                         />
                     )}
