@@ -146,10 +146,11 @@ class HEISeeder extends Seeder
             ['uii' => '12089',   'name' => 'STI COLLEGE-COTABATO',                                                    'type' => 'Private', 'region_id' => $r12],
             ['uii' => '12074e',  'name' => 'SULTAN KUDARAT STATE UNIVERSITY-GLAN',                                    'type' => 'SUC',     'region_id' => $r12],
             ['uii' => '12074i',  'name' => 'SULTAN KUDARAT STATE UNIVERSITY-SNA',                                     'type' => 'SUC',     'region_id' => $r12],
+            // Filed under R12, not BARMM: Region 12 is first to process CSU.
+            ['uii' => '12006',   'name' => 'COTABATO STATE UNIVERSITY',                                               'type' => 'SUC',     'region_id' => $r12],
 
             // ── BARMM ────────────────────────────────────────────────────
             ['uii' => '15019',   'name' => 'ADIONG MEMORIAL STATE COLLEGE',                                            'type' => 'SUC',     'region_id' => $barmm],
-            ['uii' => '12006',   'name' => 'COTABATO STATE UNIVERSITY',                                                'type' => 'SUC',     'region_id' => $barmm],
             ['uii' => '15006',   'name' => 'MINDANAO STATE UNIVERSITY - MAGUINDANAO',                                  'type' => 'SUC',     'region_id' => $barmm],
             ['uii' => '12040',   'name' => 'MINDANAO STATE UNIVERSITY-MAIN CAMPUS MARAWI CITY',                        'type' => 'SUC',     'region_id' => $barmm],
             ['uii' => '12030',   'name' => 'MINDANAO STATE UNIVERSITY-LANAO NATIONAL COLLEGE OF ARTS AND TRADES',      'type' => 'SUC',     'region_id' => $barmm],
@@ -197,13 +198,44 @@ class HEISeeder extends Seeder
             ['uii' => '15059',   'name' => 'UNIVERSITY OF SOUTHERN MINDANAO - BULUAN',                                    'type' => 'SUC',     'region_id' => $barmm],
             ['uii' => '15017',   'name' => 'UPI AGRICULTURAL SCHOOL-PROVINCIAL TECHNICAL INSTITUTE OF AGRICULTURE',       'type' => 'Private', 'region_id' => $barmm],
             ['uii' => '15086',   'name' => 'VMC ASIAN COLLEGE FOUNDATION, INC.',                                           'type' => 'Private', 'region_id' => $barmm],
+
+            // ── BARMM — awaiting a CHED-issued UII ───────────────────────────
+            // These schools have liquidation history but no UII yet. heis.uii is
+            // NOT NULL and unique, so each needs a value to exist at all — and the
+            // importer matches an HEI by UII alone (no fallback to the name), so
+            // without a record their rows can never import.
+            //
+            // TBD- is deliberately not number-shaped: every real UII here is a
+            // 5-digit code, so these stay obviously fake and greppable.
+            //
+            // When CHED issues the real UII: update the existing row's uii through
+            // the HEI module first, THEN correct it here. updateOrCreate() is keyed
+            // on uii, so changing the value below on its own would insert a second
+            // row and leave the TBD- one behind.
+            ['uii' => 'TBD-01',  'name' => 'SOUTH PHILIPPINE ADVENTIST COLLEGE',                                        'type' => 'Private', 'region_id' => $barmm],
+            ['uii' => 'TBD-02',  'name' => 'JAMIAT COTABATO AND INSTITUTE OF TECHNOLOGY, INC.',                          'type' => 'Private', 'region_id' => $barmm],
+            ['uii' => 'TBD-03',  'name' => 'MINDANAOAN INTEGRATED ACADEMY, INC.',                                        'type' => 'Private', 'region_id' => $barmm],
+            ['uii' => 'TBD-04',  'name' => 'TAMPARAN POPULACE ISLAMIC COLLEGE INCORPORATED',                             'type' => 'Private', 'region_id' => $barmm],
         ];
 
         foreach ($heis as $hei) {
-            HEI::updateOrCreate(
-                ['uii' => $hei['uii']],
-                array_merge($hei, ['status' => 'active', 'code' => null])
-            );
+            $attributes = array_merge($hei, ['status' => 'active', 'code' => null]);
+            $record = HEI::firstOrNew(['uii' => $hei['uii']]);
+
+            // region_id is seeded on first insert only. Once an HEI exists its region
+            // belongs to the audited transfer workflow (HEI::duringRegionTransfer),
+            // and re-seeding must not quietly undo a transfer someone made on purpose.
+            //
+            // Not hypothetical: this seeder used to abort outright because COTABATO
+            // STATE UNIVERSITY (12006) had been transferred to R12 while the list
+            // above still said BARMM. The guard rightly refused, and because it threw,
+            // every HEI after it went unseeded too. The list now says R12, but the
+            // next transfer would hit the same wall without this.
+            if ($record->exists) {
+                unset($attributes['region_id']);
+            }
+
+            $record->fill($attributes)->save();
         }
     }
 }
