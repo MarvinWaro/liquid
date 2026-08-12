@@ -28,13 +28,18 @@ class SecurityHeaders
         // Refuse to be embedded in a frame anywhere. The app has no external
         // iframe host, so DENY is safe and stops clickjacking outright.
         //
-        // The third argument is Symfony's $replace: a response that already set
-        // this header keeps its own value. DENY blocks framing by every origin
-        // INCLUDING our own, so the one route we do frame ourselves — the inline
-        // PDF stream in LiquidationController::viewDocument() — opts down to
-        // SAMEORIGIN. Overwriting it here would blank the preview dialog. Every
-        // response that stays silent still gets DENY.
-        $response->headers->set('X-Frame-Options', 'DENY', false);
+        // Skipped when the response already chose a value. DENY blocks framing by
+        // every origin INCLUDING our own, so the one route we frame ourselves —
+        // the inline PDF stream in LiquidationController::viewDocument() — opts
+        // down to SAMEORIGIN and must be left alone.
+        //
+        // Written as an explicit has() check rather than set(..., replace: false),
+        // which appends a second value instead of skipping. Two X-Frame-Options
+        // values disagreeing makes a browser fall back to deny, which would blank
+        // the preview just as surely as overwriting it.
+        if (! $response->headers->has('X-Frame-Options')) {
+            $response->headers->set('X-Frame-Options', 'DENY');
+        }
 
         // Trust the declared Content-Type. Without this a browser may sniff an
         // uploaded file and decide a PDF is really HTML, then run it.
