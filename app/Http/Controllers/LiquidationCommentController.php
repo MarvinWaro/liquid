@@ -211,6 +211,12 @@ class LiquidationCommentController extends Controller
             ->orderBy('name')
             ->get()
             ->filter(fn (User $user) => Gate::forUser($user)->allows('view', $liquidation))
+            // values() is load-bearing, not tidying. filter() keeps the original keys,
+            // so dropping the candidate at index 0 leaves [1 => …, 2 => …] and
+            // response()->json() serialises that as {"1":…,"2":…} instead of a list.
+            // The picker then reads `mentionUsers.length` on an object, gets undefined,
+            // and silently renders no dropdown at all — no error, just nothing.
+            ->values()
             ->map(fn (User $u) => [
                 'id' => $u->id,
                 'name' => $u->name,

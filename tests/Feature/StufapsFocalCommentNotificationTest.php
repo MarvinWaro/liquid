@@ -305,6 +305,25 @@ it('keeps RCs working on a top-level program', function () {
         ->and(commentAndCollectNotified($heiUser, $liquidation))->toContain($rc->id);
 });
 
+it('returns the mention list as a JSON array, not a keyed object', function () {
+    ['liquidation' => $liquidation, 'heiUser' => $heiUser] = standaloneProgramFixture();
+
+    // The dropdown renders on `mentionUsers.length`, which is undefined for a JSON
+    // object — so a keyed shape shows nothing at all, with no error anywhere.
+    // Collection::filter() preserves keys, so one rejected candidate at index 0 is
+    // enough to turn the whole payload into {"1":…,"2":…}.
+    //
+    // Asserting on the decoded value is not enough: collect() and pluck() accept both
+    // shapes, which is exactly how this slipped past the other tests here.
+    $payload = test()->actingAs($heiUser)
+        ->getJson("/liquidation/{$liquidation->id}/mentionable-users")
+        ->assertSuccessful()
+        ->json();
+
+    expect($payload)->not->toBeEmpty()
+        ->and(array_is_list($payload))->toBeTrue();
+});
+
 it('keeps Admins and Super Admins mentionable', function () {
     [
         'liquidation' => $liquidation, 'heiUser' => $heiUser,
