@@ -92,6 +92,12 @@ function focalNotifyFixture(): array
         'status' => 'active',
     ]);
 
+    $rc = User::factory()->create([
+        'role_id' => $rcRole->id,
+        'region_id' => $region->id,
+        'status' => 'active',
+    ]);
+
     $liquidation = Liquidation::create([
         'control_no' => 'FOC-2026-0001',
         'hei_id' => $hei->id,
@@ -101,9 +107,108 @@ function focalNotifyFixture(): array
     ]);
 
     return compact(
-        'liquidation', 'heiUser', 'region', 'rcRole',
+        'liquidation', 'heiUser', 'region', 'rcRole', 'rc',
         'focalParent', 'focalSibling', 'focalDirect', 'focalUnrelated',
     );
+}
+
+/**
+ * The shape that was still broken after the first fix: a TOP-LEVEL program with no
+ * parent and no children, like the real TES and TDP rows.
+ *
+ * The controller used to pick RCs *or* Focals based on the program having a parent,
+ * so a liquidation here queried RCs only and no Focal could be mentioned or notified.
+ *
+ * @return array<string, mixed>
+ */
+function standaloneProgramFixture(): array
+{
+    $region = Region::create(['code' => 'R12-STD', 'name' => 'Region XII Standalone', 'status' => 'active']);
+
+    $focalRole = Role::firstOrCreate(['name' => 'STUFAPS Focal'], ['description' => 'test']);
+    $heiRole = Role::firstOrCreate(['name' => 'HEI'], ['description' => 'test']);
+    $rcRole = Role::firstOrCreate(['name' => 'Regional Coordinator'], ['description' => 'test']);
+
+    $viewPermission = Permission::firstOrCreate(
+        ['name' => 'view_liquidation'],
+        ['module' => 'Liquidation', 'description' => 'Test view_liquidation']
+    );
+
+    foreach ([$focalRole, $heiRole, $rcRole] as $role) {
+        $role->permissions()->syncWithoutDetaching([$viewPermission->id]);
+    }
+
+    // No parent, no children — exactly how TES and TDP are stored.
+    $standalone = Program::create(['code' => 'STD-TES', 'name' => 'TES Standalone', 'status' => 'active']);
+    $otherStandalone = Program::create(['code' => 'STD-OTHER', 'name' => 'Other Standalone', 'status' => 'active']);
+
+    $hei = HEI::create([
+        'uii' => 'STANDALONE-HEI',
+        'code' => 'STD-HEI',
+        'name' => 'Standalone Test University',
+        'type' => 'SUC',
+        'region_id' => $region->id,
+        'status' => 'active',
+    ]);
+
+    $makeFocal = function (Program $assigned) use ($focalRole, $region) {
+        $user = User::factory()->create([
+            'role_id' => $focalRole->id,
+            'region_id' => $region->id,
+            'status' => 'active',
+        ]);
+        $user->programs()->attach($assigned->id);
+
+        return $user;
+    };
+
+    $focal = $makeFocal($standalone);
+    $focalOther = $makeFocal($otherStandalone);
+
+    $heiUser = User::factory()->create([
+        'role_id' => $heiRole->id,
+        'region_id' => $region->id,
+        'hei_id' => $hei->id,
+        'status' => 'active',
+    ]);
+
+    $rc = User::factory()->create([
+        'role_id' => $rcRole->id,
+        'region_id' => $region->id,
+        'status' => 'active',
+    ]);
+
+    // Admin and Super Admin sit in their own clause of the picker query, untouched by
+    // this change — these two exist so a test can prove that rather than assume it.
+    $adminRole = Role::firstOrCreate(['name' => 'Admin'], ['description' => 'test']);
+    $superAdminRole = Role::firstOrCreate(['name' => 'Super Admin'], ['description' => 'test']);
+    foreach ([$adminRole, $superAdminRole] as $role) {
+        $role->permissions()->syncWithoutDetaching([$viewPermission->id]);
+    }
+
+    $admin = User::factory()->create(['role_id' => $adminRole->id, 'status' => 'active']);
+    $superAdmin = User::factory()->create(['role_id' => $superAdminRole->id, 'status' => 'active']);
+
+    $liquidation = Liquidation::create([
+        'control_no' => 'STD-2026-0001',
+        'hei_id' => $hei->id,
+        'processing_region_id' => $region->id,
+        'program_id' => $standalone->id,
+        'created_by' => $heiUser->id,
+    ]);
+
+    return compact('liquidation', 'heiUser', 'rc', 'focal', 'focalOther', 'admin', 'superAdmin');
+}
+
+/** The ids the @ picker offers $actor on $liquidation. */
+function mentionableIds(User $actor, Liquidation $liquidation): array
+{
+    return collect(
+        test()->actingAs($actor)
+            ->getJson("/liquidation/{$liquidation->id}/mentionable-users")
+            ->assertSuccessful()
+            ->json()
+    )->pluck('id')->all();
 }
 
 /** Post a comment as $actor and return the user ids notified about it. */
@@ -157,16 +262,89 @@ it('offers the same Focals to the mention picker', function () {
 
     // The @ dropdown carried a second copy of the same narrow rule, so these Focals
     // could not be mentioned either. Recipients and mentionables must agree.
-    $ids = collect(
-        test()->actingAs($heiUser)
-            ->getJson("/liquidation/{$liquidation->id}/mentionable-users")
-            ->assertSuccessful()
-            ->json()
-    )->pluck('id')->all();
+    $ids = mentionableIds($heiUser, $liquidation);
 
     expect($ids)->toContain($focalParent->id)
         ->and($ids)->toContain($focalSibling->id)
         ->and($ids)->not->toContain($focalUnrelated->id);
+});
+
+it('keeps RCs out of a sub-program liquidation', function () {
+    ['liquidation' => $liquidation, 'heiUser' => $heiUser, 'rc' => $rc] = focalNotifyFixture();
+
+    // LiquidationPolicy refuses an RC on a sub-program (`! $liquidation->program->parent_id`).
+    // Gathering RCs and Focals together must not smuggle the RC past that rule.
+    expect(mentionableIds($heiUser, $liquidation))->not->toContain($rc->id)
+        ->and(commentAndCollectNotified($heiUser, $liquidation))->not->toContain($rc->id);
+});
+
+it('mentions and notifies a Focal on a top-level program like TES', function () {
+    ['liquidation' => $liquidation, 'heiUser' => $heiUser, 'focal' => $focal] = standaloneProgramFixture();
+
+    // The reported case. The program has no parent, so the old either/or gate queried
+    // RCs only and this Focal was invisible to both paths. Fails before the fix.
+    expect(mentionableIds($heiUser, $liquidation))->toContain($focal->id)
+        ->and(commentAndCollectNotified($heiUser, $liquidation))->toContain($focal->id);
+});
+
+it('still leaves out a Focal assigned to a different top-level program', function () {
+    ['liquidation' => $liquidation, 'heiUser' => $heiUser, 'focalOther' => $focalOther] = standaloneProgramFixture();
+
+    // Proves the widened query still defers to the policy rather than listing every
+    // Focal in the system.
+    expect(mentionableIds($heiUser, $liquidation))->not->toContain($focalOther->id)
+        ->and(commentAndCollectNotified($heiUser, $liquidation))->not->toContain($focalOther->id);
+});
+
+it('keeps RCs working on a top-level program', function () {
+    ['liquidation' => $liquidation, 'heiUser' => $heiUser, 'rc' => $rc] = standaloneProgramFixture();
+
+    // The behaviour that already worked and must not regress — this is the path the
+    // BARMM and R12 records take.
+    expect(mentionableIds($heiUser, $liquidation))->toContain($rc->id)
+        ->and(commentAndCollectNotified($heiUser, $liquidation))->toContain($rc->id);
+});
+
+it('keeps Admins and Super Admins mentionable', function () {
+    [
+        'liquidation' => $liquidation, 'heiUser' => $heiUser,
+        'admin' => $admin, 'superAdmin' => $superAdmin,
+    ] = standaloneProgramFixture();
+
+    // They live in their own clause of the picker query. Restructuring the RC/Focal
+    // clauses around them must leave them exactly where they were.
+    $ids = mentionableIds($heiUser, $liquidation);
+
+    expect($ids)->toContain($admin->id)
+        ->and($ids)->toContain($superAdmin->id);
+});
+
+it('lets an Admin mention a Focal and an RC on a top-level program', function () {
+    [
+        'liquidation' => $liquidation, 'admin' => $admin,
+        'focal' => $focal, 'rc' => $rc,
+    ] = standaloneProgramFixture();
+
+    // The exact combination reported as broken: an Admin opening the @ list on a
+    // TES-shaped record and finding no Focal. Both sides must be there now.
+    $ids = mentionableIds($admin, $liquidation);
+
+    expect($ids)->toContain($focal->id)
+        ->and($ids)->toContain($rc->id);
+});
+
+it('lets a Focal mention a co-Focal', function () {
+    ['liquidation' => $liquidation, 'focal' => $focal] = standaloneProgramFixture();
+
+    // A second Focal on the same program — the "co-STUFAPS Focal" case.
+    $coFocal = User::factory()->create([
+        'role_id' => $focal->role_id,
+        'region_id' => $focal->region_id,
+        'status' => 'active',
+    ]);
+    $coFocal->programs()->attach($liquidation->program_id);
+
+    expect(mentionableIds($focal, $liquidation))->toContain($coFocal->id);
 });
 
 it('does not notify anyone twice when a Focal is also mentioned', function () {
