@@ -294,6 +294,10 @@ class User extends Authenticatable
             'canViewActivityLogs' => $this->hasPermission('view_activity_logs'),
             'canAccessActivityLogs' => $this->hasPermission('view_activity_logs')
                 || $this->hasPermission('view_own_activity_logs'),
+            // Deliberately role-based, not permission-based: queue health exposes
+            // job payloads and exception messages, so it should not be grantable
+            // by editing a role.
+            'canViewQueueHealth' => $this->isSuperAdmin(),
             'canViewSummaryAY' => $this->hasPermission('view_summary_ay'),
             'canViewSummaryHEI' => $this->hasPermission('view_summary_hei'),
             'canCreateAnnouncements' => $this->hasPermission('create_announcements'),
