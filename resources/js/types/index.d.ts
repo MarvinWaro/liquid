@@ -57,6 +57,7 @@ export interface NavigationAbilities {
     canViewTemplates: boolean;
     canViewActivityLogs: boolean;
     canAccessActivityLogs: boolean;
+    canViewQueueHealth: boolean;
     canViewSummaryAY: boolean;
     canViewSummaryHEI: boolean;
     canCreateAnnouncements: boolean;

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Settings\PasswordController;
 use App\Http\Controllers\Settings\ProfileController;
+use App\Http\Controllers\Settings\QueueHealthController;
 use App\Http\Controllers\Settings\TwoFactorAuthenticationController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -26,4 +27,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('settings/two-factor', [TwoFactorAuthenticationController::class, 'show'])
         ->name('two-factor.show');
+
+    // Queue health — Super Admin only, enforced in the controller rather than by
+    // a permission so it cannot be granted away by editing a role.
+    Route::get('settings/queue-health', [QueueHealthController::class, 'index'])
+        ->name('queue-health.index');
+    Route::post('settings/queue-health/{uuid}/retry', [QueueHealthController::class, 'retry'])
+        ->name('queue-health.retry');
+    Route::delete('settings/queue-health/{uuid}', [QueueHealthController::class, 'forget'])
+        ->name('queue-health.forget');
 });
