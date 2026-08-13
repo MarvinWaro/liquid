@@ -48,13 +48,19 @@ class QueueHealthController extends Controller
             'driver' => config('queue.connections.'.config('queue.default').'.driver'),
 
             // Horizon is the deep-dive tool; this page is the at-a-glance summary.
-            // It only works on a Redis queue, and only where ext-pcntl exists — so
-            // the link is hidden rather than shown broken when either is missing.
+            //
+            // "Usable" deliberately does NOT test ext-pcntl. Horizon needs pcntl to
+            // run its supervisor, but that happens in the CLI — this code runs under
+            // PHP-FPM, where Ubuntu does not load pcntl even though the CLI has it.
+            // Testing it here hid the link on a perfectly working Linux server.
+            //
+            // Horizon installed + a Redis queue is the real requirement. On a Windows
+            // dev machine the dashboard simply reports no active supervisor, which is
+            // honest rather than broken.
             'horizon' => [
                 'installed' => class_exists(Horizon::class),
                 'usable' => class_exists(Horizon::class)
-                    && config('queue.default') === 'redis'
-                    && extension_loaded('pcntl'),
+                    && config('queue.default') === 'redis',
                 'url' => url(config('horizon.path', 'horizon')),
             ],
 
