@@ -219,7 +219,12 @@ test('a region change requires complete valid transfer audit details', function 
     $this->actingAs($admin)
         ->from(route('hei.index'))
         ->put(route('hei.update', $hei), transferTestPayload($hei, $barmm, [
-            'transfer_effective_date' => now()->addDay()->toDateString(),
+            // Manila, because the rule this asserts against is
+            // before_or_equal:{today in Manila}. A bare now() is UTC, so between
+            // 00:00 and 08:00 Manila "tomorrow in UTC" is still today here and the
+            // expected validation error never fires — the test failed by the hour
+            // it was run rather than by anything in the code.
+            'transfer_effective_date' => now('Asia/Manila')->addDay()->toDateString(),
             'transfer_reason' => str_repeat('x', 2001),
             'transfer_memo_reference' => str_repeat('m', 256),
         ]))
