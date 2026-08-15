@@ -79,6 +79,7 @@ class HandleInertiaRequests extends Middleware
                 'canViewActivityLogs' => false,
                 'canAccessActivityLogs' => false,
                 'canViewQueueHealth' => false,
+                'canViewServerLogs' => false,
                 'canViewSummaryAY' => false,
                 'canViewSummaryHEI' => false,
                 'canCreateTicket' => false,

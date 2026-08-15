@@ -298,6 +298,8 @@ class User extends Authenticatable
             // job payloads and exception messages, so it should not be grantable
             // by editing a role.
             'canViewQueueHealth' => $this->isSuperAdmin(),
+            // Same reasoning: logs carry stack traces and personal data.
+            'canViewServerLogs' => $this->isSuperAdmin(),
             'canViewSummaryAY' => $this->hasPermission('view_summary_ay'),
             'canViewSummaryHEI' => $this->hasPermission('view_summary_hei'),
             'canCreateAnnouncements' => $this->hasPermission('create_announcements'),

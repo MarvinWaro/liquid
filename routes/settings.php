@@ -3,6 +3,7 @@
 use App\Http\Controllers\Settings\PasswordController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\QueueHealthController;
+use App\Http\Controllers\Settings\ServerLogController;
 use App\Http\Controllers\Settings\TwoFactorAuthenticationController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -36,4 +37,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('queue-health.retry');
     Route::delete('settings/queue-health/{uuid}', [QueueHealthController::class, 'forget'])
         ->name('queue-health.forget');
+
+    // Server logs — read-only, Super Admin only, enforced in the controller for
+    // the same reason as queue health above.
+    Route::get('settings/server-logs', [ServerLogController::class, 'index'])
+        ->name('server-logs.index');
+    Route::get('settings/server-logs/download', [ServerLogController::class, 'download'])
+        ->name('server-logs.download');
 });
