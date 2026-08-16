@@ -67,6 +67,16 @@ export function manilaToday(): string {
     return new Date().toLocaleDateString('en-CA', { timeZone: MANILA_TZ });
 }
 
+/**
+ * "01:30 PM" in Philippine time — time only, no date.
+ *
+ * For axes and dense labels where the date is already established by context and
+ * repeating it on every tick would be noise.
+ */
+export function formatManilaTime(value: string | Date | null | undefined, fallback = 'N/A'): string {
+    return formatInManila(value, { hour: '2-digit', minute: '2-digit' }, fallback);
+}
+
 /** "Aug 4, 2026, 01:30 PM" in Philippine time. */
 export function formatManilaDateTime(value: string | Date | null | undefined, fallback = 'N/A'): string {
     return formatInManila(
