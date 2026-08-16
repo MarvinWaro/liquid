@@ -37,6 +37,7 @@ import {
     Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatManilaDateTime } from '@/lib/date';
 import { toast } from '@/lib/toast';
 import axios, { type AxiosResponse } from 'axios';
 import { parseExcelBuffer, type ParsedExcelRow } from '@/lib/import-excel-parser';
@@ -305,9 +306,18 @@ export function ImportPreviewDialog({
         enabled: isOpen && watchImport,
         batchId: watchedBatchId,
         onFinished: useCallback((progress: ImportProgress) => {
-            if (progress.failed) {
-                toast.error(progress.failed_reason || 'The import did not complete.');
-            } else if (progress.imported > 0) {
+            // `imported < 1` has to be treated as a failure here even though the
+            // batch is not flagged `failed`. A file where every row is rejected
+            // finishes normally — the job did its work — so the old
+            // failed/imported>0 pair matched neither case, fired no message, and
+            // then closed the dialog anyway. That is the silent close: the user
+            // saw the upload vanish and nothing else.
+            if (progress.failed || progress.imported < 1) {
+                toast.error(
+                    progress.failed_reason ||
+                        'No records were imported. Open Import History for details.',
+                );
+            } else {
                 toast.success(`Imported ${progress.imported.toLocaleString()} liquidation(s).`);
             }
 
@@ -674,10 +684,10 @@ export function ImportPreviewDialog({
                                                 <div className="flex items-center gap-4 text-xs text-muted-foreground">
                                                     <span>{batch.imported_count} of {batch.total_rows} imported</span>
                                                     {batch.imported_by && <span>by {batch.imported_by}</span>}
-                                                    <span>{batch.created_at}</span>
+                                                    <span>{formatManilaDateTime(batch.created_at)}</span>
                                                     {batch.undone_at && (
                                                         <span className="text-orange-600 dark:text-orange-400">
-                                                            Undone {batch.undone_at}
+                                                            Undone {formatManilaDateTime(batch.undone_at)}
                                                         </span>
                                                     )}
                                                 </div>
