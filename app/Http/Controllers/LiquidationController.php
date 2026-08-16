@@ -114,6 +114,13 @@ class LiquidationController extends Controller
     /** Max liquidations a single user can pin at once. */
     private const PIN_LIMIT = 10;
 
+    /**
+     * Memoised per-request program list for import matching. See importPrograms().
+     *
+     * @var Collection<int, Program>|null
+     */
+    private ?Collection $importPrograms = null;
+
     public function __construct(
         private readonly LiquidationService $liquidationService,
         private readonly CacheService $cacheService
@@ -1388,8 +1395,12 @@ class LiquidationController extends Controller
                 'imported_count' => $b->imported_count,
                 'status' => $b->status,
                 'failed_reason' => $b->failed_reason,
-                'created_at' => $b->created_at->format('M d, Y h:i A'),
-                'undone_at' => $b->undone_at?->format('M d, Y h:i A'),
+                // ISO 8601 with the Manila offset, formatted in the browser by
+                // formatManilaDateTime. A bare format() here sent the stored UTC
+                // digits as a finished string, so an import run at 3:23 PM Manila
+                // was displayed as "07:23 AM" with no way to correct it client-side.
+                'created_at' => $b->created_at->copy()->setTimezone('Asia/Manila')->toIso8601String(),
+                'undone_at' => $b->undone_at?->copy()->setTimezone('Asia/Manila')->toIso8601String(),
                 'imported_by' => $b->user?->name ?? 'Unknown',
                 // Source file is removed from S3 when a batch is undone, so
                 // restrict downloads to active batches with a stored path.
@@ -3135,10 +3146,35 @@ class LiquidationController extends Controller
             return null;
         }
 
-        return $this->cacheService->getPrograms()->first(function ($program) use ($name) {
+        return $this->importPrograms()->first(function ($program) use ($name) {
             return strtolower($program->code) === strtolower($name)
                 || strtolower($program->name) === strtolower($name);
         });
+    }
+
+    /**
+     * Active programs for import matching, read fresh once per request.
+     *
+     * Deliberately NOT CacheService::getPrograms(). That list is cached for an
+     * hour, and the id it yields is frozen into the validated row
+     * (see $importable['program_id']) then only re-checked at insert time, which
+     * can be another 30 minutes later once the row has sat in the import token
+     * cache. If the programs table is rebuilt anywhere in that window — a re-seed
+     * mints new uuids, because ProgramSeeder matches on `code` — every stored id
+     * is already dead and the whole file fails at insert with "Program not
+     * found." while the spreadsheet itself is perfectly valid.
+     *
+     * HEIs and academic years in this same path are read straight from the
+     * database for exactly this reason; programs were the odd one out. One small
+     * query per import request, memoised so it stays one and not one per row, is
+     * the right price for a lookup whose answer gets written into a record.
+     *
+     * @return Collection<int, Program>
+     */
+    private function importPrograms(): Collection
+    {
+        return $this->importPrograms ??= Program::where('status', 'active')
+            ->get(['id', 'name', 'code']);
     }
 
     private function formatImportResponse(int $imported, array $errors): JsonResponse

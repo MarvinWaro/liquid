@@ -168,6 +168,13 @@ class BulkImportLiquidationsJob implements ShouldQueue
             $totalImported = (int) $batch->fresh()->imported_count;
 
             if ($totalImported < 1) {
+                // Nothing landed. This used to return silently, which made a
+                // wholly rejected import the one outcome nobody was told about:
+                // the job succeeds, so Horizon and Queue Health stay green, the
+                // log stays empty, and the dialog had already closed. The person
+                // who ran it is the one who needs to know.
+                $this->notifyImportFailed($batch, $user);
+
                 return;
             }
 
@@ -214,6 +221,38 @@ class BulkImportLiquidationsJob implements ShouldQueue
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Tell the uploader that their import produced nothing.
+     *
+     * Addressed to the uploader specifically. The success path deliberately
+     * excludes them — they were watching the dialog — but a total rejection is
+     * exactly the case where that dialog is gone before they understood why, so
+     * here they are the required recipient rather than the excluded one.
+     */
+    private function notifyImportFailed(ImportBatch $batch, User $user): void
+    {
+        // Already set in memory by the update() at the top of finish() — no
+        // need to go back to the database for it.
+        $reason = $batch->failed_reason ?: 'No rows could be imported.';
+
+        $now = now();
+
+        Notification::insert([[
+            'id' => Str::uuid()->toString(),
+            'user_id' => $user->id,
+            'actor_id' => $user->id,
+            'actor_name' => $user->name,
+            'action' => 'bulk_import_failed',
+            'description' => "No records were imported from {$batch->file_name}. {$reason}",
+            'subject_type' => null,
+            'subject_id' => null,
+            'subject_label' => null,
+            'module' => 'Liquidation',
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]]);
     }
 
     /**

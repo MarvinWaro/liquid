@@ -365,9 +365,15 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const { progress: runningImport, stalling: runningImportStalling } = useImportProgress({
         enabled: !isImportPreviewOpen,
         onFinished: (progress) => {
-            if (progress.failed) {
-                toast.error(progress.failed_reason || 'The import did not complete.');
-            } else if (progress.imported > 0) {
+            // Same reasoning as the dialog: a batch where every row was rejected
+            // is not flagged `failed`, so it has to be caught on imported < 1 or
+            // it finishes with no message at all.
+            if (progress.failed || progress.imported < 1) {
+                toast.error(
+                    progress.failed_reason ||
+                        'No records were imported. Open Import History for details.',
+                );
+            } else {
                 toast.success(`Imported ${progress.imported.toLocaleString()} liquidation(s).`);
             }
             router.reload();
