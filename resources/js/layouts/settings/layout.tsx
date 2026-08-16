@@ -8,7 +8,7 @@ import { show } from '@/routes/two-factor';
 import { edit as editPassword } from '@/routes/user-password';
 import { type NavItem, type NavigationAbilities, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Activity, Building2, Calendar, FileText, Files, FolderOpen, GraduationCap, History, KeyRound, MapPin, Palette, Shield, ShieldCheck, Terminal, User, Users } from 'lucide-react';
+import { Activity, Building2, Calendar, FileText, Files, FolderOpen, Gauge, GraduationCap, History, KeyRound, MapPin, Palette, Shield, ShieldCheck, Terminal, User, Users } from 'lucide-react';
 import { type PropsWithChildren, useMemo } from 'react';
 
 const sidebarNavItems: NavItem[] = [
@@ -114,6 +114,12 @@ const systemConfigNavItems: AdminNavItem[] = [
         icon: Terminal,
         ability: 'canViewServerLogs',
     },
+    {
+        title: 'Server Monitoring',
+        href: '/settings/server-monitoring',
+        icon: Gauge,
+        ability: 'canViewServerMonitoring',
+    },
 ];
 
 interface SettingsLayoutProps extends PropsWithChildren {
@@ -140,6 +146,7 @@ export default function SettingsLayout({ children, wide = false }: SettingsLayou
         canAccessActivityLogs: false,
         canViewQueueHealth: false,
         canViewServerLogs: false,
+        canViewServerMonitoring: false,
     };
 
     const filterByAbility = (items: AdminNavItem[]) =>

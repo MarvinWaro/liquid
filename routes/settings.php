@@ -4,6 +4,7 @@ use App\Http\Controllers\Settings\PasswordController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\QueueHealthController;
 use App\Http\Controllers\Settings\ServerLogController;
+use App\Http\Controllers\Settings\ServerMonitoringController;
 use App\Http\Controllers\Settings\TwoFactorAuthenticationController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -44,4 +45,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('server-logs.index');
     Route::get('settings/server-logs/download', [ServerLogController::class, 'download'])
         ->name('server-logs.download');
+
+    // Server monitoring — read-only CPU/memory/disk snapshot, Super Admin only,
+    // enforced in the controller for the same reason as queue health above.
+    Route::get('settings/server-monitoring', [ServerMonitoringController::class, 'index'])
+        ->name('server-monitoring.index');
 });
