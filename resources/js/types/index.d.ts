@@ -59,6 +59,7 @@ export interface NavigationAbilities {
     canAccessActivityLogs: boolean;
     canViewQueueHealth: boolean;
     canViewServerLogs: boolean;
+    canViewServerMonitoring: boolean;
     canViewSummaryAY: boolean;
     canViewSummaryHEI: boolean;
     canCreateAnnouncements: boolean;

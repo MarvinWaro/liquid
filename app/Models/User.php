@@ -300,6 +300,9 @@ class User extends Authenticatable
             'canViewQueueHealth' => $this->isSuperAdmin(),
             // Same reasoning: logs carry stack traces and personal data.
             'canViewServerLogs' => $this->isSuperAdmin(),
+            // Same reasoning: hostname, kernel version and load figures are
+            // reconnaissance value, not something a role should be able to grant.
+            'canViewServerMonitoring' => $this->isSuperAdmin(),
             'canViewSummaryAY' => $this->hasPermission('view_summary_ay'),
             'canViewSummaryHEI' => $this->hasPermission('view_summary_hei'),
             'canCreateAnnouncements' => $this->hasPermission('create_announcements'),
