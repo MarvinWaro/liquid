@@ -2,18 +2,23 @@ import { Deferred, Head, router, usePage } from '@inertiajs/react';
 import {
     Cpu,
     Gauge as GaugeIcon,
-    HardDrive,
     MonitorSmartphone,
     RefreshCw,
     Server,
     Timer,
 } from 'lucide-react';
 import {
+    CartesianGrid,
     Cell,
+    Line,
+    LineChart,
     Pie,
     PieChart,
     Label as RechartsLabel,
     ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
 } from 'recharts';
 
 import HeadingSmall from '@/components/heading-small';
@@ -23,6 +28,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
+import { formatManilaTime } from '@/lib/date';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 
 interface CpuUsage {
@@ -55,17 +61,35 @@ interface SystemInfo {
     loadAverage: [number, number, number] | null;
 }
 
+interface HistoryPoint {
+    at: string;
+    cpu: number | null;
+    memory: number | null;
+}
+
 interface ServerMonitoringProps {
     available: boolean;
     system?: SystemInfo;
     cpu?: CpuUsage | null;
     memory?: MemoryUsage | null;
     disk?: DiskUsage | null;
+    history?: HistoryPoint[];
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Server Monitoring', href: '/settings/server-monitoring' },
 ];
+
+/**
+ * The same neutral ramp the Activity Logs donut uses (see app.css). Greyscale
+ * rather than a palette: every slice here is labelled, so colour only has to
+ * separate the wedges and look like it belongs to the rest of the app. The ramp
+ * inverts under .dark, so "strongest = the part you care about" holds in both
+ * themes without a second set of values.
+ */
+const INK = 'var(--activity-1)'; // the figure being reported — used / in use
+const INK_SOFT = 'var(--activity-3)'; // the secondary share — reclaimable / system
+const INK_FAINT = 'var(--activity-5)'; // the remainder — idle / unused / free
 
 /** Human-readable size up to GB, matching the precedent in server-logs.tsx. */
 function formatBytes(bytes: number): string {
@@ -88,115 +112,202 @@ function formatUptime(seconds: number): string {
     const minutes = Math.floor((seconds % 3600) / 60);
 
     const parts: string[] = [];
-    if (weeks > 0) parts.push(`${weeks} week${weeks === 1 ? '' : 's'}`);
-    if (days > 0) parts.push(`${days} day${days === 1 ? '' : 's'}`);
-    if (hours > 0) parts.push(`${hours} hour${hours === 1 ? '' : 's'}`);
+    if (weeks > 0) parts.push(`${weeks}w`);
+    if (days > 0) parts.push(`${days}d`);
+    if (hours > 0) parts.push(`${hours}h`);
     // Minutes only matter once nothing coarser applies — an uptime measured in
     // weeks does not need "and 12 minutes" tacked on.
     if (parts.length === 0 || (weeks === 0 && days === 0)) {
-        parts.push(`${minutes} minute${minutes === 1 ? '' : 's'}`);
+        parts.push(`${minutes}m`);
     }
 
-    return parts.length > 0 ? `up ${parts.join(', ')}` : 'just started';
+    return `up ${parts.join(' ')}`;
 }
 
-/** One donut with a value centred inside it. Static — no hover/select needed here. */
-function UsageDonut({
+interface Segment {
+    name: string;
+    value: number;
+    color: string;
+    display: string;
+}
+
+/**
+ * One metric card: a donut with the headline percentage inside it, and the
+ * breakdown listed underneath.
+ *
+ * The legend sits *below* the donut rather than beside it on purpose. Three of
+ * these sit side by side, so a column layout leaves each row the full card width
+ * — which is what stops a value like "492 MB" from breaking across two lines the
+ * way it did when the legend was squeezed into a fixed 10rem column.
+ */
+function MetricCard({
+    title,
+    subtitle,
+    badge,
     segments,
     centerValue,
     centerLabel,
+    footnote,
 }: {
-    segments: { name: string; value: number; color: string }[];
+    title: string;
+    subtitle: string;
+    badge?: string;
+    segments: Segment[];
     centerValue: string;
     centerLabel: string;
+    footnote?: string;
 }) {
     return (
-        <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
-                <Pie
-                    data={segments}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={82}
-                    strokeWidth={2}
-                    dataKey="value"
-                    isAnimationActive={false}
-                >
+        <Card className="flex flex-col">
+            <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                        <CardTitle className="text-sm font-medium">
+                            {title}
+                        </CardTitle>
+                        <p className="truncate text-xs text-muted-foreground">
+                            {subtitle}
+                        </p>
+                    </div>
+                    {badge && (
+                        <Badge
+                            variant="outline"
+                            className="shrink-0 text-xs font-normal whitespace-nowrap"
+                        >
+                            {badge}
+                        </Badge>
+                    )}
+                </div>
+            </CardHeader>
+
+            <CardContent className="flex flex-1 flex-col gap-3">
+                <ResponsiveContainer width="100%" height={160}>
+                    <PieChart>
+                        <Pie
+                            data={segments}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={52}
+                            outerRadius={72}
+                            strokeWidth={2}
+                            dataKey="value"
+                            nameKey="name"
+                            isAnimationActive={false}
+                        >
+                            {segments.map((segment) => (
+                                <Cell
+                                    key={segment.name}
+                                    fill={segment.color}
+                                    stroke={segment.color}
+                                />
+                            ))}
+                            <RechartsLabel
+                                content={({ viewBox }) => {
+                                    if (
+                                        !viewBox ||
+                                        !('cx' in viewBox) ||
+                                        !('cy' in viewBox)
+                                    ) {
+                                        return null;
+                                    }
+
+                                    return (
+                                        <text
+                                            x={viewBox.cx}
+                                            y={viewBox.cy}
+                                            textAnchor="middle"
+                                        >
+                                            <tspan
+                                                x={viewBox.cx}
+                                                y={viewBox.cy}
+                                                className="fill-foreground text-xl font-semibold"
+                                            >
+                                                {centerValue}
+                                            </tspan>
+                                            <tspan
+                                                x={viewBox.cx}
+                                                y={(viewBox.cy ?? 0) + 16}
+                                                className="fill-muted-foreground text-[11px]"
+                                            >
+                                                {centerLabel}
+                                            </tspan>
+                                        </text>
+                                    );
+                                }}
+                            />
+                        </Pie>
+                    </PieChart>
+                </ResponsiveContainer>
+
+                {/* Full card width, so the value never has to wrap. */}
+                <div className="space-y-1.5">
                     {segments.map((segment) => (
-                        <Cell
+                        <div
                             key={segment.name}
-                            fill={segment.color}
-                            stroke={segment.color}
-                        />
+                            className="flex items-center gap-2 text-xs"
+                        >
+                            <span
+                                className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                                style={{ background: segment.color }}
+                            />
+                            <span
+                                className="truncate text-muted-foreground"
+                                title={segment.name}
+                            >
+                                {segment.name}
+                            </span>
+                            <span className="ml-auto shrink-0 font-medium whitespace-nowrap tabular-nums">
+                                {segment.display}
+                            </span>
+                        </div>
                     ))}
-                    <RechartsLabel
-                        content={({ viewBox }) => {
-                            if (viewBox && 'cx' in viewBox && 'cy' in viewBox) {
-                                return (
-                                    <text
-                                        x={viewBox.cx}
-                                        y={viewBox.cy}
-                                        textAnchor="middle"
-                                        dominantBaseline="middle"
-                                    >
-                                        <tspan
-                                            x={viewBox.cx}
-                                            y={(viewBox.cy || 0) - 6}
-                                            className="fill-foreground text-2xl font-bold"
-                                        >
-                                            {centerValue}
-                                        </tspan>
-                                        <tspan
-                                            x={viewBox.cx}
-                                            y={(viewBox.cy || 0) + 14}
-                                            className="fill-muted-foreground text-xs"
-                                        >
-                                            {centerLabel}
-                                        </tspan>
-                                    </text>
-                                );
-                            }
-                            return null;
-                        }}
-                    />
-                </Pie>
-            </PieChart>
-        </ResponsiveContainer>
+                </div>
+
+                {footnote && (
+                    <p className="mt-auto text-[11px] leading-relaxed text-muted-foreground">
+                        {footnote}
+                    </p>
+                )}
+            </CardContent>
+        </Card>
     );
 }
 
-function LegendRow({
-    color,
-    label,
-    value,
-}: {
-    color: string;
-    label: string;
-    value: string;
-}) {
+function MetricCardSkeleton() {
     return (
-        <div className="flex items-center gap-2 text-sm">
-            <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: color }}
-            />
-            <span className="text-muted-foreground">{label}</span>
-            <span className="ml-auto font-medium tabular-nums">{value}</span>
-        </div>
+        <Card>
+            <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="mt-1 h-3 w-16" />
+            </CardHeader>
+            <CardContent className="flex flex-col items-center gap-4">
+                <Skeleton className="h-[140px] w-[140px] rounded-full" />
+                <div className="w-full space-y-2">
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-full" />
+                </div>
+            </CardContent>
+        </Card>
     );
 }
 
-function ChartSkeleton() {
+/** Placeholder used when a reading is not available on this platform. */
+function MetricUnavailable({ title, note }: { title: string; note: string }) {
     return (
-        <div className="flex flex-col items-center gap-4 py-2">
-            <Skeleton className="h-[150px] w-[150px] rounded-full" />
-            <div className="w-full space-y-2">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-            </div>
-        </div>
+        <Card>
+            <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">{title}</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                    Current snapshot
+                </p>
+            </CardHeader>
+            <CardContent>
+                <p className="py-12 text-center text-sm text-muted-foreground">
+                    {note}
+                </p>
+            </CardContent>
+        </Card>
     );
 }
 
@@ -217,10 +328,148 @@ function InfoCard({
                 </div>
                 <div className="min-w-0">
                     <p className="text-xs text-muted-foreground">{label}</p>
-                    <p className="truncate text-sm font-medium">{value}</p>
+                    <p className="truncate text-sm font-medium" title={value}>
+                        {value}
+                    </p>
                 </div>
             </CardContent>
         </Card>
+    );
+}
+
+/**
+ * The last hour of CPU and memory, one point a minute.
+ *
+ * The series is collected server-side by `server:sample-metrics`, not by polling
+ * from here: a tab left open on a 1 vCPU droplet would otherwise cost a full
+ * Laravel boot every few seconds, and would record nothing while nobody is
+ * looking.
+ */
+function TrendChart({ history }: { history: HistoryPoint[] }) {
+    // One point draws no line. Say so rather than showing an empty grid that
+    // looks like a fault.
+    if (history.length < 2) {
+        return (
+            <div className="flex flex-col items-center gap-1 py-12 text-center">
+                <p className="text-sm font-medium">Collecting</p>
+                <p className="max-w-sm text-xs text-muted-foreground">
+                    A sample is recorded every minute. The graph fills in over
+                    the next hour.
+                </p>
+            </div>
+        );
+    }
+
+    return (
+        <>
+            <ResponsiveContainer width="100%" height={220}>
+                <LineChart
+                    data={history}
+                    margin={{ top: 8, right: 8, left: -20, bottom: 0 }}
+                >
+                    <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="var(--border)"
+                        vertical={false}
+                    />
+                    <XAxis
+                        dataKey="at"
+                        tickFormatter={(value: string) =>
+                            formatManilaTime(value, '')
+                        }
+                        tick={{ fontSize: 11 }}
+                        stroke="var(--muted-foreground)"
+                        tickLine={false}
+                        axisLine={false}
+                        minTickGap={32}
+                    />
+                    <YAxis
+                        domain={[0, 100]}
+                        ticks={[0, 25, 50, 75, 100]}
+                        tickFormatter={(value: number) => `${value}%`}
+                        tick={{ fontSize: 11 }}
+                        stroke="var(--muted-foreground)"
+                        tickLine={false}
+                        axisLine={false}
+                        width={52}
+                    />
+                    <Tooltip
+                        content={({ active, payload, label }) => {
+                            if (!active || !payload?.length) return null;
+
+                            return (
+                                <div className="min-w-[150px] rounded-lg border border-border bg-background p-3 shadow-xl">
+                                    <p className="mb-1.5 text-xs font-semibold">
+                                        {formatManilaTime(String(label), '—')}
+                                    </p>
+                                    {payload.map((entry) => (
+                                        <p
+                                            key={String(entry.dataKey)}
+                                            className="flex items-center gap-2 text-xs"
+                                        >
+                                            <span
+                                                className="h-2 w-2 shrink-0 rounded-sm"
+                                                style={{
+                                                    background: entry.color,
+                                                }}
+                                            />
+                                            <span className="text-muted-foreground">
+                                                {entry.dataKey === 'cpu'
+                                                    ? 'CPU'
+                                                    : 'Memory'}
+                                            </span>
+                                            <span className="ml-auto font-medium tabular-nums">
+                                                {entry.value === null
+                                                    ? '—'
+                                                    : `${entry.value}%`}
+                                            </span>
+                                        </p>
+                                    ))}
+                                </div>
+                            );
+                        }}
+                    />
+                    {/* connectNulls stays off: a gap means sampling stopped, and
+                        bridging it would invent readings that never happened. */}
+                    <Line
+                        type="monotone"
+                        dataKey="cpu"
+                        stroke={INK}
+                        strokeWidth={2}
+                        dot={false}
+                        connectNulls={false}
+                        isAnimationActive={false}
+                    />
+                    <Line
+                        type="monotone"
+                        dataKey="memory"
+                        stroke={INK_SOFT}
+                        strokeWidth={2}
+                        strokeDasharray="4 3"
+                        dot={false}
+                        connectNulls={false}
+                        isAnimationActive={false}
+                    />
+                </LineChart>
+            </ResponsiveContainer>
+
+            <div className="flex items-center justify-center gap-5 text-xs">
+                <span className="flex items-center gap-1.5">
+                    <span
+                        className="h-0.5 w-4 rounded-full"
+                        style={{ background: INK }}
+                    />
+                    <span className="text-muted-foreground">CPU in use</span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                    <span
+                        className="h-0.5 w-4 rounded-full"
+                        style={{ background: INK_SOFT }}
+                    />
+                    <span className="text-muted-foreground">Memory in use</span>
+                </span>
+            </div>
+        </>
     );
 }
 
@@ -230,6 +479,7 @@ export default function ServerMonitoring({
     cpu,
     memory,
     disk,
+    history,
 }: ServerMonitoringProps) {
     const { can } = usePage<SharedData>().props;
 
@@ -239,15 +489,15 @@ export default function ServerMonitoring({
         return null;
     }
 
-    const cpuInUse = cpu ? Math.round((cpu.user + cpu.system) * 10) / 10 : null;
+    const cpuInUse = cpu ? Math.round((cpu.user + cpu.system) * 10) / 10 : 0;
     const memoryUsedPct =
         memory && memory.totalBytes > 0
             ? Math.round((memory.usedBytes / memory.totalBytes) * 100)
-            : null;
+            : 0;
     const diskUsedPct =
         disk && disk.totalBytes > 0
             ? Math.round((disk.usedBytes / disk.totalBytes) * 100)
-            : null;
+            : 0;
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -266,7 +516,13 @@ export default function ServerMonitoring({
                             className="gap-2"
                             onClick={() =>
                                 router.reload({
-                                    only: ['system', 'cpu', 'memory', 'disk'],
+                                    only: [
+                                        'system',
+                                        'cpu',
+                                        'memory',
+                                        'disk',
+                                        'history',
+                                    ],
                                 })
                             }
                         >
@@ -278,174 +534,157 @@ export default function ServerMonitoring({
                     {!available && (
                         <Card>
                             <CardContent className="py-4 text-sm text-muted-foreground">
-                                These readings come from Linux's{' '}
+                                CPU, memory and uptime come from Linux's{' '}
                                 <code className="font-mono">/proc</code>{' '}
                                 filesystem and are not available on this
-                                machine. They will show up once this page is
-                                opened on the production server.
+                                machine. They appear once this page is opened on
+                                the production server.
                             </CardContent>
                         </Card>
                     )}
 
-                    <div className="grid gap-4 sm:grid-cols-2">
-                        <Card>
-                            <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-medium">
-                                    CPU Usage
-                                </CardTitle>
-                                <p className="text-xs text-muted-foreground">
-                                    Current snapshot
-                                </p>
-                            </CardHeader>
-                            <CardContent>
-                                <Deferred
-                                    data="cpu"
-                                    fallback={<ChartSkeleton />}
-                                >
-                                    {cpu ? (
-                                        <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:justify-between">
-                                            <UsageDonut
-                                                segments={[
-                                                    {
-                                                        name: 'User',
-                                                        value: cpu.user,
-                                                        color: '#3b82f6',
-                                                    },
-                                                    {
-                                                        name: 'System',
-                                                        value: cpu.system,
-                                                        color: '#8b5cf6',
-                                                    },
-                                                    {
-                                                        name: 'Idle',
-                                                        value: cpu.idle,
-                                                        color: '#e4e4e7',
-                                                    },
-                                                ]}
-                                                centerValue={`${cpuInUse}%`}
-                                                centerLabel="in use"
-                                            />
-                                            <div className="w-full space-y-2 sm:w-40">
-                                                <LegendRow
-                                                    color="#3b82f6"
-                                                    label="User"
-                                                    value={`${cpu.user}%`}
-                                                />
-                                                <LegendRow
-                                                    color="#8b5cf6"
-                                                    label="System"
-                                                    value={`${cpu.system}%`}
-                                                />
-                                                <LegendRow
-                                                    color="#e4e4e7"
-                                                    label="Idle"
-                                                    value={`${cpu.idle}%`}
-                                                />
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <p className="py-8 text-center text-sm text-muted-foreground">
-                                            CPU usage unavailable
-                                        </p>
-                                    )}
-                                </Deferred>
-                            </CardContent>
-                        </Card>
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                        <Deferred data="cpu" fallback={<MetricCardSkeleton />}>
+                            {cpu ? (
+                                <MetricCard
+                                    title="CPU Usage"
+                                    subtitle="Current snapshot"
+                                    centerValue={`${cpuInUse}%`}
+                                    centerLabel="in use"
+                                    segments={[
+                                        {
+                                            name: 'User',
+                                            value: cpu.user,
+                                            color: INK,
+                                            display: `${cpu.user}%`,
+                                        },
+                                        {
+                                            name: 'System',
+                                            value: cpu.system,
+                                            color: INK_SOFT,
+                                            display: `${cpu.system}%`,
+                                        },
+                                        {
+                                            name: 'Idle',
+                                            value: cpu.idle,
+                                            color: INK_FAINT,
+                                            display: `${cpu.idle}%`,
+                                        },
+                                    ]}
+                                />
+                            ) : (
+                                <MetricUnavailable
+                                    title="CPU Usage"
+                                    note="CPU usage unavailable"
+                                />
+                            )}
+                        </Deferred>
 
-                        <Card>
-                            <CardHeader className="pb-2">
-                                <div className="flex items-start justify-between gap-2">
-                                    <div>
-                                        <CardTitle className="text-sm font-medium">
-                                            Memory Usage
-                                        </CardTitle>
-                                        <p className="text-xs text-muted-foreground">
-                                            {memory
-                                                ? `${formatBytes(memory.totalBytes)} total`
-                                                : 'Current snapshot'}
-                                        </p>
-                                    </div>
-                                    {memory && (
-                                        <Badge
-                                            variant="outline"
-                                            className="shrink-0 border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                                        >
-                                            Available{' '}
-                                            {formatBytes(memory.availableBytes)}
-                                        </Badge>
-                                    )}
-                                </div>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                                <Deferred
-                                    data="memory"
-                                    fallback={<ChartSkeleton />}
-                                >
-                                    {memory ? (
-                                        <>
-                                            <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:justify-between">
-                                                <UsageDonut
-                                                    segments={[
-                                                        {
-                                                            name: 'Used',
-                                                            value: memory.usedBytes,
-                                                            color: '#3b82f6',
-                                                        },
-                                                        {
-                                                            name: 'Reclaimable',
-                                                            value: memory.reclaimableBytes,
-                                                            color: '#8b5cf6',
-                                                        },
-                                                        {
-                                                            name: 'Unused',
-                                                            value: memory.unusedBytes,
-                                                            color: '#e4e4e7',
-                                                        },
-                                                    ]}
-                                                    centerValue={`${memoryUsedPct}%`}
-                                                    centerLabel="in use"
-                                                />
-                                                <div className="w-full space-y-2 sm:w-40">
-                                                    <LegendRow
-                                                        color="#3b82f6"
-                                                        label="Used"
-                                                        value={formatBytes(
-                                                            memory.usedBytes,
-                                                        )}
-                                                    />
-                                                    <LegendRow
-                                                        color="#8b5cf6"
-                                                        label="Reclaimable"
-                                                        value={formatBytes(
-                                                            memory.reclaimableBytes,
-                                                        )}
-                                                    />
-                                                    <LegendRow
-                                                        color="#e4e4e7"
-                                                        label="Unused"
-                                                        value={formatBytes(
-                                                            memory.unusedBytes,
-                                                        )}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <p className="text-xs text-muted-foreground">
-                                                Available memory includes unused
-                                                RAM and cache that Linux can
-                                                reclaim when applications need
-                                                it.
-                                            </p>
-                                        </>
-                                    ) : (
-                                        <p className="py-8 text-center text-sm text-muted-foreground">
-                                            Memory usage unavailable
-                                        </p>
-                                    )}
-                                </Deferred>
-                            </CardContent>
-                        </Card>
+                        <Deferred
+                            data="memory"
+                            fallback={<MetricCardSkeleton />}
+                        >
+                            {memory ? (
+                                <MetricCard
+                                    title="Memory Usage"
+                                    subtitle={`${formatBytes(memory.totalBytes)} total`}
+                                    badge={`${formatBytes(memory.availableBytes)} available`}
+                                    centerValue={`${memoryUsedPct}%`}
+                                    centerLabel="in use"
+                                    segments={[
+                                        {
+                                            name: 'Used',
+                                            value: memory.usedBytes,
+                                            color: INK,
+                                            display: formatBytes(
+                                                memory.usedBytes,
+                                            ),
+                                        },
+                                        {
+                                            name: 'Reclaimable',
+                                            value: memory.reclaimableBytes,
+                                            color: INK_SOFT,
+                                            display: formatBytes(
+                                                memory.reclaimableBytes,
+                                            ),
+                                        },
+                                        {
+                                            name: 'Unused',
+                                            value: memory.unusedBytes,
+                                            color: INK_FAINT,
+                                            display: formatBytes(
+                                                memory.unusedBytes,
+                                            ),
+                                        },
+                                    ]}
+                                    footnote="Available memory includes unused RAM and cache that Linux can reclaim when applications need it."
+                                />
+                            ) : (
+                                <MetricUnavailable
+                                    title="Memory Usage"
+                                    note="Memory usage unavailable"
+                                />
+                            )}
+                        </Deferred>
+
+                        <Deferred data="disk" fallback={<MetricCardSkeleton />}>
+                            {disk ? (
+                                <MetricCard
+                                    title="Disk Usage"
+                                    subtitle={`${formatBytes(disk.totalBytes)} total — root volume`}
+                                    centerValue={`${diskUsedPct}%`}
+                                    centerLabel="in use"
+                                    segments={[
+                                        {
+                                            name: 'Used',
+                                            value: disk.usedBytes,
+                                            color: INK,
+                                            display: formatBytes(
+                                                disk.usedBytes,
+                                            ),
+                                        },
+                                        {
+                                            name: 'Free',
+                                            value: disk.freeBytes,
+                                            color: INK_FAINT,
+                                            display: formatBytes(
+                                                disk.freeBytes,
+                                            ),
+                                        },
+                                    ]}
+                                />
+                            ) : (
+                                <MetricUnavailable
+                                    title="Disk Usage"
+                                    note="Disk usage unavailable"
+                                />
+                            )}
+                        </Deferred>
                     </div>
 
+                    {/* Trend */}
+                    <Card>
+                        <CardHeader className="pb-2">
+                            <CardTitle className="text-sm font-medium">
+                                Last hour
+                            </CardTitle>
+                            <p className="text-xs text-muted-foreground">
+                                CPU and memory in use, sampled once a minute.
+                            </p>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                            <Deferred
+                                data="history"
+                                fallback={
+                                    <Skeleton className="h-[220px] w-full" />
+                                }
+                            >
+                                <TrendChart history={history ?? []} />
+                            </Deferred>
+                        </CardContent>
+                    </Card>
+
+                    {/* System facts */}
                     <div className="space-y-3">
                         <HeadingSmall title="System Information" />
 
@@ -500,22 +739,13 @@ export default function ServerMonitoring({
                                         }
                                     />
                                     <InfoCard
-                                        icon={HardDrive}
-                                        label="Disk (root)"
-                                        value={
-                                            disk
-                                                ? `${formatBytes(disk.usedBytes)} of ${formatBytes(disk.totalBytes)} (${diskUsedPct}% used)`
-                                                : '—'
-                                        }
-                                    />
-                                    <InfoCard
                                         icon={GaugeIcon}
                                         label="Load Average (1m / 5m / 15m)"
                                         value={
                                             system.loadAverage
                                                 ? system.loadAverage
                                                       .map((n) => n.toFixed(2))
-                                                      .join(' / ')
+                                                      .join('  /  ')
                                                 : '—'
                                         }
                                     />
