@@ -229,6 +229,62 @@ it('never picks up a neighbouring file that is not this log', function () {
     }
 });
 
+/**
+ * Regression cover for behaviour that predates the nginx work. The download
+ * route and the level filter were both touched by the refactor that introduced
+ * sources()/metaFor(), and neither had a test of its own before now.
+ */
+it('still downloads an application log', function () {
+    writeNginxLog();
+
+    file_put_contents(
+        storage_path('logs').DIRECTORY_SEPARATOR.'laravel.log',
+        "[2026-08-17 05:00:00] production.ERROR: downloadable\n"
+    );
+
+    test()->actingAs(nginxLogUser())
+        ->get('/settings/server-logs/download?file=laravel.log')
+        ->assertSuccessful()
+        ->assertDownload('laravel.log');
+});
+
+it('downloads an nginx log too', function () {
+    writeNginxLog();
+
+    test()->actingAs(nginxLogUser())
+        ->get('/settings/server-logs/download?file=nginx-error-test.log')
+        ->assertSuccessful()
+        ->assertDownload('nginx-error-test.log');
+});
+
+it('still refuses a download for a file outside the allow-list', function () {
+    writeNginxLog();
+
+    // The traversal defence: an unknown name falls back to the newest real log
+    // rather than opening whatever path was asked for.
+    $response = test()->actingAs(nginxLogUser())
+        ->get('/settings/server-logs/download?file='.urlencode('../../.env'));
+
+    $response->assertSuccessful();
+    expect($response->headers->get('content-disposition'))->not->toContain('.env');
+});
+
+it('still filters the application log by level', function () {
+    writeNginxLog();
+
+    file_put_contents(
+        storage_path('logs').DIRECTORY_SEPARATOR.'laravel.log',
+        "[2026-08-17 05:00:00] production.ERROR: broke\n".
+        "[2026-08-17 05:01:00] production.INFO: fine\n"
+    );
+
+    $log = serverLogDeferred(nginxLogUser(), 'log', ['file' => 'laravel.log', 'level' => 'ERROR']);
+    $messages = collect($log['entries'])->pluck('message');
+
+    expect($messages)->toContain('broke')
+        ->and($messages)->not->toContain('fine');
+});
+
 it('refuses anyone who is not a Super Admin', function () {
     writeNginxLog();
 
