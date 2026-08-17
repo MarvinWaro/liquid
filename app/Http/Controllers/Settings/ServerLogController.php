@@ -157,17 +157,52 @@ class ServerLogController extends Controller
         }
 
         // Nginx is added last and never overwrites an application log of the
-        // same name. It is also only offered when the file is genuinely
-        // readable: /var/log/nginx/error.log is root:adm 640 out of the box,
-        // which www-data cannot open, and listing an unreadable file would just
-        // hand the user a viewer that is permanently empty.
-        $nginx = config('logging.nginx_error_path');
-
-        if (is_string($nginx) && $nginx !== '' && is_readable($nginx)) {
-            $sources[basename($nginx)] ??= ['path' => $nginx, 'source' => self::SOURCE_NGINX];
+        // same name.
+        foreach ($this->nginxPaths() as $path) {
+            $sources[basename($path)] ??= ['path' => $path, 'source' => self::SOURCE_NGINX];
         }
 
         return $this->sources = $sources;
+    }
+
+    /**
+     * The nginx error log and its rotated history, newest first.
+     *
+     * Matched as siblings of the configured filename — "nginx-error.log*" —
+     * rather than by listing the directory. That distinction is deliberate:
+     * globbing the directory would sweep in access.log, which was left out on
+     * purpose because it is large and records every visitor's IP and full URL.
+     * A dated sibling is more of the same error log; a neighbouring file is not.
+     *
+     * @return array<int, string>
+     */
+    private function nginxPaths(): array
+    {
+        $configured = config('logging.nginx_error_path');
+
+        if (! is_string($configured) || $configured === '') {
+            return [];
+        }
+
+        $paths = array_filter(
+            glob($configured.'*') ?: [],
+            // Readable, because /var/log/nginx/error.log is root:adm 640 out of
+            // the box and www-data cannot open it — listing it anyway would hand
+            // the user a viewer that is permanently empty.
+            //
+            // Uncompressed, because this whole page rests on tail() seeking to
+            // the last TAIL_BYTES so file size never matters. A gzip stream
+            // cannot be seeked, and decompressing whole archives is precisely
+            // what a 1 GB droplet cannot afford. `nocompress` in the logrotate
+            // rule keeps the kept history readable; an error log is kilobytes.
+            fn (string $path) => is_file($path)
+                && is_readable($path)
+                && ! preg_match('/\.(gz|bz2|xz|zst)$/i', $path),
+        );
+
+        usort($paths, fn (string $a, string $b) => filemtime($b) <=> filemtime($a));
+
+        return $paths;
     }
 
     /**

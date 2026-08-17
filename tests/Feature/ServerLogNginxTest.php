@@ -64,9 +64,9 @@ function serverLogDeferred(User $user, string $prop, array $query = []): mixed
 }
 
 afterEach(function () {
-    $path = sys_get_temp_dir().DIRECTORY_SEPARATOR.'nginx-error-test.log';
+    $base = sys_get_temp_dir().DIRECTORY_SEPARATOR.'nginx-error-test.log';
 
-    if (file_exists($path)) {
+    foreach (glob($base.'*') ?: [] as $path) {
         unlink($path);
     }
 });
@@ -174,6 +174,59 @@ it('still parses the application log unchanged', function () {
         ->and($entry['level'])->toBe('ERROR')
         ->and($entry['environment'])->toBe('production')
         ->and($entry['hasTrace'])->toBeTrue();
+});
+
+it('lists rotated nginx logs alongside the current one', function () {
+    $base = writeNginxLog();
+
+    // What `dateext` in the logrotate rule produces.
+    file_put_contents($base.'-20260816', "2026/08/16 09:00:00 [error] 1#0: yesterday\n");
+
+    $files = test()->actingAs(nginxLogUser())
+        ->get('/settings/server-logs')
+        ->assertSuccessful()
+        ->viewData('page')['props']['files'];
+
+    $nginx = collect($files)->where('source', 'nginx')->pluck('name');
+
+    expect($nginx)->toContain('nginx-error-test.log')
+        ->and($nginx)->toContain('nginx-error-test.log-20260816');
+});
+
+it('skips compressed rotations, which cannot be tail-seeked', function () {
+    $base = writeNginxLog();
+
+    // Not real gzip — the point is that the extension alone is disqualifying,
+    // because seeking into a compressed stream is impossible and decompressing
+    // whole archives is what the tail() design exists to avoid.
+    file_put_contents($base.'-20260815.gz', 'binary nonsense');
+
+    $files = test()->actingAs(nginxLogUser())
+        ->get('/settings/server-logs')
+        ->assertSuccessful()
+        ->viewData('page')['props']['files'];
+
+    expect(collect($files)->pluck('name'))->not->toContain('nginx-error-test.log-20260815.gz');
+});
+
+it('never picks up a neighbouring file that is not this log', function () {
+    writeNginxLog();
+
+    // access.log was left out deliberately: it is large and holds every
+    // visitor's IP and full URL. Globbing the directory would drag it back in.
+    $neighbour = sys_get_temp_dir().DIRECTORY_SEPARATOR.'access.log';
+    file_put_contents($neighbour, "2026/08/17 09:00:00 [error] 1#0: not ours\n");
+
+    try {
+        $files = test()->actingAs(nginxLogUser())
+            ->get('/settings/server-logs')
+            ->assertSuccessful()
+            ->viewData('page')['props']['files'];
+
+        expect(collect($files)->pluck('name'))->not->toContain('access.log');
+    } finally {
+        unlink($neighbour);
+    }
 });
 
 it('refuses anyone who is not a Super Admin', function () {

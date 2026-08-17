@@ -12,7 +12,7 @@ import {
     Search,
     Terminal,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 
 import HeadingSmall from '@/components/heading-small';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +21,10 @@ import { Input } from '@/components/ui/input';
 import {
     Select,
     SelectContent,
+    SelectGroup,
     SelectItem,
+    SelectLabel,
+    SelectSeparator,
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
@@ -202,6 +205,24 @@ function CopyEntryButton({ entry, tone }: { entry: LogEntry; tone: string }) {
     );
 }
 
+/** Section headings for the file picker, keyed by the backend's `source`. */
+const SOURCE_LABELS: Record<string, string> = {
+    app: 'Application',
+    nginx: 'Nginx',
+};
+
+/** Fixed order, so the picker does not reshuffle as files rotate in and out. */
+const SOURCE_ORDER = ['app', 'nginx'];
+
+/** One row in the file picker. */
+function LogFileOption({ file }: { file: LogFile }) {
+    return (
+        <SelectItem value={file.name}>
+            <span className="font-mono text-xs">{file.name}</span>
+        </SelectItem>
+    );
+}
+
 const SKELETON_WIDTHS = ['w-11/12', 'w-4/5', 'w-3/4', 'w-2/3', 'w-1/2'];
 
 function ConsoleSkeleton() {
@@ -379,6 +400,23 @@ export default function ServerLogs({ files, filters, log }: ServerLogsProps) {
         [files, filters.file],
     );
 
+    // Files bucketed by which server wrote them. Known sources keep their fixed
+    // order; anything unexpected is appended rather than silently dropped, so a
+    // future source still appears even before it is named here.
+    const grouped = useMemo(() => {
+        const order = [
+            ...new Set([...SOURCE_ORDER, ...files.map((file) => file.source)]),
+        ];
+
+        return order
+            .map((source) => ({
+                source,
+                label: SOURCE_LABELS[source] ?? source,
+                files: files.filter((file) => file.source === source),
+            }))
+            .filter((group) => group.files.length > 0);
+    }, [files]);
+
     // The server sends entries oldest-first, the order they sit in the file.
     // Reversing here is a 150-item array copy — cheaper than asking the server.
     const entries = useMemo(() => {
@@ -500,25 +538,34 @@ export default function ServerLogs({ files, filters, log }: ServerLogsProps) {
                                 <SelectValue placeholder="Select a log file" />
                             </SelectTrigger>
                             <SelectContent>
-                                {files.map((file) => (
-                                    <SelectItem
-                                        key={file.name}
-                                        value={file.name}
-                                    >
-                                        <span className="flex items-center gap-2">
-                                            <span className="font-mono text-xs">
-                                                {file.name}
-                                            </span>
-                                            {/* "error.log" alone would read as
-                                                the app's own log. */}
-                                            {file.source === 'nginx' && (
-                                                <span className="rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground uppercase">
-                                                    nginx
-                                                </span>
-                                            )}
-                                        </span>
-                                    </SelectItem>
-                                ))}
+                                {/* One bare list while only one source exists —
+                                    which is every machine with NGINX_ERROR_LOG
+                                    unset — so the common case looks unchanged
+                                    and headings only appear once they separate
+                                    something. */}
+                                {grouped.length === 1
+                                    ? grouped[0].files.map((file) => (
+                                          <LogFileOption
+                                              key={file.name}
+                                              file={file}
+                                          />
+                                      ))
+                                    : grouped.map((group, index) => (
+                                          <Fragment key={group.source}>
+                                              {index > 0 && <SelectSeparator />}
+                                              <SelectGroup>
+                                                  <SelectLabel className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                                                      {group.label}
+                                                  </SelectLabel>
+                                                  {group.files.map((file) => (
+                                                      <LogFileOption
+                                                          key={file.name}
+                                                          file={file}
+                                                      />
+                                                  ))}
+                                              </SelectGroup>
+                                          </Fragment>
+                                      ))}
                             </SelectContent>
                         </Select>
 
