@@ -38,6 +38,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Nginx Error Log
+    |--------------------------------------------------------------------------
+    |
+    | Read-only path surfaced in Settings → Server Logs alongside the Laravel
+    | log. Nginx sits in front of PHP, so it records the failures that never
+    | reach the framework at all: 502/504 when PHP-FPM dies or times out, and
+    | 413 when an upload exceeds client_max_body_size. Those are invisible in
+    | laravel.log because PHP was never given the request.
+    |
+    | Unset by default, which switches the feature off — there is no nginx on a
+    | Windows dev machine, and on a server the file is unreadable to www-data
+    | until it is deliberately granted. Point NGINX_ERROR_LOG at a file that the
+    | web user can read; do NOT add www-data to the `adm` group to achieve it,
+    | as that also exposes /var/log/auth.log.
+    |
+    */
+
+    'nginx_error_path' => env('NGINX_ERROR_LOG'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Log Channels
     |--------------------------------------------------------------------------
     |
