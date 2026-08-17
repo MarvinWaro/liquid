@@ -53,6 +53,40 @@ class ServerLogController extends Controller
      */
     private const ENTRY_HEADER = '/^\[(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?)\]\s+([\w-]+)\.([A-Z]+):\s?(.*)$/m';
 
+    private const SOURCE_APP = 'app';
+
+    private const SOURCE_NGINX = 'nginx';
+
+    /**
+     * An nginx error line, e.g.
+     * "2026/08/17 13:55:36 [error] 1234#0: *1 connect() failed ..."
+     *
+     * Nothing like Monolog's format, hence its own pattern and its own parser.
+     */
+    private const NGINX_ENTRY = '/^(\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}) \[(\w+)\] \d+#\d+:\s*(.*)$/m';
+
+    /**
+     * Nginx severities mapped onto the level vocabulary the UI already filters
+     * by, so one dropdown keeps working across both kinds of log.
+     */
+    private const NGINX_LEVELS = [
+        'emerg' => 'EMERGENCY',
+        'alert' => 'ALERT',
+        'crit' => 'CRITICAL',
+        'error' => 'ERROR',
+        'warn' => 'WARNING',
+        'notice' => 'NOTICE',
+        'info' => 'INFO',
+        'debug' => 'DEBUG',
+    ];
+
+    /**
+     * Memoised so one request globs the log directory once.
+     *
+     * @var array<string, array{path: string, source: string}>|null
+     */
+    private ?array $sources = null;
+
     public function index(Request $request): InertiaResponse
     {
         $this->authorizeSuperAdmin($request);
@@ -89,33 +123,84 @@ class ServerLogController extends Controller
         $this->authorizeSuperAdmin($request);
 
         $selected = $this->resolveSelected($request->query('file'), $this->availableFiles());
+        $meta = $selected === null ? null : $this->metaFor($selected);
 
-        abort_if($selected === null, 404, 'No log file available.');
+        abort_if($meta === null, 404, 'No log file available.');
 
-        return response()->download($this->pathFor($selected));
+        return response()->download($meta['path']);
     }
 
     /**
-     * Log files present on disk, newest first.
+     * Every log this controller may open, keyed by the name shown in the UI.
      *
-     * Doubles as the allow-list for every path this controller will open.
+     * This is the allow-list: resolveSelected() only ever returns a key from
+     * here and metaFor() only ever returns a value from here, so a request can
+     * name a file but can never supply a path.
      *
-     * @return array<int, array<string, mixed>>
+     * @return array<string, array{path: string, source: string}>
      */
-    private function availableFiles(): array
+    private function sources(): array
     {
+        if ($this->sources !== null) {
+            return $this->sources;
+        }
+
         $paths = glob(storage_path('logs').DIRECTORY_SEPARATOR.'*.log') ?: [];
 
         // Newest first: the file someone wants is almost always the current one.
         usort($paths, fn (string $a, string $b) => filemtime($b) <=> filemtime($a));
 
-        return array_map(fn (string $path) => [
-            'name' => basename($path),
-            'size' => filesize($path) ?: 0,
-            'modifiedAt' => Carbon::createFromTimestamp(filemtime($path) ?: 0)
-                ->setTimezone('Asia/Manila')
-                ->toIso8601String(),
-        ], $paths);
+        $sources = [];
+
+        foreach ($paths as $path) {
+            $sources[basename($path)] = ['path' => $path, 'source' => self::SOURCE_APP];
+        }
+
+        // Nginx is added last and never overwrites an application log of the
+        // same name. It is also only offered when the file is genuinely
+        // readable: /var/log/nginx/error.log is root:adm 640 out of the box,
+        // which www-data cannot open, and listing an unreadable file would just
+        // hand the user a viewer that is permanently empty.
+        $nginx = config('logging.nginx_error_path');
+
+        if (is_string($nginx) && $nginx !== '' && is_readable($nginx)) {
+            $sources[basename($nginx)] ??= ['path' => $nginx, 'source' => self::SOURCE_NGINX];
+        }
+
+        return $this->sources = $sources;
+    }
+
+    /**
+     * @return array{path: string, source: string}|null
+     */
+    private function metaFor(string $name): ?array
+    {
+        return $this->sources()[$name] ?? null;
+    }
+
+    /**
+     * Log files available to read, newest first.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function availableFiles(): array
+    {
+        $files = [];
+
+        foreach ($this->sources() as $name => $meta) {
+            $files[] = [
+                'name' => $name,
+                // Lets the UI label which server wrote the file, so a bare
+                // "error.log" is not mistaken for the application's own.
+                'source' => $meta['source'],
+                'size' => filesize($meta['path']) ?: 0,
+                'modifiedAt' => Carbon::createFromTimestamp(filemtime($meta['path']) ?: 0)
+                    ->setTimezone('Asia/Manila')
+                    ->toIso8601String(),
+            ];
+        }
+
+        return $files;
     }
 
     /**
@@ -139,12 +224,6 @@ class ServerLogController extends Controller
         return $names[0] ?? null;
     }
 
-    /** Safe by construction: $name always comes from availableFiles(). */
-    private function pathFor(string $name): string
-    {
-        return storage_path('logs').DIRECTORY_SEPARATOR.$name;
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -156,16 +235,18 @@ class ServerLogController extends Controller
             return $empty;
         }
 
-        $path = $this->pathFor($name);
+        $meta = $this->metaFor($name);
 
-        if (! is_readable($path)) {
+        if ($meta === null || ! is_readable($meta['path'])) {
             return $empty;
         }
 
-        [$content, $truncated, $scanned, $total] = $this->tail($path);
+        [$content, $truncated, $scanned, $total] = $this->tail($meta['path']);
 
         return [
-            'entries' => $this->parse($content, $level, $search),
+            'entries' => $meta['source'] === self::SOURCE_NGINX
+                ? $this->parseNginx($content, $level, $search)
+                : $this->parse($content, $level, $search),
             // Tells the UI to say "showing the most recent activity" rather than
             // implying this is the whole file.
             'truncated' => $truncated,
@@ -261,6 +342,77 @@ class ServerLogController extends Controller
 
         // Newest last, so the console reads top-to-bottom like a real terminal.
         return array_slice($entries, -self::MAX_ENTRIES);
+    }
+
+    /**
+     * Split an nginx error log into the same entry shape the Monolog parser
+     * produces, so the console renders both without knowing the difference.
+     *
+     * Nginx writes one line per error with no stack trace, but the tail after
+     * ", client:" is request context — which URL, which upstream, which visitor
+     * — rather than the error itself. Splitting it off keeps the row scannable
+     * and puts the detail behind the same expand affordance a trace uses.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function parseNginx(string $content, string $level, string $search): array
+    {
+        if (! preg_match_all(self::NGINX_ENTRY, $content, $matches, PREG_SET_ORDER)) {
+            return [];
+        }
+
+        $entries = [];
+
+        foreach ($matches as $i => $match) {
+            // Unknown severities read as ERROR rather than being dropped: an
+            // unrecognised line in an error log is still worth showing.
+            $entryLevel = self::NGINX_LEVELS[strtolower($match[2])] ?? 'ERROR';
+            $message = trim($match[3]);
+            $context = '';
+
+            if (($split = strpos($message, ', client:')) !== false) {
+                $context = trim(substr($message, $split + 2));
+                $message = trim(substr($message, 0, $split));
+            }
+
+            if (! $this->matchesLevel($entryLevel, $level)) {
+                continue;
+            }
+
+            if ($search !== '' && ! $this->matchesSearch($search, $message, $context)) {
+                continue;
+            }
+
+            $entries[] = [
+                'id' => $i,
+                'level' => $entryLevel,
+                'environment' => self::SOURCE_NGINX,
+                'loggedAt' => $this->nginxTime($match[1]),
+                'message' => mb_strimwidth($message, 0, self::MESSAGE_CHARS, '…'),
+                'trace' => mb_strimwidth($context, 0, self::TRACE_CHARS, '…'),
+                'hasTrace' => $context !== '',
+            ];
+        }
+
+        // Newest last, matching the application log so the console reads the
+        // same way whichever file is selected.
+        return array_slice($entries, -self::MAX_ENTRIES);
+    }
+
+    /**
+     * Nginx stamps its lines in the server's own local time, which on this
+     * droplet is UTC — the same basis config('app.timezone') already describes,
+     * so the two logs line up rather than sitting hours apart.
+     */
+    private function nginxTime(string $timestamp): ?string
+    {
+        try {
+            return Carbon::createFromFormat('Y/m/d H:i:s', $timestamp, config('app.timezone'))
+                ->setTimezone('Asia/Manila')
+                ->toIso8601String();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function matchesLevel(string $entryLevel, string $filter): bool

@@ -36,6 +36,8 @@ import { type BreadcrumbItem, type SharedData } from '@/types';
 
 interface LogFile {
     name: string;
+    /** Which server wrote it: 'app' (Laravel) or 'nginx'. */
+    source: string;
     size: number;
     modifiedAt: string;
 }
@@ -503,8 +505,17 @@ export default function ServerLogs({ files, filters, log }: ServerLogsProps) {
                                         key={file.name}
                                         value={file.name}
                                     >
-                                        <span className="font-mono text-xs">
-                                            {file.name}
+                                        <span className="flex items-center gap-2">
+                                            <span className="font-mono text-xs">
+                                                {file.name}
+                                            </span>
+                                            {/* "error.log" alone would read as
+                                                the app's own log. */}
+                                            {file.source === 'nginx' && (
+                                                <span className="rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground uppercase">
+                                                    nginx
+                                                </span>
+                                            )}
                                         </span>
                                     </SelectItem>
                                 ))}
@@ -663,7 +674,10 @@ export default function ServerLogs({ files, filters, log }: ServerLogsProps) {
                                         <span className="text-green-500">
                                             $
                                         </span>{' '}
-                                        tail -n {entries.length} storage/logs/
+                                        tail -n {entries.length}{' '}
+                                        {selectedFile?.source === 'nginx'
+                                            ? '/var/log/nginx/'
+                                            : 'storage/logs/'}
                                         {filters.file}
                                         {order === 'newest' && ' | tac'}
                                     </p>
