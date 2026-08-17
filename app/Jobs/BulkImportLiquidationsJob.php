@@ -86,6 +86,16 @@ class BulkImportLiquidationsJob implements ShouldQueue
         $rows = $cached['rows'];
         $errors = [];
 
+        // The stall clock runs from updated_at, which was last written when the
+        // controller created this batch — before the job was queued. Everything
+        // between then and here (waiting for a free worker, then unserialising the
+        // whole validated file) was counted as silence, so a busy queue could burn
+        // the entire window before the first row was ever inserted.
+        //
+        // Touching here restarts the clock at the moment work actually begins, so
+        // the threshold only ever has to cover one chunk.
+        $batch->touch();
+
         try {
             // One dashboard-cache flush for the whole import rather than one per
             // chunk — see DashboardCache::withoutFlushing().

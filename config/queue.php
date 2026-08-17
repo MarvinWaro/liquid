@@ -1,5 +1,25 @@
 <?php
 
+/*
+|--------------------------------------------------------------------------
+| Retry After
+|--------------------------------------------------------------------------
+|
+| How long the queue waits before deciding a reserved job was lost and handing
+| it to another worker. It MUST exceed the runtime of the longest job, or a job
+| that is merely slow gets released and processed a second time while the first
+| worker is still running.
+|
+| BulkImportLiquidationsJob declares $timeout = 1800, so the framework default
+| of 90 was a 20x inversion: any import running longer than 90 seconds could be
+| picked up twice, and production runs two Horizon processes, so there is a
+| second worker available to do exactly that. Sized above that job's timeout
+| with a minute of headroom, and shared by every connection so the documented
+| rollback to the database queue cannot reintroduce it.
+|
+*/
+$retryAfter = 1860;
+
 return [
 
     /*
@@ -40,7 +60,9 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
+            // Kept in step with redis: the documented rollback procedure switches
+            // QUEUE_CONNECTION back to database, which must not reintroduce this.
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', $retryAfter),
             'after_commit' => false,
         ],
 
@@ -68,7 +90,7 @@ return [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
-            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
+            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', $retryAfter),
             'block_for' => null,
             'after_commit' => false,
         ],
