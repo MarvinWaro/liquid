@@ -539,6 +539,75 @@ test('a stalled batch that stopped part-way is marked failed with a reason', fun
         ->and($batch->fresh()->status)->toBe(ImportBatch::STATUS_FAILED);
 });
 
+/** A batch still in `processing` whose last progress write was $seconds ago. */
+function batchSilentFor(User $user, int $seconds, int $imported, int $total): ImportBatch
+{
+    $batch = ImportBatch::create([
+        'user_id' => $user->id,
+        'file_name' => 'import.xlsx',
+        'total_rows' => $total,
+        'imported_count' => $imported,
+        'status' => ImportBatch::STATUS_PROCESSING,
+    ]);
+
+    DB::table('import_batches')
+        ->where('id', $batch->id)
+        ->update(['updated_at' => now()->subSeconds($seconds)]);
+
+    return $batch->fresh();
+}
+
+test('a slow chunk is not mistaken for a dead worker', function () {
+    // The regression that destroyed a real 4,334-row import. Progress can only be
+    // written *between* chunks, because each chunk is a single transaction — so
+    // the silence the client observes is exactly one chunk's duration. A chunk
+    // that falls back to per-row inserts, or whose control-number scan runs
+    // against a large table, can easily take a minute. Under the old 30-second
+    // threshold the 2-second progress poll then declared a healthy, actively
+    // inserting import dead, and the client killed its own job.
+    $user = importUser();
+    $batch = batchSilentFor($user, 60, 500, 4334);
+
+    $this->actingAs($user)
+        ->getJson(route('liquidation.import-progress', ['batch_id' => $batch->id]))
+        ->assertOk()
+        ->assertJsonPath('failed', false)
+        ->assertJsonPath('done', false)
+        ->assertJsonPath('status', ImportBatch::STATUS_PROCESSING);
+
+    expect($batch->fresh()->status)->toBe(ImportBatch::STATUS_PROCESSING)
+        ->and($batch->fresh()->failed_reason)->toBeNull();
+});
+
+test('a worker that really is gone is still caught', function () {
+    // The other half: being generous with slow chunks must not mean a dead
+    // worker leaves a batch stuck in `processing` forever, blocking undo and the
+    // next import.
+    $user = importUser();
+    $batch = batchSilentFor($user, 600, 1200, 4334);
+
+    $this->actingAs($user)
+        ->getJson(route('liquidation.import-progress', ['batch_id' => $batch->id]))
+        ->assertOk()
+        ->assertJsonPath('failed', true);
+
+    expect($batch->fresh()->status)->toBe(ImportBatch::STATUS_FAILED);
+});
+
+test('the queue cannot release a job that could still be running', function () {
+    // retry_after must exceed the longest job's timeout. When it does not, the
+    // queue decides a slow job was lost and hands it to a second worker — and
+    // production runs two Horizon processes, so one is waiting. The result is the
+    // same file imported twice. Pinned as a test because it is a silent,
+    // data-corrupting failure that only shows up under load.
+    $timeout = (new BulkImportLiquidationsJob('u', 't', 'b', 'k'))->timeout;
+
+    foreach (['redis', 'database'] as $connection) {
+        expect(config("queue.connections.{$connection}.retry_after"))
+            ->toBeGreaterThan($timeout, "{$connection} retry_after must exceed the job timeout");
+    }
+});
+
 test('a batch that reported progress recently is left alone', function () {
     // Guards against declaring a healthy, actively-working import dead.
     $user = importUser();

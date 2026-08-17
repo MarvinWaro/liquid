@@ -103,11 +103,25 @@ class ImportBatch extends Model
     /**
      * A batch is presumed abandoned after this long without its row count moving.
      *
-     * The worker bumps imported_count after every chunk, and the closing phase is
-     * one update plus a notification insert — sub-second in practice — so half a
-     * minute of silence is already a wide margin.
+     * This has to clear the slowest *single chunk*, not the average one, because
+     * the worker can only report progress between chunks: each chunk runs in one
+     * transaction, so a heartbeat written inside it is invisible until it commits.
+     * The gap the client observes is therefore exactly one chunk's duration.
+     *
+     * Thirty seconds assumed chunks were "sub-second in practice", which holds on
+     * a fast machine against a small table and stops holding the moment anything
+     * is slower: a chunk that falls back to per-row inserts costs ~4 queries a row
+     * (~2,000 for a 500-row chunk), and generateControlNos() runs a locking
+     * LIKE 'prefix%' scan that grows with the liquidations table. When that gap
+     * exceeded 30s the poll marked a perfectly healthy, still-inserting import as
+     * failed — the client killing its own job.
+     *
+     * Three minutes is wide enough that only a genuinely dead worker trips it, and
+     * still tells the user something is wrong long before the job's own 1800s
+     * timeout would. The cost of being generous here is a slower failure notice;
+     * the cost of being tight is destroying good imports.
      */
-    private const STALL_THRESHOLD_SECONDS = 30;
+    private const STALL_THRESHOLD_SECONDS = 180;
 
     /**
      * Close out a batch whose worker died without finishing the bookkeeping.
