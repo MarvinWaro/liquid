@@ -19,7 +19,7 @@ import { useMemo, useState } from 'react';
 const PERMISSION_CATEGORIES: Record<string, string[]> = {
     'Core Operations': ['Liquidation', 'Reports', 'Contact & Support'],
     'User Management': ['Users', 'Roles'],
-    'System Configuration': ['HEI', 'Regions', 'Programs', 'Semesters', 'Academic Years', 'Document Requirements', 'Activity Logs'],
+    'System Configuration': ['HEI', 'Regions', 'Programs', 'Semesters', 'Academic Years', 'Document Locations', 'Document Requirements', 'Activity Logs'],
 };
 
 interface Permission {

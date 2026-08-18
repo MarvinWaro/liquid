@@ -8,7 +8,7 @@ import { show } from '@/routes/two-factor';
 import { edit as editPassword } from '@/routes/user-password';
 import { type NavItem, type NavigationAbilities, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Activity, Building2, Calendar, FileText, Files, FolderOpen, Gauge, GraduationCap, History, KeyRound, MapPin, Palette, Shield, ShieldCheck, Terminal, User, Users } from 'lucide-react';
+import { Activity, Archive, Building2, Calendar, FileText, Files, FolderOpen, Gauge, GraduationCap, History, KeyRound, MapPin, Palette, Shield, ShieldCheck, Terminal, User, Users } from 'lucide-react';
 import { type PropsWithChildren, useMemo } from 'react';
 
 const sidebarNavItems: NavItem[] = [
@@ -85,6 +85,12 @@ const systemConfigNavItems: AdminNavItem[] = [
         ability: 'canViewAcademicYears',
     },
     {
+        title: 'Document Locations',
+        href: '/document-locations',
+        icon: Archive,
+        ability: 'canViewDocumentLocations',
+    },
+    {
         title: 'Document Requirements',
         href: '/document-requirements',
         icon: FileText,
@@ -140,6 +146,7 @@ export default function SettingsLayout({ children, wide = false }: SettingsLayou
         canViewPrograms: false,
         canViewSemesters: false,
         canViewAcademicYears: false,
+        canViewDocumentLocations: false,
         canViewDocumentRequirements: false,
         canViewTemplates: false,
         canViewActivityLogs: false,

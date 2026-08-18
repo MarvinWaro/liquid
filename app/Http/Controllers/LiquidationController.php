@@ -1605,7 +1605,7 @@ class LiquidationController extends Controller
                 ? $this->getStufapsFocalsForProgram($liquidation->program_id)
                 : $this->cacheService->getRegionalCoordinators($operationalRegionIds),
             'accountants' => $this->cacheService->getAccountants(),
-            'documentLocations' => DocumentLocation::orderBy('sort_order')->pluck('name'),
+            'documentLocations' => $this->documentLocationOptions($liquidation),
             'permissions' => [
                 'review' => $user->can('review', $liquidation),
                 'submit' => $isHEIUser,
@@ -3138,6 +3138,32 @@ class LiquidationController extends Controller
         }
 
         return LiquidationStatus::unliquidated();
+    }
+
+    /**
+     * Location names offered by the Document Tracking picker.
+     *
+     * Active locations, plus any archived one this record is already filed at.
+     * The picker matches on the name string, so dropping an archived location
+     * outright would blank the display for a liquidation that legitimately sits
+     * there — archiving is meant to retire a shelf from future use, not to
+     * rewrite where past documents are.
+     *
+     * @return Collection<int, string>
+     */
+    private function documentLocationOptions(Liquidation $liquidation): Collection
+    {
+        $inUse = collect([$liquidation->transmittal?->location?->name])
+            ->merge($liquidation->trackingEntries->flatMap(
+                fn ($entry) => $entry->locations->pluck('name')
+            ))
+            ->filter()
+            ->unique();
+
+        return DocumentLocation::query()
+            ->where(fn ($query) => $query->active()->orWhereIn('name', $inUse))
+            ->ordered()
+            ->pluck('name');
     }
 
     private function findProgram(string $name): ?Program

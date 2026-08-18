@@ -8,6 +8,7 @@ use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\Auth\GoogleAuthController;
 use App\Http\Controllers\BulkEntryDraftController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DocumentLocationController;
 use App\Http\Controllers\DocumentRequirementController;
 use App\Http\Controllers\HEIController;
 use App\Http\Controllers\LiquidationCommentController;
@@ -169,6 +170,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('semesters', [SemesterController::class, 'store'])->name('semesters.store');
     Route::put('semesters/{semester}', [SemesterController::class, 'update'])->name('semesters.update');
     Route::delete('semesters/{semester}', [SemesterController::class, 'destroy'])->name('semesters.destroy');
+
+    // Document Location Management Routes
+    Route::get('document-locations', [DocumentLocationController::class, 'index'])->name('document-locations.index');
+    Route::post('document-locations', [DocumentLocationController::class, 'store'])->name('document-locations.store');
+    Route::put('document-locations/{documentLocation}', [DocumentLocationController::class, 'update'])->name('document-locations.update');
+    Route::delete('document-locations/{documentLocation}', [DocumentLocationController::class, 'destroy'])->name('document-locations.destroy');
 
     // Academic Year Management Routes
     Route::get('academic-years', [AcademicYearController::class, 'index'])->name('academic-years.index');
