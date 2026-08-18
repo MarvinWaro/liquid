@@ -67,6 +67,12 @@ class PermissionSeeder extends Seeder
                 ['name' => 'edit_academic_years', 'description' => 'Edit existing academic years'],
                 ['name' => 'delete_academic_years', 'description' => 'Delete academic years'],
             ],
+            'Document Locations' => [
+                ['name' => 'view_document_locations', 'description' => 'View document locations list'],
+                ['name' => 'create_document_locations', 'description' => 'Create new document locations'],
+                ['name' => 'edit_document_locations', 'description' => 'Edit existing document locations'],
+                ['name' => 'delete_document_locations', 'description' => 'Delete document locations'],
+            ],
             'Document Requirements' => [
                 ['name' => 'view_document_requirements', 'description' => 'View document requirements list'],
                 ['name' => 'create_document_requirements', 'description' => 'Create new document requirements'],
@@ -137,6 +143,7 @@ class PermissionSeeder extends Seeder
             'view_programs', 'create_programs', 'edit_programs', 'delete_programs',
             'view_semesters', 'create_semesters', 'edit_semesters', 'delete_semesters',
             'view_academic_years', 'create_academic_years', 'edit_academic_years', 'delete_academic_years',
+            'view_document_locations', 'create_document_locations', 'edit_document_locations', 'delete_document_locations',
             'view_document_requirements', 'create_document_requirements', 'edit_document_requirements', 'delete_document_requirements',
             'view_templates', 'create_templates', 'edit_templates', 'delete_templates',
             'view_reports', 'export_reports', 'view_fund_source_filter',
