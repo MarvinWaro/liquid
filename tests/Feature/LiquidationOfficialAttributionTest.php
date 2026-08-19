@@ -148,11 +148,21 @@ test('operational table totals overlap across a transfer while official report t
         ->toBe(3000.0);
 });
 
-test('regional dashboard totals keep the former region its processed history while the current region sees everything', function () {
+test('the dashboard credits each region only for the liquidations it processed', function () {
+    // The rule the Region 12 coordinator asked for: a transfer must not move
+    // anyone's accomplishments. The former region keeps the totals it earned,
+    // and the receiving region starts from zero on that HEI — credited only for
+    // entries it opens itself. Both can still open and help with the shared
+    // history; that is access, and it is asserted separately.
+    //
+    // This deliberately replaces an earlier expectation that the current region
+    // "sees everything" on its dashboard. Under that rule BARMM inherited
+    // Region 12's figures the moment an HEI moved, which reads as BARMM having
+    // disbursed money it never handled.
     $scenario = officialAttributionScenario();
 
-    // The former region processed one record before the transfer and must keep
-    // seeing it, rather than dropping to zero the moment the HEI moves away.
+    // Processed one record before the transfer; keeps it rather than dropping to
+    // zero the moment the HEI moves away.
     $this->actingAs($scenario['formerRc'])
         ->get(route('dashboard'))
         ->assertOk()
@@ -165,15 +175,20 @@ test('regional dashboard totals keep the former region its processed history whi
             )
         );
 
+    // Owns the HEI now, but is credited only for the entry it started itself.
     $this->actingAs($scenario['currentRc'])
         ->get(route('dashboard'))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('dashboard')
-            ->where('totalStats', fn ($stats): bool => (int) $stats['total_liquidations'] === 2
-                && (float) $stats['total_disbursed'] === 3000.0
-                && (float) $stats['total_liquidated'] === 1900.0
-                && (float) $stats['total_unliquidated'] === 1100.0
+            ->where('totalStats', fn ($stats): bool => (int) $stats['total_liquidations'] === 1
+                && (float) $stats['total_disbursed'] === 2000.0
+                && (float) $stats['total_liquidated'] === 1500.0
+                && (float) $stats['total_unliquidated'] === 500.0
             )
         );
+
+    // The dashboard now holds the same property the official report always did:
+    // the two regions sum to the national total, with nothing double-counted.
+    // 1000 + 2000 = 3000.
 });

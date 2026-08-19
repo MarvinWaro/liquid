@@ -285,26 +285,36 @@ class DashboardController extends Controller
     }
 
     /**
-     * Restrict a dashboard query to the given regions, operationally.
+     * Restrict a dashboard query to the given regions by CREDIT.
      *
-     * A region keeps the records it processed before an HEI was transferred
-     * away, and also picks up every record of the HEIs currently assigned to
-     * it. Both sides of a transfer therefore keep seeing the shared history,
-     * which is what the dashboard is for.
+     * Answers "whose accomplishment is this", which is not the same question as
+     * who may work on it. A liquidation is credited to the region that actually
+     * processed it, permanently: `processing_region_id` is stamped at creation
+     * and Liquidation::booted() refuses to let it change.
      *
-     * Official reports deliberately use a narrower, non-overlapping scope so
-     * regional figures still sum to the correct national total — see
-     * LiquidationService::applyReportingRoleFilter().
+     * So when an HEI is transferred, the former region keeps the totals it
+     * earned and the new region starts from zero on that HEI — it is credited
+     * only for entries it opens itself. Both regions can still see and help
+     * with the old records; they simply do not score them twice.
+     *
+     * Rows predating the processing-region backfill fall back to the HEI's
+     * current region so they are reported somewhere rather than vanishing.
+     *
+     * Raw-query mirror of Liquidation::scopeProcessedByRegion(). Change one,
+     * change both.
      *
      * Callers must have joined `heis` before calling this.
      *
      * @param  list<string>  $regionIds
      */
-    private function applyOperationalRegionFilter($query, array $regionIds): void
+    private function applyCreditRegionFilter($query, array $regionIds): void
     {
         $query->where(function ($scope) use ($regionIds) {
             $scope->whereIn('liquidations.processing_region_id', $regionIds)
-                ->orWhereIn('heis.region_id', $regionIds);
+                ->orWhere(function ($legacy) use ($regionIds) {
+                    $legacy->whereNull('liquidations.processing_region_id')
+                        ->whereIn('heis.region_id', $regionIds);
+                });
         });
     }
 
@@ -384,7 +394,7 @@ class DashboardController extends Controller
 
         if ($regionIds) {
             $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id');
-            $this->applyOperationalRegionFilter($query, $regionIds);
+            $this->applyCreditRegionFilter($query, $regionIds);
         }
 
         if ($programIds) {
@@ -445,7 +455,7 @@ class DashboardController extends Controller
         }
 
         if ($regionIds) {
-            $this->applyOperationalRegionFilter($query, $regionIds);
+            $this->applyCreditRegionFilter($query, $regionIds);
         }
 
         if ($programIds) {
@@ -550,7 +560,7 @@ class DashboardController extends Controller
 
         if ($regionIds) {
             $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id');
-            $this->applyOperationalRegionFilter($query, $regionIds);
+            $this->applyCreditRegionFilter($query, $regionIds);
         }
 
         if ($programIds) {
@@ -596,7 +606,7 @@ class DashboardController extends Controller
         }
 
         if ($regionIds) {
-            $pendingQuery->whereHas('hei', fn($q) => $q->whereIn('region_id', $regionIds));
+            $pendingQuery->processedByRegion($regionIds);
         }
 
         if ($programIds) {
@@ -634,7 +644,7 @@ class DashboardController extends Controller
                 ->whereNotNull('coa_endorsed_at');
 
             if ($heiId) $completedQuery->where('hei_id', $heiId);
-            if ($regionIds) $completedQuery->whereHas('hei', fn($q) => $q->whereIn('region_id', $regionIds));
+            if ($regionIds) $completedQuery->processedByRegion($regionIds);
             if ($programIds) $completedQuery->whereIn('program_id', $programIds);
             if ($academicYearIds) $completedQuery->whereIn('academic_year_id', $academicYearIds);
 
@@ -694,7 +704,7 @@ class DashboardController extends Controller
 
         if ($regionIds) {
             $programStats->join('heis', 'liquidations.hei_id', '=', 'heis.id');
-            $this->applyOperationalRegionFilter($programStats, $regionIds);
+            $this->applyCreditRegionFilter($programStats, $regionIds);
         }
 
         if ($programIds) {
@@ -787,7 +797,7 @@ class DashboardController extends Controller
 
         if ($regionIds) {
             $query->join('heis', 'liquidations.hei_id', '=', 'heis.id');
-            $this->applyOperationalRegionFilter($query, $regionIds);
+            $this->applyCreditRegionFilter($query, $regionIds);
         }
         if ($programIds) {
             $query->whereIn('liquidations.program_id', $programIds);
@@ -862,7 +872,7 @@ class DashboardController extends Controller
         }
 
         if ($regionIds) {
-            $query->whereHas('hei', fn($q) => $q->whereIn('region_id', $regionIds));
+            $query->processedByRegion($regionIds);
         }
 
         if ($programIds) {
@@ -903,7 +913,7 @@ class DashboardController extends Controller
 
         if ($user->region_id) {
             $query->leftJoin('heis', 'liquidations.hei_id', '=', 'heis.id');
-            $this->applyOperationalRegionFilter($query, [$user->region_id]);
+            $this->applyCreditRegionFilter($query, [$user->region_id]);
         }
 
         $stats = $query->where(function ($q) use ($user) {
@@ -921,7 +931,7 @@ class DashboardController extends Controller
             ->whereNotNull('date_submitted')
             ->whereNull('reviewed_at');
         if ($user->region_id) {
-            $pendingActionQuery->whereHas('hei', fn($q) => $q->where('region_id', $user->region_id));
+            $pendingActionQuery->processedByRegion($user->region_id);
         }
         if (!empty($subProgramIds)) {
             $pendingActionQuery->whereNotIn('program_id', $subProgramIds);
@@ -931,7 +941,7 @@ class DashboardController extends Controller
         // Completed = endorsed to accounting, in RC's region, excluding sub-programs
         $completedQuery = Liquidation::excludeVoided()->whereNotNull('reviewed_at');
         if ($user->region_id) {
-            $completedQuery->whereHas('hei', fn($q) => $q->where('region_id', $user->region_id));
+            $completedQuery->processedByRegion($user->region_id);
         }
         if (!empty($subProgramIds)) {
             $completedQuery->whereNotIn('program_id', $subProgramIds);
@@ -1148,8 +1158,10 @@ class DashboardController extends Controller
                     ->orWhere('reviewed_by', $user->id);
                 });
 
+            // Access, not credit: this table mirrors the liquidation list, and a
+            // row appearing here but missing from that list would be confusing.
             if ($user->region_id) {
-                $query->whereHas('hei', fn($q) => $q->where('region_id', $user->region_id));
+                $query->managedByRegion($user->region_id);
             }
 
             // Exclude STUFAPS sub-program liquidations
@@ -1349,8 +1361,11 @@ class DashboardController extends Controller
         ->whereHas('financial', fn($q) => $q->whereNotNull('due_date'));
 
         if ($user && $userRole === 'Regional Coordinator') {
+            // Access, not credit: a due date is a warning, never a score. After a
+            // transfer both the former and the current region need to see the
+            // deadline coming — neither is helped by finding out late.
             if ($user->region_id) {
-                $query->whereHas('hei', fn($q) => $q->where('region_id', $user->region_id));
+                $query->managedByRegion($user->region_id);
             }
             $query->whereDoesntHave('program', fn($q) => $q->whereNotNull('parent_id'));
         } elseif ($user && $userRole === 'HEI' && $user->hei_id) {
@@ -1367,7 +1382,7 @@ class DashboardController extends Controller
         } else {
             // Admin/Super Admin: honour optional region + program + academic year filters.
             if ($adminRegionIds) {
-                $query->whereHas('hei', fn($q) => $q->whereIn('region_id', $adminRegionIds));
+                $query->managedByRegion($adminRegionIds);
             }
             if ($adminProgramIds) {
                 $query->whereIn('program_id', $adminProgramIds);
