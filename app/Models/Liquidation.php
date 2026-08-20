@@ -677,12 +677,17 @@ class Liquidation extends Model
      * Deliberately overlapping: after an HEI transfer both the former and the
      * current region keep seeing the shared history so neither loses access to
      * work in progress.
+     *
+     * @param  string|list<string>  $regionId  One region, or several when an
+     *                                         admin filters across regions.
      */
-    public function scopeManagedByRegion(Builder $query, string $regionId): Builder
+    public function scopeManagedByRegion(Builder $query, string|array $regionId): Builder
     {
-        return $query->where(function (Builder $scope) use ($regionId) {
-            $scope->where('liquidations.processing_region_id', $regionId)
-                ->orWhereHas('hei', fn (Builder $hei) => $hei->where('region_id', $regionId));
+        $regionIds = (array) $regionId;
+
+        return $query->where(function (Builder $scope) use ($regionIds) {
+            $scope->whereIn('liquidations.processing_region_id', $regionIds)
+                ->orWhereHas('hei', fn (Builder $hei) => $hei->whereIn('region_id', $regionIds));
         });
     }
 
@@ -694,14 +699,22 @@ class Liquidation extends Model
      * Rows predating the processing-region backfill (and imports that could not
      * resolve one) fall back to the HEI's current region so they are still
      * reported somewhere rather than silently dropped.
+     *
+     * Also the dashboard's rule: a transfer must not move anyone's
+     * accomplishments, so each region is credited only for what it processed.
+     *
+     * @param  string|list<string>  $regionId  One region, or several when an
+     *                                         admin filters across regions.
      */
-    public function scopeProcessedByRegion(Builder $query, string $regionId): Builder
+    public function scopeProcessedByRegion(Builder $query, string|array $regionId): Builder
     {
-        return $query->where(function (Builder $scope) use ($regionId) {
-            $scope->where('liquidations.processing_region_id', $regionId)
+        $regionIds = (array) $regionId;
+
+        return $query->where(function (Builder $scope) use ($regionIds) {
+            $scope->whereIn('liquidations.processing_region_id', $regionIds)
                 ->orWhere(fn (Builder $legacy) => $legacy
                     ->whereNull('liquidations.processing_region_id')
-                    ->whereHas('hei', fn (Builder $hei) => $hei->where('region_id', $regionId))
+                    ->whereHas('hei', fn (Builder $hei) => $hei->whereIn('region_id', $regionIds))
                 );
         });
     }

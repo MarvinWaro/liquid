@@ -1,3 +1,4 @@
+import { formatCompactNumber } from '@/lib/number';
 import { memo, useMemo } from 'react';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import {
@@ -99,11 +100,14 @@ export const GranteesTrendChart = memo(function GranteesTrendChart({ data }: Pro
                                 return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
                             }}
                         />
+                        {/* Compact, and no peso sign — these are grantees, not
+                            money. "1,012,112" overflowed the old 40px width and
+                            rendered as "0,000". */}
                         <YAxis
                             tickLine={false}
                             axisLine={false}
-                            width={40}
-                            tickFormatter={(v: number) => v.toLocaleString('en-US')}
+                            width={48}
+                            tickFormatter={formatCompactNumber}
                         />
                         <ChartTooltip
                             cursor={false}
