@@ -8,6 +8,7 @@ use App\Models\Region;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\HEIRegionTransferService;
+use App\Services\LiquidationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -220,6 +221,54 @@ it('still lets the receiving region open and help with the old record', function
         ->and($scenario['barmmRc']->can('edit', $historical))->toBeTrue()
         ->and($scenario['r12Rc']->can('view', $historical))->toBeTrue()
         ->and($scenario['r12Rc']->can('edit', $historical))->toBeTrue();
+});
+
+it('tells the receiving region which part of its list total is not its own', function () {
+    // The list total must match the rows beneath it, so it includes the record
+    // BARMM is assisting with — which is why it can exceed their dashboard. These
+    // fields let the page explain that instead of leaving two screens disagreeing.
+    $scenario = creditScenario();
+    creditLiquidation($scenario, $scenario['r12'], 'CREDIT-2026-0001', 1000, 400);
+    runTransfer($scenario);
+    creditLiquidation($scenario, $scenario['barmm'], 'CREDIT-2026-0002', 2000, 1500);
+
+    $service = app(LiquidationService::class);
+
+    $barmm = $service->getTableSummary($scenario['barmmRc']);
+    $r12 = $service->getTableSummary($scenario['r12Rc']);
+
+    // Sees both; one of them is Region 12's. All three money figures are
+    // reported, because one number only reconciles one card — subtracting the
+    // disbursed amount from the liquidated column would give nonsense.
+    expect($barmm['total_disbursed'])->toBe(3000.0)
+        ->and($barmm['assisting_records'])->toBe(1)
+        ->and($barmm['assisting_disbursed'])->toBe(1000.0)
+        ->and($barmm['assisting_liquidated'])->toBe(400.0)
+        ->and($barmm['assisting_unliquidated'])->toBe(600.0);
+
+    // Each assisting figure must reconcile its own card against the dashboard.
+    expect($barmm['total_disbursed'] - $barmm['assisting_disbursed'])->toBe(2000.0)
+        ->and($barmm['total_liquidated'] - $barmm['assisting_liquidated'])->toBe(1500.0)
+        ->and($barmm['total_unliquidated'] - $barmm['assisting_unliquidated'])->toBe(500.0);
+
+    // Region 12 processed everything it can see, so nothing is "assisting".
+    expect($r12['assisting_records'])->toBe(0)
+        ->and($r12['assisting_disbursed'])->toBe(0.0)
+        ->and($r12['assisting_liquidated'])->toBe(0.0)
+        ->and($r12['assisting_unliquidated'])->toBe(0.0);
+});
+
+it('never marks anything as assisting for a role without a region', function () {
+    // Admins see every region by design; "assisting" is meaningless for them and
+    // the explanatory line must stay hidden.
+    $scenario = creditScenario();
+    creditLiquidation($scenario, $scenario['r12'], 'CREDIT-2026-0001', 1000, 400);
+    runTransfer($scenario);
+
+    $summary = app(LiquidationService::class)->getTableSummary($scenario['admin']);
+
+    expect($summary['assisting_records'])->toBe(0)
+        ->and($summary['assisting_disbursed'])->toBe(0.0);
 });
 
 it('warns both regions about the due date on a transferred record', function () {

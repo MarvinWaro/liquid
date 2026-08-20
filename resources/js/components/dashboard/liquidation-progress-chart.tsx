@@ -1,3 +1,4 @@
+import { formatCompactPeso } from '@/lib/number';
 import { memo, useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer, Tooltip } from 'recharts';
 import {
@@ -119,12 +120,16 @@ export const LiquidationProgressChart = memo(function LiquidationProgressChart({
                         tickLine={false}
                         axisLine={false}
                     />
+                    {/* Compact ticks: a peso figure here runs to eleven digits,
+                        which no sane axis width can hold — it was rendering as
+                        ",000,000". The tooltip below still gives the exact
+                        amount to two decimals. */}
                     <YAxis
-                        tickFormatter={(v: number) => v.toLocaleString('en-US')}
+                        tickFormatter={formatCompactPeso}
                         tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                         tickLine={false}
                         axisLine={false}
-                        width={50}
+                        width={64}
                     />
                     <Tooltip
                         content={({ active, payload, label }) => {

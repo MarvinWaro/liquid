@@ -31,6 +31,13 @@ class LiquidationService
 
     /**
      * Get summary stats for the liquidation table (total records, disbursed, liquidated, unliquidated).
+     *
+     * These totals cover everything the user can see, which after an HEI transfer
+     * includes records another region processed. That is correct — the cards sit
+     * directly above the rows and must match them — but it means a coordinator's
+     * list total can exceed their dashboard total, which counts only their own
+     * region's work. The `assisting_*` figures let the page say so out loud
+     * instead of leaving two screens quietly disagreeing.
      */
     public function getTableSummary(User $user, array $filters = []): array
     {
@@ -45,13 +52,30 @@ class LiquidationService
 
         $this->applyFilters($query, $filters);
 
-        $stats = $query->selectRaw('COUNT(*) as total_records')
+        // Only a Regional Coordinator has a region to be "assisting" from. Every
+        // other role either sees one HEI or sees everything, so the distinction
+        // is meaningless and the explanatory line must never appear for them.
+        $regionId = $user->role?->name === 'Regional Coordinator' ? $user->region_id : null;
+
+        $query->selectRaw('COUNT(*) as total_records')
             ->selectRaw('COALESCE(SUM(liquidation_financials.number_of_grantees), 0) as total_grantees')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received), 0) as total_disbursed')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_liquidated), 0) as total_liquidated')
             ->selectRaw('COALESCE(SUM(liquidation_financials.amount_received - liquidation_financials.amount_liquidated), 0) as total_unliquidated')
-            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement')
-            ->first();
+            ->selectRaw('COALESCE(SUM(CASE WHEN rc_note_statuses.code = "FOR_ENDORSEMENT" THEN COALESCE(liquidation_financials.amount_received, 0) - COALESCE(liquidation_financials.amount_liquidated, 0) ELSE 0 END), 0) as for_endorsement');
+
+        if ($regionId) {
+            // All three money figures, not just disbursed: a coordinator
+            // reconciling the cards against their dashboard will check whichever
+            // column they care about, and one figure only ever explains one card.
+            // These ride along on the same aggregate — no second query.
+            $query->selectRaw('COUNT(CASE WHEN liquidations.processing_region_id <> ? THEN 1 END) as assisting_records', [$regionId])
+                ->selectRaw('COALESCE(SUM(CASE WHEN liquidations.processing_region_id <> ? THEN liquidation_financials.amount_received ELSE 0 END), 0) as assisting_disbursed', [$regionId])
+                ->selectRaw('COALESCE(SUM(CASE WHEN liquidations.processing_region_id <> ? THEN liquidation_financials.amount_liquidated ELSE 0 END), 0) as assisting_liquidated', [$regionId])
+                ->selectRaw('COALESCE(SUM(CASE WHEN liquidations.processing_region_id <> ? THEN liquidation_financials.amount_received - liquidation_financials.amount_liquidated ELSE 0 END), 0) as assisting_unliquidated', [$regionId]);
+        }
+
+        $stats = $query->first();
 
         return [
             'total_records' => (int) ($stats->total_records ?? 0),
@@ -60,6 +84,10 @@ class LiquidationService
             'total_liquidated' => (float) ($stats->total_liquidated ?? 0),
             'total_unliquidated' => (float) ($stats->total_unliquidated ?? 0),
             'for_endorsement' => (float) ($stats->for_endorsement ?? 0),
+            'assisting_records' => (int) ($stats->assisting_records ?? 0),
+            'assisting_disbursed' => (float) ($stats->assisting_disbursed ?? 0),
+            'assisting_liquidated' => (float) ($stats->assisting_liquidated ?? 0),
+            'assisting_unliquidated' => (float) ($stats->assisting_unliquidated ?? 0),
         ];
     }
 

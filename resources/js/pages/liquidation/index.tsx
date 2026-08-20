@@ -14,6 +14,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CardContent } from '@/components/ui/card';
 import {
     DropdownMenu,
@@ -73,6 +74,15 @@ interface TableSummary {
     total_liquidated: number;
     total_unliquidated: number;
     for_endorsement: number;
+    /**
+     * The slice of the totals above that another region processed — records this
+     * coordinator can help with after an HEI transfer, but is not credited for.
+     * Always 0 unless the viewer is a Regional Coordinator.
+     */
+    assisting_records: number;
+    assisting_disbursed: number;
+    assisting_liquidated: number;
+    assisting_unliquidated: number;
 }
 
 interface Props {
@@ -145,6 +155,10 @@ function useStaleWhileRevalidate<T>(value: T | undefined): T | undefined {
 
 /** Deferred props whose in-flight refreshes drive the "Refreshing" indicator. */
 const REFRESHABLE_PROPS = ['liquidations', 'pinnedLiquidations', 'tableSummary'] as const;
+
+/** Peso amounts, matching how the summary cards above already render them. */
+const formatPeso = (amount: number): string =>
+    new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(amount);
 
 export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10, tableSummary, programs, createPrograms, academicYears, semesters, rcNoteStatuses, heis, regions, filters, permissions, userRole }: Props) {
     const toArr = (v: string | string[] | undefined): string[] =>
@@ -859,6 +873,39 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                                         </div>
                                     ))}
                                 </div>
+                            )}
+
+                            {/* Shown only after an HEI transfer. The cards above sit
+                                directly on top of the rows, so they must include the
+                                records this coordinator is merely assisting with —
+                                which is exactly why the figure can exceed their
+                                dashboard, where only their own region's work counts.
+                                Naming the other region is left to each row's badge:
+                                this count spans every page and more than one region
+                                could be involved. */}
+                            {/* Amber, matching the row badge and the detail-page alert: in
+                                this app amber consistently means "another region is
+                                involved", so one signal carries across all three screens. */}
+                            {cachedSummary && cachedSummary.assisting_records > 0 && (
+                                <Alert className="mb-4 border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30">
+                                    <History className="text-amber-700 dark:text-amber-400" />
+                                    <AlertTitle>Includes records from another region</AlertTitle>
+                                    <AlertDescription>
+                                        <p>
+                                            These totals cover{' '}
+                                            {cachedSummary.assisting_records.toLocaleString()}{' '}
+                                            {cachedSummary.assisting_records === 1 ? 'record' : 'records'} processed by
+                                            another region that you are assisting with —{' '}
+                                            {/* Each figure is named because one number only
+                                                reconciles one card: subtracting the disbursed
+                                                amount from the liquidated column gives nonsense. */}
+                                            <strong className="text-foreground">{formatPeso(cachedSummary.assisting_disbursed)}</strong> disbursed,{' '}
+                                            <strong className="text-foreground">{formatPeso(cachedSummary.assisting_liquidated)}</strong> liquidated,{' '}
+                                            <strong className="text-foreground">{formatPeso(cachedSummary.assisting_unliquidated)}</strong> unliquidated.
+                                            Your dashboard counts only your region&apos;s own entries.
+                                        </p>
+                                    </AlertDescription>
+                                </Alert>
                             )}
 
                             {/* Table with stale-while-revalidate loading */}
