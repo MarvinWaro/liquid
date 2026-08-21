@@ -26,7 +26,8 @@ import {
     ReturnToRCModal,
     EditLiquidationModal,
 } from '@/components/liquidations/endorsement-modals';
-import { History } from 'lucide-react';
+import { History, HelpCircle } from 'lucide-react';
+import { useHeiDetailTour } from '@/lib/hei-tour';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Liquidation Management', href: route('liquidation.index') },
@@ -135,6 +136,10 @@ export default function Show({
 
     // ── Derived values ──
     const isHEIUser = userRole === 'HEI';
+
+    // Replayable walkthrough for HEI users; see lib/hei-tour.ts for why it is a
+    // button rather than something shown once at first login.
+    const startDetailTour = useHeiDetailTour();
     const isAccountant = userRole === 'Accountant';
     const isCOA = userRole === 'COA';
     const isViewOnly = isAccountant || isCOA;
@@ -298,7 +303,29 @@ export default function Show({
             <Head title={`Liquidation - ${liquidation.control_no}`} />
 
             <div className="py-4">
+                {/* HEI-only: coordinators and admins work here daily, so a help
+                    button they will never press is just clutter for them.
+
+                    Also waits for the deferred requirements. Four of the steps
+                    point inside that section, and Driver.js renders a step whose
+                    target is missing as a popover floating in the middle of the
+                    screen — so starting early would describe things the user
+                    cannot see. */}
+                {isHEIUser && (documentRequirements?.length ?? 0) > 0 && (
+                    <div className="mb-3 flex justify-end">
+                        <button
+                            type="button"
+                            onClick={startDetailTour}
+                            className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-900/40"
+                        >
+                            <HelpCircle className="h-3.5 w-3.5" />
+                            Show me how
+                        </button>
+                    </div>
+                )}
+
                 {/* Header */}
+                <div data-tour="detail-header">
                 <LiquidationHeader
                     liquidation={liquidation}
                     isHEIUser={isHEIUser}
@@ -309,6 +336,7 @@ export default function Show({
                     onEndorseClick={() => setIsEndorseModalOpen(true)}
                     onEndorseToCOAClick={() => setIsEndorseToCOAModalOpen(true)}
                 />
+                </div>
 
                 {!isHEIUser && liquidation.region_context && (
                     <Alert className="mb-6 border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30">
@@ -332,7 +360,7 @@ export default function Show({
 
                 {/* Details + Workflow Stepper */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6 items-stretch">
-                    <div className="lg:col-span-8 flex flex-col">
+                    <div data-tour="detail-summary" className="lg:col-span-8 flex flex-col">
                         <LiquidationDetailsCard
                             liquidation={liquidation}
                             canEditDetails={canEditDetails}
@@ -344,7 +372,7 @@ export default function Show({
                             userRole={userRole}
                         />
                     </div>
-                    <div className="lg:col-span-4 flex flex-col">
+                    <div data-tour="detail-workflow" className="lg:col-span-4 flex flex-col">
                         <WorkflowProgressCard
                             liquidation={liquidation}
                             isHEIUser={isHEIUser}
@@ -363,6 +391,7 @@ export default function Show({
                 />
 
                 {/* Document Tracking Table */}
+                <div data-tour="detail-tracking">
                 <DocumentTrackingTable
                     liquidationId={liquidation.id}
                     initialEntries={liquidation.tracking_entries ?? []}
@@ -375,8 +404,10 @@ export default function Show({
                     updatedAt={liquidation.updated_at}
                     isStufapsProgram={isStufapsProgram}
                 />
+                </div>
 
                 {/* Running Data Table */}
+                <div data-tour="detail-running">
                 <RunningDataTable
                     liquidationId={liquidation.id}
                     initialEntries={runningDataInitial}
@@ -388,6 +419,7 @@ export default function Show({
                     onTotalLiquidatedChange={debouncedSetTotalLiquidated}
                     updatedAt={liquidation.updated_at}
                 />
+                </div>
 
                 {/* HEI Document Requirements */}
                 <Deferred data={['documentRequirements', 'commentCounts']} fallback={<HeiDocumentUploadSkeleton />}>
@@ -405,12 +437,14 @@ export default function Show({
                 </Deferred>
 
                 {/* RC Letter Upload */}
+                <div data-tour="detail-letters">
                 <RcLetterUpload
                     liquidationId={liquidation.id}
                     documents={liquidation.documents ?? []}
                     userRole={userRole}
                     isStufapsProgram={isStufapsProgram}
                 />
+                </div>
             </div>
 
             {/* Modals */}

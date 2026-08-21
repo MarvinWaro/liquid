@@ -301,3 +301,63 @@ html.theme-transition::view-transition-old(root) {
 html.theme-transition::view-transition-new(root) {
     z-index: 1;
 }
+
+/* ---------------------------------------------------------------------------
+   Driver.js walkthrough popover (HEI "Show me how")
+
+   driver.css hardcodes a light palette — #fff background, #2d2d2d text, #ccc
+   borders — and exposes no colour variables, only animation duration and font.
+   So the popover has to be re-pointed at our own tokens or it arrives as a
+   white card floating over the dark theme.
+
+   Scoped to .liquid-tour (passed as popoverClass) rather than .driver-popover
+   so nothing here can affect a future tour that wants its own look.
+--------------------------------------------------------------------------- */
+.driver-popover.liquid-tour {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.driver-popover.liquid-tour .driver-popover-title,
+.driver-popover.liquid-tour .driver-popover-description {
+    color: var(--popover-foreground);
+}
+
+.driver-popover.liquid-tour .driver-popover-progress-text,
+.driver-popover.liquid-tour .driver-popover-close-btn {
+    color: var(--muted-foreground);
+}
+
+.driver-popover.liquid-tour .driver-popover-close-btn:hover,
+.driver-popover.liquid-tour .driver-popover-close-btn:focus {
+    color: var(--popover-foreground);
+}
+
+.driver-popover.liquid-tour .driver-popover-footer-btn {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+}
+
+.driver-popover.liquid-tour .driver-popover-footer-btn:hover,
+.driver-popover.liquid-tour .driver-popover-footer-btn:focus {
+    background-color: var(--muted);
+}
+
+/* The arrow is a bordered triangle, so its colour lives on border-*-color and
+   only the edge facing the popover is painted. */
+.driver-popover.liquid-tour .driver-popover-arrow-side-left {
+    border-left-color: var(--popover);
+}
+.driver-popover.liquid-tour .driver-popover-arrow-side-right {
+    border-right-color: var(--popover);
+}
+.driver-popover.liquid-tour .driver-popover-arrow-side-top {
+    border-top-color: var(--popover);
+}
+.driver-popover.liquid-tour .driver-popover-arrow-side-bottom {
+    border-bottom-color: var(--popover);
+}

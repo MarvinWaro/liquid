@@ -29,7 +29,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, ChevronUp, ChevronsUpDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown, Percent, Printer, Pin, Users, Loader2 } from 'lucide-react';
+import { FileText, Download, Upload, Plus, TableProperties, ChevronDown, ChevronUp, ChevronsUpDown, AlertTriangle, XCircle, FileSpreadsheet, Send, X, History, CheckCircle2, Banknote, FileBarChart2, TrendingDown, Percent, Printer, Pin, Users, Loader2, HelpCircle } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CreateLiquidationModal } from '@/components/liquidations/create-liquidation-modal';
 import { BulkEntryModal } from '@/components/liquidations/bulk-entry-modal';
@@ -43,6 +43,7 @@ import { type BreadcrumbItem, type SharedData } from '@/types';
 import type { Liquidation, Program, HEIOption, AcademicYearOption, SemesterOption, RcNoteStatusOption } from '@/components/liquidations/index/types';
 import { useReportQueue } from '@/hooks/use-report-queue';
 import { useDeferredRevalidation } from '@/hooks/use-deferred-revalidation';
+import { useHeiListTour } from '@/lib/hei-tour';
 
 interface RegionOption {
     id: string;
@@ -163,6 +164,9 @@ const formatPeso = (amount: number): string =>
 export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10, tableSummary, programs, createPrograms, academicYears, semesters, rcNoteStatuses, heis, regions, filters, permissions, userRole }: Props) {
     const toArr = (v: string | string[] | undefined): string[] =>
         !v ? [] : Array.isArray(v) ? v : v === 'all' ? [] : [v];
+
+    // Replayable walkthrough for HEI users; see lib/hei-tour.ts for the reasoning.
+    const startListTour = useHeiListTour();
 
     const [searchQuery, setSearchQuery] = useState(filters.search || '');
     const [programFilter, setProgramFilter] = useState<string[]>(toArr(filters.program));
@@ -560,6 +564,18 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                             </p>
                         </div>
                         <div className="flex gap-2">
+                            {/* HEI-only: this list is short and familiar to
+                                coordinators, who do not need a walkthrough. */}
+                            {userRole === 'HEI' && (liquidations?.data.length ?? 0) > 0 && (
+                                <Button
+                                    variant="outline"
+                                    onClick={startListTour}
+                                    className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-900/40"
+                                >
+                                    <HelpCircle className="h-4 w-4 mr-2" />
+                                    Show me how
+                                </Button>
+                            )}
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                     <Button variant="outline" disabled={isQueueingReport}>

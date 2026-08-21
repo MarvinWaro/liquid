@@ -69,7 +69,7 @@ export const LiquidationFilters = React.memo(function LiquidationFilters({
 
     return (
         <form onSubmit={onSearchSubmit} className="mb-4">
-            <div className="flex gap-2 flex-wrap items-center">
+            <div data-tour="list-search" className="flex gap-2 flex-wrap items-center">
                 <div className="relative flex-1 min-w-[200px]">
                     <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -123,7 +123,7 @@ export const LiquidationFilters = React.memo(function LiquidationFilters({
                 />
                 <Button type="submit" className="bg-foreground text-background hover:bg-foreground/90">Search</Button>
             </div>
-            <div className="flex items-center gap-4 my-3 text-xs text-muted-foreground">
+            <div data-tour="list-legend" className="flex items-center gap-4 my-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-red-500 dark:bg-red-400" />
                     Needs Attention
