@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\AcademicYear;
+use App\Models\DocumentLocation;
 use App\Models\DocumentRequirement;
 use App\Models\HEI;
 use App\Models\Program;
@@ -23,7 +24,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         // Disable activity logging during seeding to prevent flooding logs
-        $models = [Role::class, User::class, HEI::class, Region::class, Program::class, DocumentRequirement::class, Semester::class, AcademicYear::class];
+        $models = [Role::class, User::class, HEI::class, Region::class, Program::class, DocumentLocation::class, DocumentRequirement::class, Semester::class, AcademicYear::class];
         foreach ($models as $model) {
             if (property_exists($model, 'loggingEnabled')) {
                 $model::$loggingEnabled = false;
