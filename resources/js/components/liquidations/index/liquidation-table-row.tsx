@@ -34,6 +34,7 @@ interface LiquidationTableRowProps {
 
 export const LiquidationTableRow = React.memo(function LiquidationTableRow({
     liquidation,
+    index,
     canVoid,
     canReview,
     isSelected,
@@ -192,6 +193,7 @@ export const LiquidationTableRow = React.memo(function LiquidationTableRow({
                                 variant="ghost"
                                 size="icon"
                                 asChild
+                                data-tour={index === 0 ? 'list-open' : undefined}
                                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
                             >
                                 <Link href={route('liquidation.show', liquidation.id)}>

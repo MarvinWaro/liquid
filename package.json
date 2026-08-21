@@ -67,6 +67,7 @@
         "cmdk": "^1.1.1",
         "concurrently": "^9.0.1",
         "date-fns": "^4.1.0",
+        "driver.js": "^1.8.0",
         "exceljs": "^4.4.0",
         "framer-motion": "^12.29.2",
         "geist": "^1.5.1",

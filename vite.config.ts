@@ -24,4 +24,12 @@ export default defineConfig({
     esbuild: {
         jsx: 'automatic',
     },
+    optimizeDeps: {
+        // driver.js is imported from a lazily-loaded page chunk, so Vite only
+        // discovers it once that page is first visited — and re-optimising
+        // mid-session is what produces "504 (Outdated Optimize Dep)" until the
+        // dev server is restarted. Naming it here gets it pre-bundled on
+        // startup instead.
+        include: ['driver.js'],
+    },
 });

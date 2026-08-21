@@ -79,6 +79,7 @@ export default function HeiDocumentUpload({
         if (defaultExpanded) setExpanded(true);
     }, [defaultExpanded]);
 
+
     // Memoize the document-to-requirement lookup map
     const docByRequirement = useMemo(() => {
         const map = new Map<string, LiquidationDocument>();
@@ -245,6 +246,7 @@ export default function HeiDocumentUpload({
                         </div>
                         <button
                             type="button"
+                            data-tour="upload-toggle"
                             onClick={() => setExpanded(!expanded)}
                             className="flex items-center gap-1.5 text-xs font-medium rounded-full px-3 py-1 border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
                         >
@@ -258,7 +260,7 @@ export default function HeiDocumentUpload({
             <CardContent className="pt-0">
                 {/* Status alerts (always visible) */}
                 {isHEIUser && !isComplete && (
-                    <div className="flex items-center gap-2 p-3 mb-3 rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50">
+                    <div data-tour="upload-notice" className="flex items-center gap-2 p-3 mb-3 rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50">
                         <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
                         <p className="text-xs text-amber-700 dark:text-amber-300">
                             Please upload all {total} required documents. Your submissions will only be visible to the Regional Coordinator once all requirements are complete.
@@ -374,6 +376,7 @@ export default function HeiDocumentUpload({
                                                     size="sm"
                                                     className="h-7 text-xs gap-1.5"
                                                     disabled={isUploadingThis}
+                                                    data-tour={index === 0 ? 'upload-pdf' : undefined}
                                                     onClick={() => fileInputRefs.current[req.id]?.click()}
                                                 >
                                                     {isUploadingThis ? (
@@ -395,6 +398,7 @@ export default function HeiDocumentUpload({
                                                             variant="outline"
                                                             size="sm"
                                                             className="h-7 text-xs gap-1.5"
+                                                            data-tour={index === 0 ? 'upload-gdrive' : undefined}
                                                         >
                                                             <Link2 className="w-3 h-3" />
                                                             Google Drive
