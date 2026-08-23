@@ -18,7 +18,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { DollarSign, FileText, CheckCircle, AlertCircle, GraduationCap, Send, ShieldAlert, Percent } from 'lucide-react';
+import { PhilippinePeso, FileText, CheckCircle, AlertCircle, GraduationCap, Send, ShieldAlert, Percent } from 'lucide-react';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import { SortableDashboard, DashboardCard, DashboardToolbar } from '@/components/sortable-dashboard';
 import { DashboardCalendar } from '@/components/dashboard-calendar';
@@ -93,6 +93,38 @@ interface FundSourceStats {
 }
 
 type ProgramFilter = 'all' | 'unifast' | 'tes' | 'tdp' | 'stufaps';
+
+/**
+ * Status colour for a stat card, defining both the figure and its icon tile.
+ *
+ * One table rather than a colour on each: the tile exists to make the card
+ * scannable at a glance, so it has to agree with the number underneath it. Two
+ * separate declarations would eventually disagree.
+ *
+ * Cards with no status - a plain count or an amount received - stay neutral on
+ * purpose. Colouring everything would leave nothing standing out.
+ */
+type StatTone = 'emerald' | 'red' | 'amber' | 'violet';
+
+const STAT_TONES: Record<StatTone | 'neutral', { value: string; tile: string }> = {
+    neutral: { value: '', tile: 'bg-muted text-muted-foreground' },
+    emerald: {
+        value: 'text-emerald-600 dark:text-emerald-400',
+        tile: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400',
+    },
+    red: {
+        value: 'text-red-600 dark:text-red-400',
+        tile: 'bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400',
+    },
+    amber: {
+        value: 'text-amber-600 dark:text-amber-400',
+        tile: 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400',
+    },
+    violet: {
+        value: 'text-violet-600 dark:text-violet-400',
+        tile: 'bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-400',
+    },
+};
 
 interface CardConfig {
     id: string;
@@ -330,16 +362,16 @@ export default function Dashboard({
     // ---------- Stat card definitions per role ----------
 
     const statCardDefs = useMemo(() => {
-        const defs: { id: string; title: string; value: React.ReactNode; subtitle: string; icon: React.ReactNode; valueClass?: string }[] = [];
+        const defs: { id: string; title: string; value: React.ReactNode; subtitle: string; icon: React.ReactNode; tone?: StatTone }[] = [];
 
         if (isAdmin || userRole === 'Regional Coordinator' || userRole === 'STUFAPS Focal') {
             defs.push(
                 { id: 'stat-total-liquidations', title: 'Total Liquidations', value: activeTotalStats.total_liquidations, subtitle: 'All liquidation reports', icon: <FileText className="h-4 w-4 text-muted-foreground" /> },
-                { id: 'stat-total-disbursed', title: 'Total Disbursed', value: formatCurrency(activeTotalStats.total_disbursed), subtitle: 'Amount received from CHED', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
-                { id: 'stat-total-liquidated', title: 'Total Liquidated', value: formatCurrency(activeTotalStats.total_liquidated), subtitle: 'Amount disbursed to students', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-emerald-600 dark:text-emerald-400' },
-                { id: 'stat-total-unliquidated', title: 'Total Unliquidated', value: formatCurrency(activeTotalStats.total_unliquidated), subtitle: 'Remaining from CHED funds', icon: <AlertCircle className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-red-600 dark:text-red-400' },
-                { id: 'stat-for-endorsement', title: 'For Endorsement', value: formatCurrency(activeTotalStats.for_endorsement), subtitle: 'Pending endorsement to Accounting', icon: <Send className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-amber-600 dark:text-amber-400' },
-                { id: 'stat-for-compliance', title: 'For Compliance', value: formatCurrency(activeTotalStats.for_compliance), subtitle: 'Returned for compliance', icon: <ShieldAlert className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-violet-600 dark:text-violet-400' },
+                { id: 'stat-total-disbursed', title: 'Total Disbursed', value: formatCurrency(activeTotalStats.total_disbursed), subtitle: 'Amount received from CHED', icon: <PhilippinePeso className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-total-liquidated', title: 'Total Liquidated', value: formatCurrency(activeTotalStats.total_liquidated), subtitle: 'Amount disbursed to students', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" />, tone: 'emerald' },
+                { id: 'stat-total-unliquidated', title: 'Total Unliquidated', value: formatCurrency(activeTotalStats.total_unliquidated), subtitle: 'Remaining from CHED funds', icon: <AlertCircle className="h-4 w-4 text-muted-foreground" />, tone: 'red' },
+                { id: 'stat-for-endorsement', title: 'For Endorsement', value: formatCurrency(activeTotalStats.for_endorsement), subtitle: 'Pending endorsement to Accounting', icon: <Send className="h-4 w-4 text-muted-foreground" />, tone: 'amber' },
+                { id: 'stat-for-compliance', title: 'For Compliance', value: formatCurrency(activeTotalStats.for_compliance), subtitle: 'Returned for compliance', icon: <ShieldAlert className="h-4 w-4 text-muted-foreground" />, tone: 'violet' },
             );
         } else if (userRole === 'Accountant') {
             const filtered = fundSourceFilter !== 'all';
@@ -348,7 +380,7 @@ export default function Dashboard({
 
             defs.push(
                 { id: 'stat-my-liquidations', title: 'Endorsed to Accounting', value: endorsed, subtitle: 'Total endorsed by RC', icon: <FileText className="h-4 w-4 text-muted-foreground" /> },
-                { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(totalAmt), subtitle: 'Endorsed amount from CHED', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(totalAmt), subtitle: 'Endorsed amount from CHED', icon: <PhilippinePeso className="h-4 w-4 text-muted-foreground" /> },
             );
         } else if (userRole === 'COA') {
             const filtered = fundSourceFilter !== 'all';
@@ -357,7 +389,7 @@ export default function Dashboard({
 
             defs.push(
                 { id: 'stat-my-liquidations', title: 'Endorsed to COA', value: endorsed, subtitle: 'Total endorsed by Accountant', icon: <FileText className="h-4 w-4 text-muted-foreground" /> },
-                { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(totalAmt), subtitle: 'Endorsed amount', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(totalAmt), subtitle: 'Endorsed amount', icon: <PhilippinePeso className="h-4 w-4 text-muted-foreground" /> },
             );
         } else {
             const filtered = fundSourceFilter !== 'all';
@@ -370,14 +402,14 @@ export default function Dashboard({
 
             defs.push(
                 { id: 'stat-my-liquidations', title: 'My Liquidations', value: myLiq, subtitle: 'Total reports in my queue', icon: <FileText className="h-4 w-4 text-muted-foreground" /> },
-                { id: 'stat-for-endorsement', title: 'For Endorsement', value: formatCurrency(forEndorsement), subtitle: 'Pending endorsement to Accounting', icon: <Send className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-amber-600 dark:text-amber-400' },
-                { id: 'stat-for-compliance', title: 'For Compliance', value: formatCurrency(forCompliance), subtitle: 'Returned for compliance', icon: <ShieldAlert className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-violet-600 dark:text-violet-400' },
-                { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(totalAmt), subtitle: 'Received from CHED', icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
+                { id: 'stat-for-endorsement', title: 'For Endorsement', value: formatCurrency(forEndorsement), subtitle: 'Pending endorsement to Accounting', icon: <Send className="h-4 w-4 text-muted-foreground" />, tone: 'amber' },
+                { id: 'stat-for-compliance', title: 'For Compliance', value: formatCurrency(forCompliance), subtitle: 'Returned for compliance', icon: <ShieldAlert className="h-4 w-4 text-muted-foreground" />, tone: 'violet' },
+                { id: 'stat-total-amount', title: 'Total Amount', value: formatCurrency(totalAmt), subtitle: 'Received from CHED', icon: <PhilippinePeso className="h-4 w-4 text-muted-foreground" /> },
             );
             if (userStats.total_liquidated !== undefined || filtered) {
                 defs.push(
-                    { id: 'stat-total-liquidated', title: 'Total Liquidated', value: formatCurrency(totalLiq ?? 0), subtitle: 'Disbursed to students', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-emerald-600 dark:text-emerald-400' },
-                    { id: 'stat-total-unliquidated', title: 'Total Unliquidated', value: formatCurrency(totalUnliq), subtitle: 'Remaining from CHED', icon: <AlertCircle className="h-4 w-4 text-muted-foreground" />, valueClass: 'text-red-600 dark:text-red-400' },
+                    { id: 'stat-total-liquidated', title: 'Total Liquidated', value: formatCurrency(totalLiq ?? 0), subtitle: 'Disbursed to students', icon: <CheckCircle className="h-4 w-4 text-muted-foreground" />, tone: 'emerald' },
+                    { id: 'stat-total-unliquidated', title: 'Total Unliquidated', value: formatCurrency(totalUnliq), subtitle: 'Remaining from CHED', icon: <AlertCircle className="h-4 w-4 text-muted-foreground" />, tone: 'red' },
                 );
             }
         }
@@ -444,7 +476,20 @@ export default function Dashboard({
     const statCardIconMap = useMemo(() => {
         const map: Record<string, React.ReactNode> = {};
         for (const sc of statCardDefs) {
-            map[sc.id] = sc.icon;
+            // Tinted tile in the card's own status colour, so the eye lands on
+            // the same meaning the figure below already carries.
+            //
+            // [&_svg]:text-current is doing real work: each icon ships with its
+            // own text-muted-foreground, and a descendant selector outranks that
+            // single class, letting the tile decide the colour without every
+            // icon declaration having to be edited.
+            map[sc.id] = (
+                <span
+                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md [&_svg]:text-current ${STAT_TONES[sc.tone ?? 'neutral'].tile}`}
+                >
+                    {sc.icon}
+                </span>
+            );
         }
         return map;
     }, [statCardDefs]);
@@ -477,7 +522,7 @@ export default function Dashboard({
             }
             return (
                 <>
-                    <div className={`text-2xl font-bold ${statDef.valueClass || ''}`}>{statDef.value}</div>
+                    <div className={`text-2xl font-bold ${STAT_TONES[statDef.tone ?? 'neutral'].value}`}>{statDef.value}</div>
                     <p className="text-xs text-muted-foreground">{statDef.subtitle}</p>
                 </>
             );
