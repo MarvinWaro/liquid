@@ -57,6 +57,11 @@ export const StatusDistributionChart = memo(function StatusDistributionChart({ d
 
     if (chartData.length === 0) return null;
 
+    // A raw count says little on its own: "1,462 Unliquidated" only means
+    // something once you know it is 27% of the whole. Computed here from data
+    // already in the browser, so it costs no request.
+    const total = chartData.reduce((sum, item) => sum + item.value, 0);
+
     return (
         <div className="flex flex-col gap-3" style={{ contain: 'layout paint' }}>
             <div className="px-1">
@@ -156,7 +161,12 @@ export const StatusDistributionChart = memo(function StatusDistributionChart({ d
                     >
                         <div className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: item.fill }} />
                         <span className="truncate text-muted-foreground">{item.name}</span>
-                        <span className="ml-auto font-medium tabular-nums text-foreground">{item.value}</span>
+                        <span className="ml-auto font-medium tabular-nums text-foreground">
+                            {item.value.toLocaleString()}
+                        </span>
+                        <span className="w-11 shrink-0 text-right tabular-nums text-muted-foreground">
+                            {total > 0 ? `${((item.value / total) * 100).toFixed(1)}%` : ''}
+                        </span>
                     </button>
                 ))}
             </div>

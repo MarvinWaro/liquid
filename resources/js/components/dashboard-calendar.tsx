@@ -51,6 +51,7 @@ export const DashboardCalendar = memo(function DashboardCalendar({ dueDates, tod
 
     const DUE_LIST_PAGE_SIZE = 20;
     const [visibleCount, setVisibleCount] = useState(DUE_LIST_PAGE_SIZE);
+    const [dueTab, setDueTab] = useState<'overdue' | 'upcoming'>('overdue');
     // Reset page whenever the effective (deferred) search changes.
     useEffect(() => {
         // Paging back to the first page when the search term changes. Deliberate: the
@@ -110,11 +111,34 @@ export const DashboardCalendar = memo(function DashboardCalendar({ dueDates, tod
         );
     }, [sortedDueDates, deferredDueListSearch]);
 
-    const visibleDueDates = useMemo(
-        () => filteredDueDates.slice(0, visibleCount),
-        [filteredDueDates, visibleCount],
+    /**
+     * Past due, using the same comparison the row badge below renders with.
+     *
+     * They have to agree: split the list on a different rule and an item lands
+     * under Upcoming while showing an overdue badge. Anchored to the server's
+     * today, never the viewer's clock.
+     */
+    const isOverdueItem = useCallback(
+        (item: CalendarDueDate) => item.due_date <= todayStr,
+        [todayStr],
     );
-    const hasMore = filteredDueDates.length > visibleCount;
+
+    const overdueDueDates = useMemo(
+        () => filteredDueDates.filter(isOverdueItem),
+        [filteredDueDates, isOverdueItem],
+    );
+    const upcomingDueDates = useMemo(
+        () => filteredDueDates.filter(item => !isOverdueItem(item)),
+        [filteredDueDates, isOverdueItem],
+    );
+
+    const activeDueDates = dueTab === 'overdue' ? overdueDueDates : upcomingDueDates;
+
+    const visibleDueDates = useMemo(
+        () => activeDueDates.slice(0, visibleCount),
+        [activeDueDates, visibleCount],
+    );
+    const hasMore = activeDueDates.length > visibleCount;
 
     const { year, month } = calendarDate;
     const monthName = new Date(year, month).toLocaleString('en-US', { month: 'long', year: 'numeric' });
@@ -190,15 +214,29 @@ export const DashboardCalendar = memo(function DashboardCalendar({ dueDates, tod
             {/* Due dates list */}
             {sortedDueDates.length > 0 && (
                 <div className="mt-4 border-t pt-4">
-                    <div className="flex items-center justify-between mb-3">
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                            Upcoming Due Dates
-                            {dueListSearch && (
-                                <span className="ml-1.5 font-normal normal-case">
-                                    ({filteredDueDates.length} of {sortedDueDates.length})
-                                </span>
-                            )}
-                        </p>
+                    {/* Overdue first: it is the half that needs chasing, and it
+                        was previously buried in one undifferentiated scroll. */}
+                    <div className="flex items-center gap-1 mb-3">
+                        {([
+                            { key: 'overdue' as const, label: 'Overdue', count: overdueDueDates.length },
+                            { key: 'upcoming' as const, label: 'Upcoming', count: upcomingDueDates.length },
+                        ]).map(tab => (
+                            <button
+                                key={tab.key}
+                                type="button"
+                                onClick={() => { setDueTab(tab.key); setVisibleCount(DUE_LIST_PAGE_SIZE); }}
+                                className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                                    dueTab === tab.key
+                                        ? tab.key === 'overdue'
+                                            ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+                                            : 'bg-muted text-foreground'
+                                        : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                            >
+                                {tab.label}
+                                <span className="tabular-nums opacity-70">{tab.count}</span>
+                            </button>
+                        ))}
                     </div>
 
                     {/* Search */}
@@ -222,7 +260,13 @@ export const DashboardCalendar = memo(function DashboardCalendar({ dueDates, tod
 
                     <div className="space-y-2 max-h-[300px] overflow-y-auto">
                         {filteredDueDates.length === 0 ? (
-                            <p className="text-xs text-muted-foreground text-center py-4">No matching due dates.</p>
+                            <p className="text-xs text-muted-foreground text-center py-4">
+                                {dueListSearch
+                                    ? 'No matching due dates.'
+                                    : dueTab === 'overdue'
+                                      ? 'Nothing overdue.'
+                                      : 'Nothing upcoming.'}
+                            </p>
                         ) : (
                             <>
                                 {visibleDueDates.map(item => {
