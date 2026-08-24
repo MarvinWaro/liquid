@@ -2,26 +2,27 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User;
-use App\Models\Role;
-use App\Models\Region;
-use App\Models\HEI;
-use App\Models\Program;
-use App\Models\Permission;
 use App\Models\ActivityLog;
+use App\Models\HEI;
+use App\Models\Permission;
+use App\Models\Program;
+use App\Models\Region;
+use App\Models\Role;
+use App\Models\User;
 use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Inertia\Inertia;
-use Inertia\Response;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
+use Inertia\Inertia;
+use Inertia\Response;
 
 class UserController extends Controller
 {
     /** Presence thresholds (minutes) for the user-management online indicator. */
     private const PRESENCE_ONLINE_MINUTES = 2;
+
     private const PRESENCE_RECENT_MINUTES = 15;
 
     /**
@@ -65,7 +66,7 @@ class UserController extends Controller
 
     public function index(): Response
     {
-        if (!auth()->user()->hasPermission('view_users')) {
+        if (! auth()->user()->hasPermission('view_users')) {
             abort(403, 'Unauthorized action.');
         }
 
@@ -84,10 +85,15 @@ class UserController extends Controller
         // Permission picker for the Edit User modal (Super Admin only).
         $permissions = $canAssignPermissions ? Permission::getGroupedByModule() : [];
         $regions = Region::where('status', 'active')->orderBy('name')->get(['id', 'code', 'name']);
+        // Active institutions, plus any institution an existing account is already
+        // attached to. Without the second half, deactivating an HEI made the
+        // Institution field of its users render blank in the edit modal - the
+        // selector resolves the current value out of this same list.
         $heis = HEI::with('region:id,code,name')
-            ->where('status', 'active')
+            ->where(fn ($q) => $q->where('status', 'active')
+                ->orWhereIn('id', User::query()->whereNotNull('hei_id')->select('hei_id')))
             ->orderBy('name')
-            ->get(['id', 'name', 'code', 'region_id']);
+            ->get(['id', 'name', 'code', 'region_id', 'status']);
 
         // All active programs with parent info for STUFAPS Focal assignment
         $programs = Program::active()
@@ -112,7 +118,7 @@ class UserController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        if (!auth()->user()->hasPermission('create_users')) {
+        if (! auth()->user()->hasPermission('create_users')) {
             abort(403, 'Unauthorized action.');
         }
 
@@ -140,13 +146,13 @@ class UserController extends Controller
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']),
             'role_id' => $validated['role_id'],
-            'region_id' => $validated['region_id'] ?? null,
-            'hei_id' => $validated['hei_id'] ?? null,
+            'region_id' => $isRegionalCoordinator || $isHEIRole ? ($validated['region_id'] ?? null) : null,
+            'hei_id' => $isHEIRole ? ($validated['hei_id'] ?? null) : null,
             'status' => $validated['status'],
         ]);
 
         // Sync program assignments for STUFAPS Focal
-        if ($isProgramScoped && !empty($validated['program_ids'])) {
+        if ($isProgramScoped && ! empty($validated['program_ids'])) {
             $user->programs()->sync($validated['program_ids']);
         }
 
@@ -170,11 +176,11 @@ class UserController extends Controller
 
     public function update(Request $request, User $user): RedirectResponse
     {
-        if (!auth()->user()->hasPermission('edit_users')) {
+        if (! auth()->user()->hasPermission('edit_users')) {
             abort(403, 'Unauthorized action.');
         }
 
-        if ($user->isSuperAdmin() && !auth()->user()->isSuperAdmin()) {
+        if ($user->isSuperAdmin() && ! auth()->user()->isSuperAdmin()) {
             abort(403, 'You cannot modify the Super Admin.');
         }
 
@@ -197,23 +203,40 @@ class UserController extends Controller
             'status' => 'required|in:active,inactive',
         ]);
 
+        // Captured before the write so we can tell whether this account has just
+        // become an HEI account, or moved to a different institution.
+        $originalHeiId = $user->hei_id;
+        $originalRoleName = $user->role?->name;
+
         $updateData = [
             'name' => $validated['name'],
             'email' => $validated['email'],
             'role_id' => $validated['role_id'],
-            'region_id' => $validated['region_id'] ?? null,
-            'hei_id' => $validated['hei_id'] ?? null,
+            // Scoped fields follow the role, mirroring what programs() does below.
+            // A request posted straight to this endpoint cannot leave an hei_id on
+            // an Admin, and moving someone off the HEI role clears their old one.
+            'region_id' => $isRegionalCoordinator || $isHEIRole ? ($validated['region_id'] ?? null) : null,
+            'hei_id' => $isHEIRole ? ($validated['hei_id'] ?? null) : null,
             'status' => $validated['status'],
         ];
 
-        if (!empty($validated['password'])) {
+        if (! empty($validated['password'])) {
             $updateData['password'] = Hash::make($validated['password']);
         }
 
         $user->update($updateData);
 
+        // Same backfill store() runs: an account that just became an HEI account,
+        // or moved to another institution, still needs the notifications for that
+        // institution's existing liquidations. The service skips anything the user
+        // already has, so saving twice does not duplicate them.
+        if ($isHEIRole && $user->hei_id
+            && ($user->hei_id !== $originalHeiId || $originalRoleName !== 'HEI')) {
+            NotificationService::backfillForNewHEIUser($user);
+        }
+
         // Sync program assignments (clear if not STUFAPS Focal)
-        if ($isProgramScoped && !empty($validated['program_ids'])) {
+        if ($isProgramScoped && ! empty($validated['program_ids'])) {
             $user->programs()->sync($validated['program_ids']);
         } else {
             $user->programs()->detach();
@@ -236,7 +259,7 @@ class UserController extends Controller
 
     public function toggleStatus(User $user): RedirectResponse
     {
-        if (!auth()->user()->hasPermission('change_user_status')) {
+        if (! auth()->user()->hasPermission('change_user_status')) {
             abort(403, 'Unauthorized action.');
         }
 
@@ -257,12 +280,22 @@ class UserController extends Controller
 
     public function destroy(User $user): RedirectResponse
     {
-        if (!auth()->user()->hasPermission('delete_users')) {
+        if (! auth()->user()->hasPermission('delete_users')) {
             abort(403, 'Unauthorized action.');
         }
 
         if ($user->id === auth()->id()) {
             return redirect()->back()->with('error', 'Cannot delete your own account.');
+        }
+
+        // An account that authored liquidations, uploads, reviews or transmittals
+        // is never removed - deleting it would strip that history of its author.
+        // Deactivating blocks sign-in and keeps every record intact.
+        if ($blockers = $user->describeDeletionBlockers()) {
+            return redirect()->back()->with(
+                'error',
+                "Cannot delete {$user->name} - this account is attached to {$blockers}. Deactivate the account instead to keep its records."
+            );
         }
 
         $user->delete();

@@ -16,6 +16,11 @@ interface HEI {
     code?: string | null;
     region_id?: string | null;
     region?: Region | null;
+    /**
+     * Optional. Callers that also send deactivated institutions pass this so the
+     * list can mark them; callers that only ever send active ones can omit it.
+     */
+    status?: string | null;
 }
 
 interface HEISelectorProps {
@@ -26,6 +31,19 @@ interface HEISelectorProps {
     placeholder?: string;
     error?: boolean;
     className?: string;
+}
+
+/**
+ * Marks an institution that has been deactivated. It still appears here so an
+ * account already attached to it keeps showing its institution instead of a
+ * blank field, but the tag makes clear it is no longer an active choice.
+ */
+function InactiveTag() {
+    return (
+        <span className="ml-1.5 rounded bg-muted-foreground/15 px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Inactive
+        </span>
+    );
 }
 
 export function HEISelector({
@@ -68,7 +86,10 @@ export function HEISelector({
             {selectedHei && (
                 <div className="flex items-center gap-2 px-2.5 py-1.5 bg-muted border border-border rounded-md text-foreground">
                     <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="text-xs flex-1 break-words leading-snug">{selectedHei.name}</span>
+                    <span className="text-xs flex-1 break-words leading-snug">
+                        {selectedHei.name}
+                        {selectedHei.status === 'inactive' && <InactiveTag />}
+                    </span>
                     <button
                         type="button"
                         onClick={() => onChange('')}
@@ -127,7 +148,10 @@ export function HEISelector({
                                         value === hei.id && 'bg-muted text-foreground font-medium'
                                     )}
                                 >
-                                    <span className="text-sm leading-snug flex-1">{hei.name}</span>
+                                    <span className="text-sm leading-snug flex-1">
+                                        {hei.name}
+                                        {hei.status === 'inactive' && <InactiveTag />}
+                                    </span>
                                     {value === hei.id && (
                                         <Check className="h-3.5 w-3.5 text-foreground shrink-0 mt-0.5" />
                                     )}

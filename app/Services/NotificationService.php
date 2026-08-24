@@ -14,6 +14,12 @@ use Illuminate\Support\Str;
 class NotificationService
 {
     /**
+     * Rows written per INSERT when backfilling. An HEI with years of history can
+     * hold thousands of liquidations, and production runs on a 1 GB droplet.
+     */
+    private const BACKFILL_CHUNK = 500;
+
+    /**
      * Actions that are relevant for notifications (skip noisy auto-logged CRUD).
      */
     private const NOTIFIABLE_ACTIONS = [
@@ -179,9 +185,13 @@ class NotificationService
     }
 
     /**
-     * Backfill notifications for a newly created HEI user.
+     * Backfill notifications for an HEI user.
      * Creates notifications for all existing liquidations tied to their HEI
      * so they don't miss events that happened before their account existed.
+     *
+     * Safe to call more than once: this also runs when an existing account is
+     * moved to another institution or switched to the HEI role, so liquidations
+     * the user has already been notified about are skipped.
      */
     public static function backfillForNewHEIUser(User $heiUser): void
     {
@@ -189,7 +199,14 @@ class NotificationService
             return;
         }
 
+        // Left as a subquery rather than pulling the ids into PHP: an established
+        // HEI can hold thousands of them, and this runs inside a web request.
         $liquidations = Liquidation::where('hei_id', $heiUser->hei_id)
+            ->whereNotExists(fn ($query) => $query->from('notifications')
+                ->whereColumn('notifications.subject_id', 'liquidations.id')
+                ->where('notifications.user_id', $heiUser->id)
+                ->where('notifications.action', 'created_liquidation')
+                ->where('notifications.subject_type', Liquidation::class))
             ->with('creator')
             ->get();
 
@@ -218,7 +235,9 @@ class NotificationService
             ];
         }
 
-        Notification::insert($rows);
+        foreach (array_chunk($rows, self::BACKFILL_CHUNK) as $chunk) {
+            Notification::insert($chunk);
+        }
     }
 
     /**

@@ -52,6 +52,8 @@ interface HEI {
     code?: string | null;
     region_id?: string | null;
     region?: Region | null;
+    /** 'inactive' for institutions kept in the list only because a user is attached. */
+    status?: string | null;
 }
 
 interface Program {
@@ -304,6 +306,9 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis, program
                                     <SelectItem value="inactive">Inactive</SelectItem>
                                 </SelectContent>
                             </Select>
+                            <p className="text-xs text-muted-foreground">
+                                Inactive accounts cannot sign in.
+                            </p>
                             {errors.status && (
                                 <p className="text-sm text-destructive">{errors.status}</p>
                             )}

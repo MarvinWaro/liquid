@@ -106,6 +106,17 @@ class ProfileController extends Controller
 
         $user = $request->user();
 
+        // Checked before logout so a blocked user is not signed out for nothing.
+        // Same rule as User Management: an account that authored liquidations,
+        // uploads, reviews or transmittals keeps its history and is deactivated
+        // by an administrator instead of deleted.
+        if ($blockers = $user->describeDeletionBlockers()) {
+            return to_route('profile.edit')->with(
+                'error',
+                "Your account is attached to {$blockers} and cannot be deleted. Ask an administrator to deactivate it instead."
+            );
+        }
+
         if ($user->avatar) {
             $this->forgetAvatarFile($user->avatar);
         }
