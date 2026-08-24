@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
 class User extends Authenticatable
@@ -311,6 +312,54 @@ class User extends Authenticatable
             'canDeleteAnnouncements' => $this->hasPermission('delete_announcements'),
             'canCreateTicket' => $this->hasPermission('create_ticket'),
         ];
+    }
+
+    /**
+     * Records that a hard delete of this account would destroy or orphan.
+     *
+     * `liquidations.created_by` used to cascade, so removing a user silently
+     * took every liquidation they created with it - soft deletes included,
+     * because a database-level cascade does not consult `deleted_at`. The
+     * foreign keys are safe now, but attribution still matters: an account with
+     * history should be deactivated, not deleted.
+     *
+     * @return array<string, int> Singular label => count, empty when safe to delete.
+     */
+    public function deletionBlockers(): array
+    {
+        return array_filter([
+            'liquidation' => Liquidation::withTrashed()->where('created_by', $this->id)->count(),
+            'uploaded document' => LiquidationDocument::where('uploaded_by', $this->id)->count(),
+            'review action' => LiquidationReview::where('performed_by', $this->id)->count(),
+            'transmittal' => LiquidationTransmittal::where('endorsed_by', $this->id)->count(),
+            // Both cascade, and liquidation_comments keeps no copy of the author's
+            // name - deleting the account would erase the words themselves from
+            // the discussion thread. Announcement comments and reactions are left
+            // out on purpose: blocking on a bulletin-board reaction would make
+            // almost every account permanently undeletable.
+            'liquidation comment' => LiquidationComment::where('user_id', $this->id)->count(),
+            'support ticket' => SupportTicket::where('requester_id', $this->id)->count(),
+        ]);
+    }
+
+    /**
+     * Human-readable summary of deletionBlockers(), e.g.
+     * "40 liquidations and 12 uploaded documents".
+     */
+    public function describeDeletionBlockers(): string
+    {
+        $parts = [];
+        foreach ($this->deletionBlockers() as $label => $count) {
+            $parts[] = $count.' '.Str::plural($label, $count);
+        }
+
+        if (count($parts) <= 1) {
+            return implode('', $parts);
+        }
+
+        $last = array_pop($parts);
+
+        return implode(', ', $parts).' and '.$last;
     }
 
     /**

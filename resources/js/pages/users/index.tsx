@@ -22,6 +22,7 @@ import { UserModal } from '@/components/users/user-modal';
 import { formatLastSeen, useUserPresence, type PresenceStatus } from '@/hooks/use-user-presence';
 import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
+import { formatManilaDate } from '@/lib/date';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
 import {
@@ -47,6 +48,8 @@ interface HEI {
     code?: string | null;
     region_id?: string | null;
     region?: Region | null;
+    /** 'inactive' for institutions kept in the list only because a user is attached. */
+    status?: string | null;
 }
 
 interface Region {
@@ -546,13 +549,7 @@ export default function Index({
                                             />
                                         </TableCell>
                                         <TableCell className="py-2 text-sm text-muted-foreground">
-                                            {new Date(
-                                                user.created_at,
-                                            ).toLocaleDateString(undefined, {
-                                                year: 'numeric',
-                                                month: 'short',
-                                                day: 'numeric',
-                                            })}
+                                            {formatManilaDate(user.created_at)}
                                         </TableCell>
                                         <TableCell className="pr-6 py-2 text-right">
                                             <div className="flex items-center justify-end gap-1">

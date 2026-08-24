@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Middleware\AuthenticateMcpClient;
+use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\SecurityHeaders;
@@ -45,6 +47,13 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             HandleAppearance::class,
             HandleInertiaRequests::class,
+            // Inside HandleInertiaRequests on purpose. This one can return a
+            // redirect, and Inertia rewrites a 302 into a 303 for PUT/PATCH/
+            // DELETE so the browser re-requests with GET. Placed outside it, a
+            // deactivated user clicking Delete would have the DELETE replayed
+            // against /login. Nothing is wasted by sitting here - the shared
+            // Inertia props are lazy, and this returns before $next().
+            EnsureUserIsActive::class,
             AddLinkHeadersForPreloadedAssets::class,
             TrackUserActivity::class,
             SecurityHeaders::class,
@@ -55,7 +64,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         $middleware->alias([
-            'mcp.auth' => \App\Http\Middleware\AuthenticateMcpClient::class,
+            'mcp.auth' => AuthenticateMcpClient::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -13,8 +13,12 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
 /**
- * Temporary seeder for testing — creates dummy RC, STUFAPS Focal, and HEI users.
- * Remove this seeder before production deployment.
+ * Temporary seeder for testing — creates a Super Admin plus dummy RC, STUFAPS
+ * Focal, and HEI users, all sharing one well-known password.
+ *
+ * MUST be removed before production deployment. It is not merely dummy data:
+ * it seeds a Super Admin whose password is public knowledge. Real
+ * administrators are created with `php artisan make:superadmin`.
  */
 class TestUserSeeder extends Seeder
 {
@@ -23,11 +27,25 @@ class TestUserSeeder extends Seeder
 
     public function run(): void
     {
-        $password = Hash::make('12345678');
+        $password = Hash::make('password');
 
         $rcRole = Role::where('name', 'Regional Coordinator')->firstOrFail();
         $stufapsRole = Role::where('name', 'STUFAPS Focal')->firstOrFail();
         $heiRole = Role::where('name', 'HEI')->firstOrFail();
+
+        // Without this a fresh `migrate:fresh --seed` leaves no way in at all -
+        // make:superadmin is interactive, so it had to be re-run by hand
+        // after every reset. Keyed on the email, so re-seeding never duplicates
+        // the account nor overwrites a Super Admin that is already there.
+        $superAdminRole = Role::where('name', 'Super Admin')->firstOrFail();
+        User::firstOrCreate(['email' => 'admin@gmail.com'], [
+            'name' => 'Admin',
+            'password' => $password,
+            'role_id' => $superAdminRole->id,
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+        $this->usedEmails[] = 'admin@gmail.com';
 
         $r12 = Region::where('code', 'R12')->firstOrFail();
         $barmm = Region::where('code', 'BARMM')->firstOrFail();
@@ -88,11 +106,11 @@ class TestUserSeeder extends Seeder
 
         // ── STUFAPS Local Focals ──
         $stufapsFocals = [
-            'Comprendio, Daven'          => ['CMSP'],
-            'Erfe, Jeanly'               => ['CHED-TDP'],
-            'Galamiton, Kia Zandra'      => ['MSRS', 'ACEF-GIAHEP', 'SIDA-SGP'],
-            'Reformado, Melanie'          => ['COSCHO'],
-            'Reginaldo, Ferlyn Jane N'   => ['COSCHO'],
+            'Comprendio, Daven' => ['CMSP'],
+            'Erfe, Jeanly' => ['CHED-TDP'],
+            'Galamiton, Kia Zandra' => ['MSRS', 'ACEF-GIAHEP', 'SIDA-SGP'],
+            'Reformado, Melanie' => ['COSCHO'],
+            'Reginaldo, Ferlyn Jane N' => ['COSCHO'],
         ];
 
         foreach ($stufapsFocals as $name => $programCodes) {
@@ -118,7 +136,7 @@ class TestUserSeeder extends Seeder
         $heis = HEI::orderBy('name')->get();
 
         foreach ($heis as $hei) {
-            $email = $this->generateEmailFromHeiName($hei->name);
+            $email = $this->generateEmailFromHeiUii($hei->uii);
             $user = User::firstOrCreate(['email' => $email], [
                 'name' => $hei->name,
                 'email' => $email,
@@ -133,7 +151,11 @@ class TestUserSeeder extends Seeder
         }
 
         $staffCount = count($barmmRCs) + count($r12RCs) + count($stufapsFocals);
-        $this->command->info("TestUserSeeder: {$staffCount} staff + {$heiCount} HEI users seeded (password: 12345678)");
+        $this->command->info("TestUserSeeder: {$staffCount} staff + {$heiCount} HEI users seeded");
+        $this->command->line('  HEI login   : {uii}@gmail.com         e.g. 12120@gmail.com');
+        $this->command->line('  Staff login : {firstname}@gmail.com   e.g. aries@gmail.com');
+        $this->command->line('  Super Admin : admin@gmail.com');
+        $this->command->line('  Password    : password  (all accounts)');
     }
 
     /**
@@ -150,20 +172,25 @@ class TestUserSeeder extends Seeder
     }
 
     /**
-     * Generate email from HEI name: "ACLC COLLEGE OF MARBEL" → "aclc@gmail.com"
-     * Handles duplicates: "aclc@gmail.com", "aclc2@gmail.com", etc.
+     * Generate email from HEI UII: "12120" → "12120@gmail.com",
+     * "TBD-01" → "tbd-01@gmail.com".
+     *
+     * The name used to supply this, but 181 institutions share a handful of
+     * first words, so 76 of the logins came out as "south5@gmail.com" and the
+     * like - impossible to match back to a campus without a lookup. UII is
+     * unique in the database and is the first column of HEI Management, so the
+     * login can be read straight off the screen.
+     *
+     * Still routed through makeUniqueEmail() so there is only one uniqueness
+     * guard in this class; in practice it never appends a suffix, since UIIs are
+     * unique and the staff emails above are alphabetic only.
      */
-    private function generateEmailFromHeiName(string $name): string
+    private function generateEmailFromHeiUii(string $uii): string
     {
-        $firstWord = strtolower(explode(' ', trim($name))[0]);
-        $firstWord = preg_replace('/[^a-z]/', '', $firstWord);
+        // Hyphens and dots are legal in a local part; anything else is dropped.
+        $local = preg_replace('/[^a-z0-9.-]/', '', strtolower(trim($uii)));
 
-        // Fallback if first word becomes empty after cleanup
-        if ($firstWord === '') {
-            $firstWord = 'hei';
-        }
-
-        return $this->makeUniqueEmail($firstWord);
+        return $this->makeUniqueEmail($local !== '' ? $local : 'hei');
     }
 
     /**
@@ -171,20 +198,22 @@ class TestUserSeeder extends Seeder
      */
     private function makeUniqueEmail(string $base): string
     {
-        $email = $base . '@gmail.com';
+        $email = $base.'@gmail.com';
 
-        if (!in_array($email, $this->usedEmails)) {
+        if (! in_array($email, $this->usedEmails)) {
             $this->usedEmails[] = $email;
+
             return $email;
         }
 
         $counter = 2;
-        while (in_array($base . $counter . '@gmail.com', $this->usedEmails)) {
+        while (in_array($base.$counter.'@gmail.com', $this->usedEmails)) {
             $counter++;
         }
 
-        $email = $base . $counter . '@gmail.com';
+        $email = $base.$counter.'@gmail.com';
         $this->usedEmails[] = $email;
+
         return $email;
     }
 }

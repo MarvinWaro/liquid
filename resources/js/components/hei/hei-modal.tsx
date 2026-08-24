@@ -268,6 +268,11 @@ export function HEIModal({
                                     </SelectItem>
                                 </SelectContent>
                             </Select>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                Inactive institutions are hidden from pickers
+                                and dashboard counts. This does not sign out
+                                their user accounts.
+                            </p>
                             {errors.status && (
                                 <p className="mt-1 text-sm text-red-500">
                                     {errors.status}

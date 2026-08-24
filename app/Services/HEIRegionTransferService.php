@@ -94,6 +94,17 @@ class HEIRegionTransferService
 
             HEI::duringRegionTransfer(fn () => $lockedHei->update($attributes));
 
+            // Accounts belonging to this HEI carry their own region_id, auto-filled
+            // from the institution when they were created. Left behind, they keep
+            // reporting the old region in User Management, which reads users.region
+            // ahead of users.hei.region. One bulk update: an HEI has a handful of
+            // users, and the transfer above is already in the activity log.
+            if ($regionChanged) {
+                User::query()
+                    ->where('hei_id', $lockedHei->id)
+                    ->update(['region_id' => $toRegionId]);
+            }
+
             $updatedUii = $lockedHei->uii;
             DB::afterCommit(function () use ($originalUii, $updatedUii, $transfer): void {
                 Cache::forget('hei_uii_'.strtolower($originalUii));
