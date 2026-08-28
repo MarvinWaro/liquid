@@ -71,8 +71,11 @@ trait LogsActivity
                 return;
             }
 
-            // Filter out sensitive fields
-            $sensitiveFields = ['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'];
+            // Filter out sensitive fields. password_changed_at rides along with
+            // password on every password write and carries nothing password does
+            // not, so it is dropped here too - otherwise a password change that
+            // logs nothing today would start logging a raw column name.
+            $sensitiveFields = ['password', 'password_changed_at', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'];
             $original = collect($original)->except($sensitiveFields)->toArray();
             $new = collect($new)->except($sensitiveFields)->toArray();
 

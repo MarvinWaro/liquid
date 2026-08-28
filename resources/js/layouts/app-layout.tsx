@@ -1,3 +1,4 @@
+import ChangePasswordDialog from '@/components/change-password-dialog';
 import AppHeaderLayout from '@/layouts/app/app-header-layout';
 import AppSidebarLayout from '@/layouts/app/app-sidebar-layout';
 import { useLayoutPreference } from '@/hooks/use-layout-preference';
@@ -41,6 +42,7 @@ export default ({ children, breadcrumbs, ...props }: AppLayoutProps) => {
     return (
         <Layout breadcrumbs={breadcrumbs} {...props}>
             {children}
+            <ChangePasswordDialog />
             <Toaster richColors position="bottom-right" />
         </Layout>
     );

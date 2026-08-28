@@ -6,6 +6,7 @@ use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\AnnouncementCommentController;
 use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\Auth\GoogleAuthController;
+use App\Http\Controllers\Auth\InitialPasswordController;
 use App\Http\Controllers\BulkEntryDraftController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentLocationController;
@@ -41,6 +42,14 @@ Route::middleware('guest')->group(function () {
 });
 
 Route::middleware(['auth', 'verified'])->group(function () {
+    // First-login password prompt. Rendered by the app layout on whichever page
+    // the user lands on, so it has no page route of its own.
+    Route::put('initial-password', [InitialPasswordController::class, 'update'])
+        ->middleware('throttle:6,1')
+        ->name('initial-password.update');
+    Route::post('initial-password/postpone', [InitialPasswordController::class, 'postpone'])
+        ->name('initial-password.postpone');
+
     // Announcement CRUD Routes
     Route::get('announcement', [AnnouncementController::class, 'index'])->name('announcements.index');
     Route::get('announcement/create', [AnnouncementController::class, 'create'])->name('announcements.create');
