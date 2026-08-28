@@ -89,6 +89,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'password_changed_at' => 'datetime',
             'two_factor_confirmed_at' => 'datetime',
             'last_active_at' => 'datetime',
         ];
@@ -249,6 +250,34 @@ class User extends Authenticatable
     public function isActive(): bool
     {
         return $this->status === 'active';
+    }
+
+    /**
+     * Whether this account is still on the password an administrator typed for
+     * it. Administrators provision every account by hand, so a fresh user's
+     * password is one somebody else knows until they replace it.
+     */
+    public function hasNeverChangedPassword(): bool
+    {
+        return is_null($this->password_changed_at);
+    }
+
+    /**
+     * Set a password the user chose themselves, and record when.
+     *
+     * Every self-service path goes through here - settings, the forgot-password
+     * reset, and the first-login prompt - so none of them can forget the stamp
+     * and leave the prompt reappearing after the password was already changed.
+     *
+     * forceFill because password_changed_at is deliberately not fillable: it is
+     * never taken from request input. The 'hashed' cast hashes the password.
+     */
+    public function changePassword(string $password): void
+    {
+        $this->forceFill([
+            'password' => $password,
+            'password_changed_at' => now(),
+        ])->save();
     }
 
     /**

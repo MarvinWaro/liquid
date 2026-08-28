@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\Controllers\Auth\InitialPasswordController;
 use App\Models\Notification;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
@@ -60,6 +61,13 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => $user ? $user->load('role.permissions', 'permissions') : null,
             ],
+
+            // Whether to show the first-login password prompt. Decided here
+            // rather than in the browser, and free of extra queries -
+            // password_changed_at rides along on the user row already loaded.
+            'mustChangePassword' => (bool) $user
+                && $user->hasNeverChangedPassword()
+                && ! $request->session()->has(InitialPasswordController::POSTPONED_SESSION_KEY),
 
             // Navigation abilities - controls what menu items user can see
             'can' => $user ? $user->getNavigationAbilities() : [

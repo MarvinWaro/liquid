@@ -222,6 +222,12 @@ class UserController extends Controller
 
         if (! empty($validated['password'])) {
             $updateData['password'] = Hash::make($validated['password']);
+
+            // A password an administrator typed is not one the user chose, so
+            // put them back in front of the first-login prompt. forceFill because
+            // password_changed_at is not fillable; the update() below saves it
+            // along with everything else in the same write.
+            $user->forceFill(['password_changed_at' => null]);
         }
 
         $user->update($updateData);

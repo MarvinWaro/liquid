@@ -98,6 +98,12 @@ export interface SharedData {
      * combine it with a feature's own cap.
      */
     maxUploadBytes: number;
+    /**
+     * Whether to show the first-login password prompt — true while the user is
+     * still on the password an administrator set for them and has not skipped it
+     * for this session. Decided by the server; never recompute it here.
+     */
+    mustChangePassword: boolean;
     [key: string]: unknown;
 }
 
