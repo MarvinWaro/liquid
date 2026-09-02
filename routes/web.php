@@ -276,6 +276,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('liquidation/import-progress', [LiquidationController::class, 'importProgress'])->name('liquidation.import-progress');
     Route::get('liquidation/import-batches', [LiquidationController::class, 'importBatches'])->name('liquidation.import-batches');
     Route::post('liquidation/import-batches/{batchId}/undo', [LiquidationController::class, 'undoImportBatch'])->name('liquidation.undo-import-batch');
+    Route::get('liquidation/import-batches/{batchId}/undo-preview', [LiquidationController::class, 'undoImportBatchPreview'])->name('liquidation.undo-import-batch-preview');
     Route::get('liquidation/import-batches/{batchId}/download', [LiquidationController::class, 'downloadImportBatchFile'])->name('liquidation.download-import-batch-file');
     Route::post('liquidation/bulk-store', [LiquidationController::class, 'bulkStore'])->name('liquidation.bulk-store');
 

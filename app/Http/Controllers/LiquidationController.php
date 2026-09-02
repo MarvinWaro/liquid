@@ -24,6 +24,7 @@ use App\Models\Liquidation;
 use App\Models\LiquidationBeneficiary;
 use App\Models\LiquidationComment;
 use App\Models\LiquidationDocument;
+use App\Models\LiquidationFinancial;
 use App\Models\LiquidationReview;
 use App\Models\LiquidationStatus;
 use App\Models\Notification;
@@ -35,6 +36,7 @@ use App\Models\ReviewType;
 use App\Models\Semester;
 use App\Models\User;
 use App\Services\CacheService;
+use App\Services\DashboardCache;
 use App\Services\LiquidationService;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -93,6 +95,16 @@ class LiquidationController extends Controller
 
     /** Import token TTL in minutes. */
     private const IMPORT_TOKEN_TTL = 30;
+
+    /**
+     * How many control numbers the undo entry lists before summarising the rest
+     * as a count. Keeps an audit trail without writing a 60 KB blob into one
+     * column for a 4,000-row batch; the description carries the true total.
+     */
+    private const UNDO_LOGGED_CONTROL_NOS = 100;
+
+    /** How many edited control numbers the undo confirmation names before "+N more". */
+    private const UNDO_PREVIEW_SAMPLES = 5;
 
     /** Filter keys accepted on the liquidation listing and print report. */
     private const LISTING_FILTER_KEYS = [
@@ -1414,12 +1426,13 @@ class LiquidationController extends Controller
     }
 
     /**
-     * Undo an entire import batch — deletes all liquidations created in that batch.
+     * Load an import batch this user is allowed to reverse, or abort.
+     *
+     * Shared by the undo and its preview so the preview can never describe a batch
+     * the caller would not be permitted to undo.
      */
-    public function undoImportBatch(Request $request, string $batchId): JsonResponse
+    private function findUndoableBatchOrFail(string $batchId, User $user): ImportBatch
     {
-        $user = $request->user();
-
         $batch = ImportBatch::findOrFail($batchId);
 
         if ($batch->user_id !== $user->id && ! $user->isSuperAdmin() && $user->role?->name !== 'Admin') {
@@ -1427,6 +1440,57 @@ class LiquidationController extends Controller
         }
 
         $this->authorizeImportBatchScope($batch, $user);
+
+        return $batch;
+    }
+
+    /**
+     * What an undo of this batch would destroy, for the confirmation step.
+     *
+     * Undo force-deletes permanently and only spares records with a submitted date,
+     * so a record somebody has been working on is taken with the rest. The dialog
+     * needs to say so before the user commits.
+     *
+     * Deliberately not folded into importBatches(): that lists up to 20 batches and
+     * this costs several EXISTS subqueries each, which is a poor trade on a 1 GB box
+     * for a button most people never press. Fetching it at confirm time also means
+     * the number cannot go stale while the panel sits open.
+     */
+    public function undoImportBatchPreview(Request $request, string $batchId): JsonResponse
+    {
+        $batch = $this->findUndoableBatchOrFail($batchId, $request->user());
+
+        // Rebuilt per use: a builder cannot be counted and then extended.
+        $atRisk = fn () => Liquidation::where('import_batch_id', $batch->id)
+            ->whereNull('date_submitted')
+            ->touchedSinceImport();
+
+        return response()->json([
+            'deletable' => Liquidation::where('import_batch_id', $batch->id)
+                ->whereNull('date_submitted')
+                ->count(),
+            'skipped' => Liquidation::where('import_batch_id', $batch->id)
+                ->whereNotNull('date_submitted')
+                ->count(),
+            // Scoped to deletable rows only, so an edited record that was already
+            // submitted counts as skipped rather than as something at risk.
+            'modified_count' => $atRisk()->count(),
+            'modified_samples' => $atRisk()
+                ->orderBy('control_no')
+                ->limit(self::UNDO_PREVIEW_SAMPLES)
+                ->pluck('control_no')
+                ->all(),
+        ]);
+    }
+
+    /**
+     * Undo an entire import batch — deletes all liquidations created in that batch.
+     */
+    public function undoImportBatch(Request $request, string $batchId): JsonResponse
+    {
+        $user = $request->user();
+
+        $batch = $this->findUndoableBatchOrFail($batchId, $user);
 
         if ($batch->isUndone()) {
             return response()->json([
@@ -1456,38 +1520,75 @@ class LiquidationController extends Controller
             ->whereNotNull('date_submitted')
             ->count();
 
+        // Counted now, not later: the scope compares timestamps on rows that are
+        // about to stop existing. Recorded on the summary entry so the audit trail
+        // shows an undo took work with it, not just untouched imported rows.
+        $modifiedCount = Liquidation::where('import_batch_id', $batchId)
+            ->whereNull('date_submitted')
+            ->touchedSinceImport()
+            ->count();
+
         $deletedCount = 0;
         $deletedIds = [];
+        $deletedControlNos = [];
 
-        foreach ($deletable->chunk(self::IMPORT_CHUNK_SIZE) as $chunk) {
-            DB::transaction(function () use ($chunk, &$deletedCount, &$deletedIds) {
-                foreach ($chunk as $liquidation) {
-                    $deletedIds[] = $liquidation->id;
-                    // Hard-delete related records and the liquidation itself
-                    // (forceDelete so control numbers are freed for reuse)
-                    $liquidation->financial()->forceDelete();
-                    $liquidation->documents()->each(function ($doc) {
-                        if (! $doc->is_gdrive && $doc->file_path) {
-                            Storage::disk('s3')->delete($doc->file_path);
+        // Undo used to write one "deleted" activity entry per record, so undoing a
+        // 4,000-row batch buried every other event in the log. Suppress the per-model
+        // entries the way an import already does (LiquidationImportService::importChunk)
+        // and let the single summary entry below stand for the whole undo.
+        $previousLiquidationLogging = Liquidation::$loggingEnabled;
+        $previousFinancialLogging = LiquidationFinancial::$loggingEnabled;
+        $previousDocumentLogging = LiquidationDocument::$loggingEnabled;
+
+        Liquidation::$loggingEnabled = false;
+        LiquidationFinancial::$loggingEnabled = false;
+        LiquidationDocument::$loggingEnabled = false;
+
+        try {
+            // Each delete also bumps the dashboard cache version through the model
+            // events. Bumping it once per record costs thousands of Redis writes and
+            // has the same effect as bumping it once, so collapse them into a single
+            // trailing flush — which still runs if the deletion throws part-way.
+            DashboardCache::withoutFlushing(function () use ($deletable, $batchId, &$deletedCount, &$deletedIds, &$deletedControlNos) {
+                foreach ($deletable->chunk(self::IMPORT_CHUNK_SIZE) as $chunk) {
+                    DB::transaction(function () use ($chunk, &$deletedCount, &$deletedIds, &$deletedControlNos) {
+                        foreach ($chunk as $liquidation) {
+                            $deletedIds[] = $liquidation->id;
+                            $deletedControlNos[] = $liquidation->control_no;
+                            // Hard-delete related records and the liquidation itself
+                            // (forceDelete so control numbers are freed for reuse)
+                            $liquidation->financial()->forceDelete();
+                            $liquidation->documents()->each(function ($doc) {
+                                if (! $doc->is_gdrive && $doc->file_path) {
+                                    Storage::disk('s3')->delete($doc->file_path);
+                                }
+                                $doc->forceDelete();
+                            });
+                            $liquidation->forceDelete();
+                            $deletedCount++;
                         }
-                        $doc->forceDelete();
                     });
-                    $liquidation->forceDelete();
-                    $deletedCount++;
+                }
+
+                // Also clean up any previously soft-deleted records from this batch
+                // (left over from old undo code that used soft-delete instead of forceDelete)
+                $orphaned = Liquidation::onlyTrashed()
+                    ->where('import_batch_id', $batchId)
+                    ->get();
+                foreach ($orphaned as $orphan) {
+                    $deletedIds[] = $orphan->id;
+                    $deletedControlNos[] = $orphan->control_no;
+                    $orphan->financial()->forceDelete();
+                    $orphan->documents()->each(fn ($doc) => $doc->forceDelete());
+                    $orphan->forceDelete();
                 }
             });
-        }
-
-        // Also clean up any previously soft-deleted records from this batch
-        // (left over from old undo code that used soft-delete instead of forceDelete)
-        $orphaned = Liquidation::onlyTrashed()
-            ->where('import_batch_id', $batchId)
-            ->get();
-        foreach ($orphaned as $orphan) {
-            $deletedIds[] = $orphan->id;
-            $orphan->financial()->forceDelete();
-            $orphan->documents()->each(fn ($doc) => $doc->forceDelete());
-            $orphan->forceDelete();
+        } finally {
+            // Restored even when the undo throws. Leaving these off would silence
+            // activity logging for every later request this worker process handles.
+            Liquidation::$loggingEnabled = $previousLiquidationLogging;
+            LiquidationFinancial::$loggingEnabled = $previousFinancialLogging;
+            LiquidationDocument::$loggingEnabled = $previousDocumentLogging;
         }
 
         // Clean up notifications for deleted liquidations
@@ -1509,11 +1610,29 @@ class LiquidationController extends Controller
             'file_size' => null,
         ]);
 
+        $logDescription = "Undid import batch \"{$batch->file_name}\" — deleted {$deletedCount} liquidation(s)";
+
+        if ($modifiedCount > 0) {
+            $logDescription .= ", {$modifiedCount} of which had been edited since import";
+        }
+
+        if ($skipped > 0) {
+            $logDescription .= ", skipped {$skipped} already submitted";
+        }
+
         ActivityLog::log(
             'undo_import_batch',
-            "Undid import batch — deleted {$deletedCount} liquidation(s)".($skipped > 0 ? ", skipped {$skipped} already submitted" : ''),
-            null,
-            'Liquidation'
+            $logDescription,
+            // Naming the batch as the subject makes the entry linkable for free:
+            // subjectRouteMap already points ImportBatch at the import history, and
+            // the batch row itself survives the undo.
+            $batch,
+            'Liquidation',
+            // The per-record entries no longer exist, so the control numbers ride
+            // here instead. Both sides have to be set - the log UI only offers
+            // "View changes" when old and new values are both present.
+            oldValues: ['Liquidations in batch' => $this->summariseControlNos($deletedControlNos)],
+            newValues: ['Liquidations in batch' => "Deleted ({$deletedCount} record(s))"],
         );
 
         $message = "Undone — {$deletedCount} liquidation(s) deleted.";
@@ -1527,6 +1646,33 @@ class LiquidationController extends Controller
             'deleted' => $deletedCount,
             'skipped' => $skipped,
         ]);
+    }
+
+    /**
+     * Control numbers for the undo entry, capped at UNDO_LOGGED_CONTROL_NOS.
+     *
+     * Undoing a large batch would otherwise write tens of thousands of characters
+     * into a single column. The count in the log description stays authoritative;
+     * this is the sample an auditor needs to recognise what was removed.
+     *
+     * @param  array<int, string|null>  $controlNos
+     */
+    private function summariseControlNos(array $controlNos): string
+    {
+        $controlNos = array_values(array_filter($controlNos));
+        $total = count($controlNos);
+
+        if ($total === 0) {
+            return 'None';
+        }
+
+        $summary = implode(', ', array_slice($controlNos, 0, self::UNDO_LOGGED_CONTROL_NOS));
+
+        if ($total > self::UNDO_LOGGED_CONTROL_NOS) {
+            $summary .= ' … (+'.($total - self::UNDO_LOGGED_CONTROL_NOS).' more)';
+        }
+
+        return $summary;
     }
 
     /**

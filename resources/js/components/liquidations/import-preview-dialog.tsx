@@ -77,6 +77,18 @@ export interface LedgerBreakdownEntry {
 
 type ImportBatchStatus = 'processing' | 'active' | 'undone' | 'failed';
 
+/**
+ * What an undo of a batch would destroy. Fetched when the user asks to undo, not
+ * with the history list: the check is several EXISTS subqueries per batch and most
+ * batches are never undone.
+ */
+type UndoPreview = {
+    deletable: number;
+    skipped: number;
+    modified_count: number;
+    modified_samples: string[];
+};
+
 interface ImportBatchRecord {
     id: string;
     file_name: string;
@@ -256,6 +268,8 @@ export function ImportPreviewDialog({
     const [loadingBatches, setLoadingBatches] = useState(false);
     const [undoingBatchId, setUndoingBatchId] = useState<string | null>(null);
     const [confirmUndoId, setConfirmUndoId] = useState<string | null>(null);
+    const [undoPreview, setUndoPreview] = useState<UndoPreview | null>(null);
+    const [loadingPreviewId, setLoadingPreviewId] = useState<string | null>(null);
 
     // Filter + paginate rows
     const filteredRows = useMemo(() => {
@@ -557,6 +571,31 @@ export function ImportPreviewDialog({
         if (next) await fetchBatches();
     };
 
+    /**
+     * Ask what the undo would destroy before showing the confirmation.
+     *
+     * A failed preview still opens the plain confirmation - it is an advisory, and
+     * blocking a legitimate undo because a count could not be read would be worse
+     * than showing no warning.
+     */
+    const startUndoConfirm = async (batchId: string) => {
+        setLoadingPreviewId(batchId);
+        try {
+            const res = await axios.get<UndoPreview>(route('liquidation.undo-import-batch-preview', { batchId }));
+            setUndoPreview(res.data);
+        } catch {
+            setUndoPreview(null);
+        } finally {
+            setLoadingPreviewId(null);
+            setConfirmUndoId(batchId);
+        }
+    };
+
+    const cancelUndoConfirm = () => {
+        setConfirmUndoId(null);
+        setUndoPreview(null);
+    };
+
     const handleUndoBatch = async (batchId: string) => {
         setUndoingBatchId(batchId);
         try {
@@ -570,6 +609,7 @@ export function ImportPreviewDialog({
         } finally {
             setUndoingBatchId(null);
             setConfirmUndoId(null);
+            setUndoPreview(null);
         }
     };
 
@@ -697,30 +737,54 @@ export function ImportPreviewDialog({
                                                     </p>
                                                 )}
                                             </div>
-                                            <div className="ml-4 shrink-0">
+                                            <div className={cn('ml-4', confirmUndoId === batch.id && undoPreview?.modified_count ? 'max-w-xs' : 'shrink-0')}>
                                                 {confirmUndoId === batch.id ? (
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-xs text-destructive font-medium">Are you sure?</span>
-                                                        <Button
-                                                            variant="destructive"
-                                                            size="sm"
-                                                            disabled={undoingBatchId === batch.id}
-                                                            onClick={() => handleUndoBatch(batch.id)}
-                                                        >
-                                                            {undoingBatchId === batch.id ? (
-                                                                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                                                            ) : (
-                                                                <Undo2 className="h-3.5 w-3.5 mr-1" />
-                                                            )}
-                                                            Yes, Undo
-                                                        </Button>
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => setConfirmUndoId(null)}
-                                                        >
-                                                            Cancel
-                                                        </Button>
+                                                    <div className="flex flex-col items-end gap-2">
+                                                        {/* Undo force-deletes permanently and only spares submitted
+                                                            records, so anything somebody has worked on goes with it.
+                                                            Say so before they commit. */}
+                                                        {!!undoPreview?.modified_count && (
+                                                            <div className="w-full rounded-md border border-destructive/40 bg-destructive/10 p-2 text-left">
+                                                                <p className="flex items-start gap-1.5 text-xs font-medium text-destructive">
+                                                                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                                                                    <span>
+                                                                        {undoPreview.modified_count} of these records{' '}
+                                                                        {undoPreview.modified_count === 1 ? 'has' : 'have'} been edited since import.
+                                                                    </span>
+                                                                </p>
+                                                                <p className="mt-1 font-mono text-[11px] leading-relaxed text-destructive/90 break-words">
+                                                                    {undoPreview.modified_samples.join(', ')}
+                                                                    {undoPreview.modified_count > undoPreview.modified_samples.length &&
+                                                                        ' \u2026 (+' + (undoPreview.modified_count - undoPreview.modified_samples.length) + ' more)'}
+                                                                </p>
+                                                                <p className="mt-1 text-[11px] text-muted-foreground">
+                                                                    Undoing permanently deletes them, including any uploaded documents.
+                                                                </p>
+                                                            </div>
+                                                        )}
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs text-destructive font-medium">Are you sure?</span>
+                                                            <Button
+                                                                variant="destructive"
+                                                                size="sm"
+                                                                disabled={undoingBatchId === batch.id}
+                                                                onClick={() => handleUndoBatch(batch.id)}
+                                                            >
+                                                                {undoingBatchId === batch.id ? (
+                                                                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                                                                ) : (
+                                                                    <Undo2 className="h-3.5 w-3.5 mr-1" />
+                                                                )}
+                                                                {undoPreview?.modified_count ? 'Yes, Undo All' : 'Yes, Undo'}
+                                                            </Button>
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={cancelUndoConfirm}
+                                                            >
+                                                                Cancel
+                                                            </Button>
+                                                        </div>
                                                     </div>
                                                 ) : (
                                                     <div className="flex items-center gap-2">
@@ -758,9 +822,14 @@ export function ImportPreviewDialog({
                                                                     <Button
                                                                         variant="outline"
                                                                         size="sm"
-                                                                        onClick={() => setConfirmUndoId(batch.id)}
+                                                                        disabled={loadingPreviewId === batch.id}
+                                                                        onClick={() => startUndoConfirm(batch.id)}
                                                                     >
-                                                                        <Undo2 className="h-3.5 w-3.5 mr-1.5" />
+                                                                        {loadingPreviewId === batch.id ? (
+                                                                            <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                                                                        ) : (
+                                                                            <Undo2 className="h-3.5 w-3.5 mr-1.5" />
+                                                                        )}
                                                                         Undo
                                                                     </Button>
                                                                 </TooltipTrigger>
