@@ -7,6 +7,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Liquidation\BulkImportRequest;
 use App\Http\Requests\Liquidation\EndorseToAccountingRequest;
 use App\Http\Requests\Liquidation\EndorseToCOARequest;
+use App\Http\Requests\Liquidation\LiquidationFinancialRules;
 use App\Http\Requests\Liquidation\ReturnToHEIRequest;
 use App\Http\Requests\Liquidation\ReturnToRCRequest;
 use App\Http\Requests\Liquidation\StoreLiquidationRequest;
@@ -583,14 +584,13 @@ class LiquidationController extends Controller
             'entries.*.academic_year_id' => 'required|exists:academic_years,id',
             'entries.*.semester' => 'nullable|string|max:50',
             'entries.*.batch_no' => 'nullable|string|max:50',
-            'entries.*.number_of_grantees' => 'nullable|integer|min:0',
-            'entries.*.total_disbursements' => 'required|numeric|min:0',
-            'entries.*.total_amount_liquidated' => 'nullable|numeric|min:0',
+            ...LiquidationFinancialRules::rules('entries.*.'),
             'entries.*.document_status' => 'nullable|string|in:NONE,PARTIAL,COMPLETE',
             'entries.*.rc_notes' => 'nullable|string|max:1000',
         ], [
             'entries.*.dv_control_no.distinct' => 'Control / Ledger No. in row :position is duplicated.',
             'entries.*.dv_control_no.unique' => 'Control / Ledger No. in row :position already exists in the system.',
+            ...LiquidationFinancialRules::messages('entries.*.'),
         ]);
 
         $imported = 0;
@@ -3060,6 +3060,12 @@ class LiquidationController extends Controller
 
         if ($totalLiquidated < 0) {
             $errors[] = 'Total Amount Liquidated (col M) cannot be negative.';
+        }
+
+        // Over-liquidating leaves amount_received - amount_liquidated negative, and that
+        // difference is summed into the table and dashboard totals.
+        if ($totalLiquidated > $totalDisbursements) {
+            $errors[] = 'Total Amount Liquidated (col M) cannot be more than Total Disbursements (col L).';
         }
 
         // Short-circuit when critical fields are missing — lookups would add noise

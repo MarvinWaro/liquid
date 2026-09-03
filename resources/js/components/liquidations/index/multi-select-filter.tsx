@@ -2,8 +2,12 @@ import React, { useState, useCallback } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ChevronDown, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+/** Selections named in the tooltip before it summarises the rest as "+N more". */
+const TOOLTIP_NAMED_SELECTIONS = 4;
 
 export interface FilterOption {
     value: string;
@@ -56,36 +60,59 @@ export const MultiSelectFilter = React.memo(function MultiSelectFilter({
 
     const count = selected.length;
 
+    // The trigger truncates, and once two or more are picked it only says
+    // "N selected" - so with several filters active there is no way to see what
+    // is actually filtered without opening each one. Name them here instead.
+    const summary = (() => {
+        if (count === 0) return label;
+
+        const labelFor = (value: string) =>
+            options.find(o => o.value === value)?.label ?? value;
+
+        const named = selected.slice(0, TOOLTIP_NAMED_SELECTIONS).map(labelFor);
+        const remaining = count - named.length;
+
+        return `${label}: ${named.join(', ')}${remaining > 0 ? `, +${remaining} more` : ''}`;
+    })();
+
     return (
         <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger asChild>
-                <Button
-                    variant="outline"
-                    role="combobox"
-                    className={cn('justify-between font-normal', width)}
-                >
-                    <span className="truncate text-sm">
-                        {count === 0
-                            ? label
-                            : count === 1
-                                ? options.find(o => o.value === selected[0])?.label ?? label
-                                : `${count} selected`}
-                    </span>
-                    <div className="flex items-center gap-1 ml-1 shrink-0">
-                        {count > 0 && (
-                            <span
-                                role="button"
-                                tabIndex={-1}
-                                onClick={clear}
-                                className="rounded-full hover:bg-muted p-0.5"
-                            >
-                                <X className="h-3 w-3 text-muted-foreground" />
+            {/* Six of these sit side by side, so a short delay stops them
+                flashing as the pointer sweeps across. Set on the root rather
+                than the shared provider, which other tooltips still use at 0. */}
+            <Tooltip delayDuration={300}>
+                <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                        <Button
+                            variant="outline"
+                            role="combobox"
+                            className={cn('justify-between font-normal', width)}
+                        >
+                            <span className="truncate text-sm">
+                                {count === 0
+                                    ? label
+                                    : count === 1
+                                        ? options.find(o => o.value === selected[0])?.label ?? label
+                                        : `${count} selected`}
                             </span>
-                        )}
-                        <ChevronDown className="h-3.5 w-3.5 opacity-50" />
-                    </div>
-                </Button>
-            </PopoverTrigger>
+                            <div className="flex items-center gap-1 ml-1 shrink-0">
+                                {count > 0 && (
+                                    <span
+                                        role="button"
+                                        tabIndex={-1}
+                                        onClick={clear}
+                                        className="rounded-full hover:bg-muted p-0.5"
+                                    >
+                                        <X className="h-3 w-3 text-muted-foreground" />
+                                    </span>
+                                )}
+                                <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                            </div>
+                        </Button>
+                    </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{summary}</TooltipContent>
+            </Tooltip>
             <PopoverContent align="start" className="p-0 w-[240px]">
                 <div className="max-h-[300px] overflow-y-auto p-1">
                     {groups.map((group, gi) => (

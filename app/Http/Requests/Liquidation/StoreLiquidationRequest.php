@@ -56,9 +56,7 @@ class StoreLiquidationRequest extends FormRequest
                 'regex:/^[A-Za-z0-9\-]+$/',
                 Rule::unique('liquidations', 'control_no'),
             ],
-            'number_of_grantees' => 'nullable|integer|min:0',
-            'total_disbursements' => 'required|numeric|min:0',
-            'total_amount_liquidated' => 'nullable|numeric|min:0',
+            ...LiquidationFinancialRules::rules(),
             'document_status' => 'nullable|string|in:NONE,PARTIAL,COMPLETE',
             'rc_notes' => 'nullable|string|max:1000',
         ];
@@ -78,6 +76,7 @@ class StoreLiquidationRequest extends FormRequest
             'dv_control_no.required' => 'Control number is required.',
             'dv_control_no.regex' => 'Control number may only contain letters, numbers, and hyphens (no spaces or special characters).',
             'dv_control_no.unique' => 'This control number already exists. Please use a different one.',
+            ...LiquidationFinancialRules::messages(),
         ];
     }
 }

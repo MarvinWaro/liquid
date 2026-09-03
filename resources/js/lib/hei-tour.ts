@@ -24,6 +24,31 @@ const SHARED_CONFIG = {
     prevBtnText: 'Back',
     doneBtnText: 'Got it',
     popoverClass: 'liquid-tour',
+
+    /**
+     * Put the highlighted element in the middle of the screen.
+     *
+     * driver.js skips its own scroll whenever the target is already partly
+     * visible, and falls back to block:'start' for anything taller than the
+     * viewport. The cards on the detail page trip both, which left a step
+     * highlighted down at the bottom edge with its callout stranded above.
+     *
+     * The over-tall case keeps driver's own behaviour on purpose: centring
+     * something taller than the window pushes its heading off the top, which
+     * is worse than sitting low. Safe to scroll from here - driver.js listens
+     * for scroll and moves the popover with the element.
+     */
+    onHighlighted: (element?: Element) => {
+        if (!element) return;
+
+        const tallerThanViewport =
+            element.getBoundingClientRect().height > window.innerHeight;
+
+        element.scrollIntoView({
+            behavior: 'smooth',
+            block: tallerThanViewport ? 'start' : 'center',
+        });
+    },
 } as const;
 
 /**
@@ -100,10 +125,14 @@ function ensureRequirementsExpanded(): void {
 /**
  * The liquidation detail page, top to bottom.
  *
- * The load-bearing step is the one about incomplete submissions. "Your
- * coordinator sees nothing until every requirement is complete" is genuinely
- * surprising - a half-finished upload looks like progress and achieves nothing -
- * and it is the mistake that sends people back to submitting by Messenger.
+ * This used to carry an "Important" step warning that a coordinator sees nothing
+ * until every requirement is complete. It was removed because it was not true:
+ * the controller sends every uploaded document straight through, and coordinators
+ * review partial submissions as a matter of course.
+ *
+ * The load-bearing step is now "Your part" - it is the only section an HEI fills
+ * in, and its onNextClick is what opens the requirement list so the two upload
+ * steps after it have something to point at.
  */
 export function useHeiDetailTour(): () => Promise<void> {
     return useTour(
@@ -114,7 +143,7 @@ export function useHeiDetailTour(): () => Promise<void> {
                     popover: {
                         title: 'This liquidation',
                         description:
-                            'The reference number, programme and period for this submission.',
+                            'The reference number, program and period for this submission.',
                     },
                 },
                 {
@@ -155,14 +184,6 @@ export function useHeiDetailTour(): () => Promise<void> {
                         title: 'Your part',
                         description:
                             'This is the one section you fill in. The counter shows how many documents you have submitted out of the total required.',
-                    },
-                },
-                {
-                    element: '[data-tour="upload-notice"]',
-                    popover: {
-                        title: 'Important',
-                        description:
-                            'Your coordinator cannot see any of your documents until every requirement is complete. Submitting only some of them sends nothing.',
                         // The next steps point inside a list that may be
                         // collapsed. Open it and let React paint, or there is
                         // nothing left on screen to highlight. Taking over
