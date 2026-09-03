@@ -738,6 +738,10 @@ export function BulkEntryModal({
             else if (!row.hei_name) errors[i] = `UII "${row.uii}" not found in system.`;
             else if (!row.academic_year_id) errors[i] = 'Academic Year is required.';
             else if (!row.total_disbursements) errors[i] = 'Total Disbursements is required.';
+            // The server enforces this too. Catching it here spares a round trip for a
+            // grid that can hold 100 rows, and points straight at the offending one.
+            else if (Number(row.total_amount_liquidated || 0) > Number(row.total_disbursements || 0))
+                errors[i] = 'Total Amount Liquidated cannot be more than Total Disbursements.';
             else if (row.dv_control_no.trim()) {
                 // Validate format only when user provides a control number
                 if (row.dv_control_no.trim() !== row.dv_control_no) errors[i] = 'Control / Ledger No. has leading/trailing spaces.';

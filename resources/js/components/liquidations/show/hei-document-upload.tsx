@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
     Upload, FileText, Download, Trash2, Eye, Loader2, Maximize2,
-    ClipboardList, CheckCircle2, Circle, ExternalLink, Link2, Info, CircleHelp,
+    ClipboardList, CheckCircle2, Circle, ExternalLink, Link2, CircleHelp,
     ChevronDown,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
@@ -259,29 +259,11 @@ export default function HeiDocumentUpload({
 
             <CardContent className="pt-0">
                 {/* Status alerts (always visible) */}
-                {isHEIUser && !isComplete && (
-                    <div data-tour="upload-notice" className="flex items-center gap-2 p-3 mb-3 rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50">
-                        <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-                        <p className="text-xs text-amber-700 dark:text-amber-300">
-                            Please upload all {total} required documents. Your submissions will only be visible to the Regional Coordinator once all requirements are complete.
-                        </p>
-                    </div>
-                )}
-
                 {isHEIUser && isComplete && (
                     <div className="flex items-center gap-2 p-3 mb-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200 dark:border-emerald-800/50">
                         <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
                         <p className="text-xs text-emerald-700 dark:text-emerald-300">
-                            All documents have been submitted. Your submissions are now visible to the Regional Coordinator.
-                        </p>
-                    </div>
-                )}
-
-                {!isHEIUser && !isComplete && (
-                    <div className="flex items-center gap-2 p-3 mb-3 rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50">
-                        <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-                        <p className="text-sm text-amber-700 dark:text-amber-300">
-                            The HEI has not yet completed all required document uploads ({fulfilled} of {total} submitted).
+                            All documents have been submitted.
                         </p>
                     </div>
                 )}

@@ -739,6 +739,37 @@ class Liquidation extends Model
     }
 
     /**
+     * Scope to rows that a person has touched since the import created them.
+     *
+     * An import writes exactly two rows per record - the liquidation and its
+     * financial - with created_at and updated_at set to the same instant, and no
+     * child records at all (see LiquidationImportService::insertRow). So a bumped
+     * updated_at, or the mere existence of any child row, means somebody did work
+     * here afterwards.
+     *
+     * Undo force-deletes permanently, and only spares records with a submitted
+     * date, so this is what the confirmation step warns about.
+     *
+     * Wrapped in a single where() group: without it the orWhere chain would leak
+     * out and defeat any condition the caller already applied.
+     */
+    public function scopeTouchedSinceImport(Builder $query): Builder
+    {
+        $changedAfterCreation = fn (Builder $q) => $q->whereColumn('updated_at', '>', 'created_at');
+
+        return $query->where(function (Builder $q) use ($changedAfterCreation) {
+            $q->whereColumn('liquidations.updated_at', '>', 'liquidations.created_at')
+                ->orWhereHas('financial', $changedAfterCreation)
+                ->orHas('documents')
+                ->orHas('runningData')
+                ->orHas('trackingEntries')
+                ->orHas('reviews')
+                ->orHas('beneficiaries')
+                ->orHas('comments');
+        });
+    }
+
+    /**
      * Scope to filter by academic period.
      */
     public function scopeForPeriod(Builder $query, string $academicYearId, ?string $semesterId = null): Builder

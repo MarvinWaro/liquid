@@ -282,27 +282,64 @@ export default function Index({
                                                     </TableCell>
                                                     <TableCell className="py-2 text-center">
                                                         {(() => {
-                                                            const defaultRule = program.due_date_rules?.find(
+                                                            const rules = program.due_date_rules ?? [];
+                                                            const defaultRule = rules.find(
                                                                 (r) => !r.academic_year_id,
                                                             );
-                                                            const ruleCount = program.due_date_rules?.length || 0;
-                                                            if (ruleCount === 0) {
+                                                            // Counted directly rather than as "all rules minus the
+                                                            // default" - that arithmetic under-reported by one for any
+                                                            // program with AY rules but no default of its own.
+                                                            const overrides = rules.filter(
+                                                                (r) => r.academic_year_id,
+                                                            );
+
+                                                            if (rules.length === 0) {
                                                                 return (
                                                                     <span className="text-xs text-muted-foreground">
                                                                         —
                                                                     </span>
                                                                 );
                                                             }
+
+                                                            // No default rule does not mean no due date: the server
+                                                            // falls back to 30 days for a sub-program, 90 for a parent
+                                                            // (ProgramDueDateRule::getDueDateDays).
+                                                            const fallbackDays = program.parent_id ? 30 : 90;
+
+                                                            // Lead with the number that was actually configured. Showing
+                                                            // the fallback in this slot made a saved rule look wrong - a
+                                                            // programme set to 20 days for one AY displayed "30d".
+                                                            const soleOverride =
+                                                                !defaultRule && overrides.length === 1
+                                                                    ? overrides[0]
+                                                                    : null;
+
+                                                            let primary: string;
+                                                            let note: string | null;
+
+                                                            if (defaultRule) {
+                                                                primary = `${defaultRule.due_date_days}d`;
+                                                                note = overrides.length
+                                                                    ? `+${overrides.length} AY override${overrides.length > 1 ? 's' : ''}`
+                                                                    : null;
+                                                            } else if (soleOverride) {
+                                                                primary = `${soleOverride.due_date_days}d`;
+                                                                note = `${soleOverride.academic_year?.code ?? 'one AY'} only`;
+                                                            } else {
+                                                                // Several AY rules and no default - no single number is
+                                                                // honest, so say how many and what applies elsewhere.
+                                                                primary = `${overrides.length} AY rules`;
+                                                                note = `${fallbackDays}d otherwise`;
+                                                            }
+
                                                             return (
                                                                 <div className="flex flex-col items-center gap-0.5">
                                                                     <span className="text-sm font-medium">
-                                                                        {defaultRule
-                                                                            ? `${defaultRule.due_date_days}d`
-                                                                            : '—'}
+                                                                        {primary}
                                                                     </span>
-                                                                    {ruleCount > 1 && (
+                                                                    {note && (
                                                                         <span className="text-[10px] text-muted-foreground">
-                                                                            +{ruleCount - 1} AY override{ruleCount - 1 > 1 ? 's' : ''}
+                                                                            {note}
                                                                         </span>
                                                                     )}
                                                                 </div>

@@ -83,6 +83,24 @@ class ProgramSeeder extends Seeder
                 'description' => 'Medical Scholarship and Return Service',
                 'status' => 'active',
             ],
+            [
+                'code' => 'BPMSP',
+                'name' => 'BPMSP',
+                'description' => 'Bagong Pilipinas Merit Scholarship Program',
+                'status' => 'active',
+            ],
+            [
+                'code' => 'AHEAD',
+                'name' => 'AHEAD',
+                'description' => 'Allied Health Experiential Assistance for Deserving Students Grant',
+                'status' => 'active',
+            ],
+            [
+                'code' => 'EASE',
+                'name' => 'EASE',
+                'description' => 'The Scholarship Program for Special Equity Groups',
+                'status' => 'active',
+            ],
         ];
 
         foreach ($children as $child) {
