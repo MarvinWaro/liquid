@@ -1,24 +1,20 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" @class(['dark' => ($appearance ?? 'light') == 'dark'])>
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" @class(['dark' => ($appearance ?? 'light') == 'dark']) data-appearance="{{ $appearance ?? 'light' }}">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
 
-        {{-- Inline script to detect system dark mode preference and apply it immediately --}}
-        <script>
-            (function() {
-                const appearance = '{{ $appearance ?? "light" }}';
+        {{-- Applies system dark mode before first paint, reading data-appearance above.
 
-                if (appearance === 'system') {
-                    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+             External rather than inline: production serves a Content-Security-Policy
+             with `script-src 'self'` from the web server, which blocked the inline
+             version this replaced - so every viewer on the default "system" setting
+             with a dark OS got the light theme until React hydrated.
 
-                    if (prefersDark) {
-                        document.documentElement.classList.add('dark');
-                    }
-                }
-            })();
-        </script>
+             No defer: it must run before the body paints. Bump ?v= when the file
+             changes; it is served with far-future caching otherwise. --}}
+        <script src="{{ asset('js/appearance.js') }}?v=1"></script>
 
         {{-- Inline style to set the HTML background color based on our theme in app.css --}}
         <style>
