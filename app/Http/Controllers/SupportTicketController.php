@@ -282,6 +282,16 @@ class SupportTicketController extends Controller
                 $q->orWhereHas('requester', function (Builder $requesterQuery) use ($user) {
                     $requesterQuery->where('hei_id', $user->hei_id);
                 });
+
+                // A ticket internal staff opened ABOUT this institution's liquidation
+                // is still theirs to answer. The clause above only matches tickets an
+                // HEI user opened, so an Admin asking for a re-upload was invisible to
+                // the institution it was addressed to - no notification link that
+                // resolved, and a 403 on reply. Regional Coordinators and STUFAPS
+                // Focals already get liquidation-scoped access below.
+                $q->orWhereHas('liquidation', function (Builder $liquidationQuery) use ($user) {
+                    $liquidationQuery->where('hei_id', $user->hei_id);
+                });
             }
 
             if ($this->canHandleScopedLiquidationTickets($user)) {
@@ -497,20 +507,30 @@ class SupportTicketController extends Controller
     }
 
     /**
-     * Active HEI teammates that share the requester's institution.
-     * Mirrors the institution-peer visibility rule so the whole team
-     * is kept in sync on ticket activity.
+     * Active HEI accounts at the institution a ticket concerns.
+     *
+     * That is the requester's own institution when an HEI user opened the ticket,
+     * and otherwise the institution behind the linked liquidation - so a ticket
+     * internal staff opened for an HEI reaches them too. Mirrors the
+     * institution-peer visibility rule so the whole team stays in sync.
      */
     private function heiPeersForTicket(SupportTicket $ticket): Collection
     {
-        $ticket->loadMissing('requester.role');
-        $requester = $ticket->requester;
+        $ticket->loadMissing('requester.role', 'liquidation');
 
-        if (! $requester || $requester->role?->name !== 'HEI' || ! $requester->hei_id) {
+        $requester = $ticket->requester;
+        $heiId = $requester?->role?->name === 'HEI' ? $requester->hei_id : null;
+
+        // Falls back to the institution the linked liquidation belongs to, so a
+        // ticket opened by an Admin or RC still reaches the HEI it is about.
+        // Keying only on the requester meant those tickets notified nobody there.
+        $heiId ??= $ticket->liquidation?->hei_id;
+
+        if (! $heiId) {
             return collect();
         }
 
-        return User::where('hei_id', $requester->hei_id)
+        return User::where('hei_id', $heiId)
             ->where('status', 'active')
             ->whereHas('role', fn (Builder $q) => $q->where('name', 'HEI'))
             ->get();
