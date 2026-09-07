@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Services\DashboardCache;
 use App\Traits\HasUuid;
 use App\Traits\LogsActivity;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -18,13 +20,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *
  * @property string $id
  * @property string $liquidation_id
- * @property \Carbon\Carbon|null $date_fund_released
+ * @property Carbon|null $date_fund_released
  * @property string|null $fund_source
  * @property float $amount_received
  * @property float $amount_disbursed
  * @property float $amount_liquidated
  * @property float $amount_refunded
- * @property \Carbon\Carbon|null $disbursement_date
+ * @property Carbon|null $disbursement_date
  * @property int|null $number_of_grantees
  * @property string|null $or_number
  * @property string|null $purpose
@@ -77,7 +79,7 @@ class LiquidationFinancial extends Model
      */
     protected static function booted(): void
     {
-        $flush = fn () => \App\Services\DashboardCache::flush();
+        $flush = fn () => DashboardCache::flush();
         static::saved($flush);
         static::deleted($flush);
     }
@@ -177,7 +179,7 @@ class LiquidationFinancial extends Model
         $dueDate = $this->due_date;
         $liquidation = $this->liquidation;
 
-        if (!$dueDate || !$liquidation) {
+        if (! $dueDate || ! $liquidation) {
             return 0;
         }
 
@@ -185,7 +187,7 @@ class LiquidationFinancial extends Model
 
         // Find the last tracking entry (by sort_order) that has a date_received
         $lastEntry = $liquidation->relationLoaded('trackingEntries')
-            ? $liquidation->trackingEntries->filter(fn($e) => $e->date_received !== null)->sortByDesc('sort_order')->first()
+            ? $liquidation->trackingEntries->filter(fn ($e) => $e->date_received !== null)->sortByDesc('sort_order')->first()
             : $liquidation->trackingEntries()->whereNotNull('date_received')->reorder('sort_order', 'desc')->first();
 
         // Only freeze lapsing when the last entry is a Complete Submission.
@@ -204,27 +206,39 @@ class LiquidationFinancial extends Model
 
     /**
      * Get due date - returns explicit value or calculates from fund release date.
-     * STUFAPS sub-programs (those with a parent_id) get 30 days; all others get 90 days.
+     *
+     * The calculated case follows the program's configured Due Date Rules
+     * (Settings -> Programs -> Due Date Rules), priority program+AY -> program
+     * default -> fallback. It used to hardcode 90/30 and ignore those rules
+     * entirely, so a program set to 30 days was still judged at 90 - including by
+     * the overdue and lapsing figures below, which read this same accessor.
+     *
+     * 90 days (30 for STUFAPS sub-programs, which have a parent_id) remains the
+     * fallback when a program has no rule configured, so anything without rules
+     * behaves exactly as before.
      */
-    public function getDueDateAttribute($value): ?\Carbon\Carbon
+    public function getDueDateAttribute($value): ?Carbon
     {
         // If explicit due_date is set, use it
         if ($value) {
-            return \Carbon\Carbon::parse($value);
+            return Carbon::parse($value);
         }
 
         // Otherwise calculate from date_fund_released
-        if (!$this->date_fund_released) {
+        if (! $this->date_fund_released) {
             return null;
         }
 
-        $days = 90;
         $liquidation = $this->liquidation;
-        if ($liquidation) {
-            $program = $liquidation->program;
-            if ($program && $program->parent_id) {
-                $days = 30;
-            }
+        $program = $liquidation?->program;
+        $days = $program?->parent_id ? 30 : 90;
+
+        if ($program) {
+            $days = ProgramDueDateRule::getDueDateDays(
+                $program->id,
+                $liquidation->academic_year_id,
+                $days,
+            );
         }
 
         return $this->date_fund_released->copy()->addDays($days);
@@ -237,7 +251,7 @@ class LiquidationFinancial extends Model
     {
         $dueDate = $this->due_date;
 
-        if (!$dueDate) {
+        if (! $dueDate) {
             return false;
         }
 
@@ -251,7 +265,7 @@ class LiquidationFinancial extends Model
     {
         $dueDate = $this->due_date;
 
-        if (!$dueDate) {
+        if (! $dueDate) {
             return null;
         }
 

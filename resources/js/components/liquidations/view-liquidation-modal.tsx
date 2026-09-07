@@ -153,10 +153,17 @@ export function ViewLiquidationModal({
 
     // Edit modal state
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    // Validation message from the last refused save. App layout only toasts flash
+    // messages, not validation errors, so without this the modal would just stop
+    // its spinner and say nothing.
+    const [editError, setEditError] = useState<string | null>(null);
     const [isUpdating, setIsUpdating] = useState(false);
 
     // Open edit modal handler
-    const handleOpenEditModal = () => setIsEditModalOpen(true);
+    const handleOpenEditModal = () => {
+        setEditError(null);
+        setIsEditModalOpen(true);
+    };
 
     // Callback handlers - must be before early return for React Rules of Hooks
     const handleSubmitForReview = useCallback((remarks: string) => {
@@ -258,6 +265,7 @@ export function ViewLiquidationModal({
     const handleUpdateLiquidation = useCallback((amountReceived: string) => {
         if (!liquidation) return;
         setIsUpdating(true);
+        setEditError(null);
         router.put(route('liquidation.update', liquidation.id), {
             amount_received: parseFloat(amountReceived),
         }, {
@@ -273,7 +281,8 @@ export function ViewLiquidationModal({
                 setIsUpdating(false);
                 setIsEditModalOpen(false);
             },
-            onError: () => {
+            onError: (errors) => {
+                setEditError(errors?.amount_received ?? 'Could not save the changes. Please check the amount and try again.');
                 setIsUpdating(false);
             },
         });
@@ -967,11 +976,15 @@ export function ViewLiquidationModal({
         {/* Edit Liquidation Modal */}
         <EditLiquidationModal
             isOpen={isEditModalOpen}
-            onClose={() => setIsEditModalOpen(false)}
+            onClose={() => {
+                setEditError(null);
+                setIsEditModalOpen(false);
+            }}
             onSubmit={handleUpdateLiquidation}
             isProcessing={isUpdating}
             initialAmount={liquidation?.amount_received?.toString() || '0'}
             totalDisbursed={liquidation?.total_disbursed || 0}
+            errorMessage={editError}
         />
     </>
     );

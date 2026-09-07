@@ -1,3 +1,5 @@
+import type { Program } from '@/components/liquidations/liquidation-constants';
+
 export interface Beneficiary {
     id: number;
     student_no: string;
@@ -128,6 +130,11 @@ export interface Liquidation {
     program_name: string;
     academic_year: string;
     semester: string;
+    /** Ids for the Details-card dropdowns; the two names above are for display. */
+    academic_year_id?: string | null;
+    semester_id?: string | null;
+    /** Drives the Details card's due-date recalculation (looks up the program's rules). */
+    program_id?: string | null;
     batch_no: string;
     dv_control_no: string;
     amount_received: number;
@@ -223,6 +230,11 @@ export interface ShowPageProps {
     userRole: string;
     isStufapsProgram: boolean;
     commentCounts: Record<string, number>;
+    /** Lookup lists for the Details card's Academic Year and Semester dropdowns. */
+    academicYears: { id: string; code: string; name: string }[];
+    semesters: { id: string; code: string; name: string }[];
+    /** Programs with their due date rules, for recomputing the due date on edit. */
+    programs: Program[];
 }
 
 export const RC_NOTES_OPTIONS = [

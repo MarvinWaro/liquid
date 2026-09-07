@@ -109,6 +109,9 @@ class UserController extends Controller
             'programs' => $programs,
             'permissions' => $permissions,
             'canAssignPermissions' => $canAssignPermissions,
+            // Same isSuperAdmin() answer, named for what the modal uses it for:
+            // hiding a Role option the server would reject with a 403 anyway.
+            'canAssignSuperAdmin' => $canAssignPermissions,
             'canCreate' => auth()->user()->hasPermission('create_users'),
             'canEdit' => auth()->user()->hasPermission('edit_users'),
             'canDelete' => auth()->user()->hasPermission('delete_users'),
@@ -126,6 +129,14 @@ class UserController extends Controller
         $isRegionalCoordinator = $role && $role->name === 'Regional Coordinator';
         $isHEIRole = $role && $role->name === 'HEI';
         $isProgramScoped = $role && $role->name === 'STUFAPS Focal';
+
+        // Only a Super Admin may hand out the Super Admin role. Without this, any
+        // account with create_users/edit_users could promote itself and reach the
+        // surfaces that are deliberately isSuperAdmin()-gated rather than
+        // permission-gated: server logs, queue health, monitoring, permission grants.
+        if ($role?->name === 'Super Admin' && ! auth()->user()->isSuperAdmin()) {
+            abort(403, 'Only a Super Admin can assign the Super Admin role.');
+        }
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -188,6 +199,14 @@ class UserController extends Controller
         $isRegionalCoordinator = $role && $role->name === 'Regional Coordinator';
         $isHEIRole = $role && $role->name === 'HEI';
         $isProgramScoped = $role && $role->name === 'STUFAPS Focal';
+
+        // Only a Super Admin may hand out the Super Admin role. Without this, any
+        // account with create_users/edit_users could promote itself and reach the
+        // surfaces that are deliberately isSuperAdmin()-gated rather than
+        // permission-gated: server logs, queue health, monitoring, permission grants.
+        if ($role?->name === 'Super Admin' && ! auth()->user()->isSuperAdmin()) {
+            abort(403, 'Only a Super Admin can assign the Super Admin role.');
+        }
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',

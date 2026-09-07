@@ -44,6 +44,9 @@ export default function Show({
     userRole,
     isStufapsProgram,
     commentCounts,
+    academicYears,
+    semesters,
+    programs,
 }: ShowPageProps) {
     const { auth } = usePage<SharedData>().props;
     const initialHash = typeof window !== 'undefined' ? window.location.hash : '';
@@ -133,6 +136,9 @@ export default function Show({
     const [isReturnToRCModalOpen, setIsReturnToRCModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
+    // App layout only toasts flash messages, not validation errors, so the
+    // refused save has to carry its reason back into the modal itself.
+    const [editError, setEditError] = useState<string | null>(null);
 
     // ── Derived values ──
     const isHEIUser = userRole === 'HEI';
@@ -292,9 +298,13 @@ export default function Show({
 
     const handleUpdateLiquidation = useCallback((amountReceived: string) => {
         setIsUpdating(true);
+        setEditError(null);
         router.put(route('liquidation.update', liquidation.id), { amount_received: parseFloat(amountReceived) }, {
             onSuccess: () => { setIsUpdating(false); setIsEditModalOpen(false); router.reload(); },
-            onError: () => setIsUpdating(false),
+            onError: (errors) => {
+                setEditError(errors?.amount_received ?? 'Could not save the changes. Please check the amount and try again.');
+                setIsUpdating(false);
+            },
         });
     }, [liquidation.id]);
 
@@ -332,7 +342,10 @@ export default function Show({
                     canEdit={canEdit}
                     canReview={canReview}
                     userRole={userRole}
-                    onEditClick={() => setIsEditModalOpen(true)}
+                    onEditClick={() => {
+                        setEditError(null);
+                        setIsEditModalOpen(true);
+                    }}
                     onEndorseClick={() => setIsEndorseModalOpen(true)}
                     onEndorseToCOAClick={() => setIsEndorseToCOAModalOpen(true)}
                 />
@@ -370,6 +383,9 @@ export default function Show({
                             latestRcNote={latestRcNote ?? undefined}
                             isStufapsProgram={isStufapsProgram}
                             userRole={userRole}
+                            academicYears={academicYears}
+                            semesters={semesters}
+                            programs={programs}
                         />
                     </div>
                     <div data-tour="detail-workflow" className="lg:col-span-4 flex flex-col">
@@ -482,11 +498,15 @@ export default function Show({
             />
             <EditLiquidationModal
                 isOpen={isEditModalOpen}
-                onClose={() => setIsEditModalOpen(false)}
+                onClose={() => {
+                    setEditError(null);
+                    setIsEditModalOpen(false);
+                }}
                 onSubmit={handleUpdateLiquidation}
                 isProcessing={isUpdating}
                 initialAmount={liquidation.amount_received?.toString() || '0'}
                 totalDisbursed={liquidation.total_disbursed || 0}
+                errorMessage={editError}
             />
         </AppLayout>
     );

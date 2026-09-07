@@ -728,7 +728,23 @@ class LiquidationService
     public function updateLiquidation(Liquidation $liquidation, array $data): Liquidation
     {
         return DB::transaction(function () use ($liquidation, $data) {
-            $liquidationFields = array_intersect_key($data, array_flip(['hei_id', 'remarks']));
+            // Columns an edit may write on the liquidation row itself. academic_year_id
+            // and batch_no were missing, so the Details card could post them and still
+            // be told the save succeeded.
+            $liquidationFields = array_intersect_key(
+                $data,
+                array_flip(['hei_id', 'remarks', 'academic_year_id', 'batch_no']),
+            );
+
+            // Semester arrives as a name, the way the create form sends it.
+            // array_key_exists, not isset: clearing the field posts null, and the
+            // empty case must stay null rather than take findSemesterId's 1st
+            // Semester fallback (that default exists for the import paths).
+            if (array_key_exists('semester', $data)) {
+                $liquidationFields['semester_id'] = ! empty($data['semester'])
+                    ? $this->findSemesterId($data['semester'])
+                    : null;
+            }
 
             // Handle liquidation_status → liquidation_status_id lookup
             if (isset($data['liquidation_status'])) {
@@ -765,7 +781,11 @@ class LiquidationService
 
             $financialData = [];
             foreach ($financialFieldsMap as $inputKey => $dbKey) {
-                if (isset($data[$inputKey])) {
+                // array_key_exists, not isset: isset() is false for null, so clearing
+                // a due date or fund release date silently kept the old value. The
+                // rules decide what may be null - amount_received and disbursed_amount
+                // are numeric without nullable, so a null never reaches this loop.
+                if (array_key_exists($inputKey, $data)) {
                     $financialData[$dbKey] = $data[$inputKey];
                 }
             }
