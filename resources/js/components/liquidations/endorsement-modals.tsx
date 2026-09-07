@@ -431,6 +431,8 @@ interface EditLiquidationModalProps {
     isProcessing: boolean;
     initialAmount: string;
     totalDisbursed: number;
+    /** Server-side validation message, shown under the field when the save is refused. */
+    errorMessage?: string | null;
 }
 
 export const EditLiquidationModal = memo(function EditLiquidationModal({
@@ -440,8 +442,17 @@ export const EditLiquidationModal = memo(function EditLiquidationModal({
     isProcessing,
     initialAmount,
     totalDisbursed,
+    errorMessage = null,
 }: EditLiquidationModalProps) {
     const [amount, setAmount] = useState(initialAmount);
+
+    // What the report's unliquidated balance becomes if this amount is saved.
+    // Anything below zero means the institution would show as having liquidated
+    // more than it received, which the server refuses - so catch it here first.
+    const parsedAmount = parseFloat(amount);
+    const hasAmount = amount !== '' && Number.isFinite(parsedAmount);
+    const remaining = (hasAmount ? parsedAmount : 0) - totalDisbursed;
+    const isShort = hasAmount && remaining < 0;
 
     // Reset amount when modal opens with new initial value
     React.useEffect(() => {
@@ -500,11 +511,23 @@ export const EditLiquidationModal = memo(function EditLiquidationModal({
                         </div>
                         <div className="flex justify-between text-sm">
                             <span>Remaining/Unliquidated:</span>
-                            <span className="font-mono text-orange-600">
-                                ₱{(parseFloat(amount || '0') - totalDisbursed).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <span className={`font-mono ${isShort ? 'text-destructive font-semibold' : 'text-orange-600'}`}>
+                                ₱{remaining.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
                         </div>
                     </div>
+
+                    {isShort && (
+                        <p className="text-sm text-destructive">
+                            Amount Received cannot be lower than the ₱
+                            {totalDisbursed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                            already liquidated. Lowering it would leave this report with a negative balance.
+                        </p>
+                    )}
+
+                    {errorMessage && !isShort && (
+                        <p className="text-sm text-destructive">{errorMessage}</p>
+                    )}
                 </div>
                 <DialogFooter>
                     <Button
@@ -516,7 +539,7 @@ export const EditLiquidationModal = memo(function EditLiquidationModal({
                     </Button>
                     <Button
                         onClick={handleSubmit}
-                        disabled={isProcessing || !amount || parseFloat(amount) < 0}
+                        disabled={isProcessing || !hasAmount || parsedAmount < 0 || isShort}
                     >
                         {isProcessing ? 'Saving...' : 'Save Changes'}
                     </Button>

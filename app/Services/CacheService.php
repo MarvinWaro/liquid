@@ -294,6 +294,9 @@ class CacheService
             'lookup:academic_years',
             'lookup:document_statuses',
             'lookup:programs',
+            // Due date rules ride inside lookup:programs and their own map;
+            // ProgramDueDateRule busts both on write, this covers a global clear.
+            'lookup:due_date_rules',
             'lookup:heis',
             'lookup:review_types',
             'lookup:compliance_statuses',

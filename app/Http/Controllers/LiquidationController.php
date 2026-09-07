@@ -1759,6 +1759,12 @@ class LiquidationController extends Controller
             ],
             'userRole' => $user->role->name,
             'isStufapsProgram' => (bool) $liquidation->program?->parent_id,
+            // Same lookups index() uses, for the Details card's Academic Year and
+            // Semester dropdowns. Programs carry their due date rules, so the card
+            // can recompute the due date the way the create form does.
+            'academicYears' => AcademicYear::getDropdownOptions(),
+            'semesters' => Semester::getDropdownOptions(),
+            'programs' => $this->cacheService->getSelectablePrograms(),
 
             // Deferred props — load after initial page paint for instant navigation
             'documentRequirements' => Inertia::defer(fn () => $requirements),
@@ -2822,6 +2828,13 @@ class LiquidationController extends Controller
             'program_name' => $liquidation->program?->name ?? 'N/A',
             'academic_year' => $liquidation->academicYear?->name ?? 'N/A',
             'semester' => $liquidation->semester?->name ?? 'N/A',
+            // Ids alongside the display names: the Details card edits these with
+            // dropdowns, and a name cannot pre-select one. The names above stay
+            // for the read-only view. program_id feeds the card's due-date
+            // recalculation, which needs the program to look up its rules.
+            'academic_year_id' => $liquidation->academic_year_id,
+            'semester_id' => $liquidation->semester_id,
+            'program_id' => $liquidation->program_id,
             'batch_no' => $liquidation->batch_no,
             'dv_control_no' => $liquidation->control_no,
             'amount_received' => $financial?->amount_received ?? 0,

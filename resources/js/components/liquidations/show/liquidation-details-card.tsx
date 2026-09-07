@@ -16,6 +16,8 @@ import {
 import { Pencil, Save, RotateCcw, FileSpreadsheet, Download, ChevronDown } from 'lucide-react';
 import AmountInput from './amount-input';
 import { formatManilaDate } from '@/lib/date';
+import { addDays, format, isValid, parse } from 'date-fns';
+import { getDueDateDays, type Program } from '@/components/liquidations/liquidation-constants';
 import {
     type Liquidation,
     RC_NOTES_OPTIONS,
@@ -23,8 +25,23 @@ import {
     getLiquidationStatusColor,
 } from '@/types/liquidation';
 
+interface AcademicYearOption {
+    id: string;
+    code: string;
+    name: string;
+}
+
+interface SemesterOption {
+    id: string;
+    code: string;
+    name: string;
+}
+
 interface LiquidationDetailsCardProps {
     liquidation: Liquidation;
+    academicYears?: AcademicYearOption[];
+    semesters?: SemesterOption[];
+    programs?: Program[];
     canEditDetails: boolean;
     isHEIUser: boolean;
     userRole?: string;
@@ -182,11 +199,14 @@ export default function LiquidationDetailsCard({
     totalDisbursements,
     latestRcNote,
     isStufapsProgram = false,
+    academicYears = [],
+    semesters = [],
+    programs = [],
 }: LiquidationDetailsCardProps) {
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [editForm, setEditForm] = useState({
-        academic_year: liquidation.academic_year ?? '',
+        academic_year_id: liquidation.academic_year_id ?? '',
         semester: liquidation.semester ?? '',
         batch_no: liquidation.batch_no ?? '',
         date_fund_released: liquidation.date_fund_released ?? '',
@@ -200,12 +220,32 @@ export default function LiquidationDetailsCard({
     });
 
     const updateField = useCallback((field: keyof typeof editForm, value: string) => {
-        setEditForm(prev => ({ ...prev, [field]: value }));
-    }, []);
+        setEditForm(prev => {
+            const updated = { ...prev, [field]: value };
+
+            // Re-derive the due date from the program's Due Date Rules, exactly as
+            // the create form does (same getDueDateDays helper, same trigger
+            // fields). Editing used to leave a stale due date behind: changing the
+            // academic year to one with a 30-day rule kept the old 60-day date.
+            // The box stays editable, so typing over this afterwards still wins.
+            const shouldRecomputeDueDate = field === 'academic_year_id' || field === 'date_fund_released';
+            const releaseDate = field === 'date_fund_released' ? value : updated.date_fund_released;
+
+            if (shouldRecomputeDueDate && releaseDate) {
+                const released = parse(releaseDate, 'yyyy-MM-dd', new Date());
+                if (isValid(released)) {
+                    const days = getDueDateDays(programs, liquidation.program_id ?? '', updated.academic_year_id || null);
+                    updated.due_date = format(addDays(released, days), 'yyyy-MM-dd');
+                }
+            }
+
+            return updated;
+        });
+    }, [programs, liquidation.program_id]);
 
     const handleStartEdit = useCallback(() => {
         setEditForm({
-            academic_year: liquidation.academic_year ?? '',
+            academic_year_id: liquidation.academic_year_id ?? '',
             semester: liquidation.semester ?? '',
             batch_no: liquidation.batch_no ?? '',
             date_fund_released: liquidation.date_fund_released ?? '',
@@ -225,7 +265,7 @@ export default function LiquidationDetailsCard({
     const handleSaveDetails = useCallback(() => {
         setIsSaving(true);
         router.put(route('liquidation.update', liquidation.id), {
-            academic_year: editForm.academic_year || null,
+            academic_year_id: editForm.academic_year_id || null,
             semester: editForm.semester || null,
             batch_no: editForm.batch_no || null,
             date_fund_released: editForm.date_fund_released || null,
@@ -304,14 +344,37 @@ export default function LiquidationDetailsCard({
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 mb-6">
                                 <FieldBlock label="Academic Year">
                                     {isEditing ? (
-                                        <Input value={editForm.academic_year} onChange={(e) => updateField('academic_year', e.target.value)} className={editInputClass} />
+                                        // Dropdowns, not free text: these are stored as links to
+                                        // lookup rows, so a typed name that matched nothing used to
+                                        // clear the value instead of reporting a mistake.
+                                        <Select value={editForm.academic_year_id} onValueChange={(value) => updateField('academic_year_id', value)}>
+                                            <SelectTrigger className={`h-9 text-sm ${editInputClass}`}>
+                                                <SelectValue placeholder="Select academic year" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {academicYears.map((ay) => (
+                                                    <SelectItem key={ay.id} value={ay.id}>{ay.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
                                     ) : (
                                         <DisplayValue>{liquidation.academic_year}</DisplayValue>
                                     )}
                                 </FieldBlock>
                                 <FieldBlock label="Semester">
                                     {isEditing ? (
-                                        <Input value={editForm.semester} onChange={(e) => updateField('semester', e.target.value)} className={editInputClass} />
+                                        // Value stays the semester NAME, matching the create form -
+                                        // the server resolves it through findSemesterId.
+                                        <Select value={editForm.semester} onValueChange={(value) => updateField('semester', value)}>
+                                            <SelectTrigger className={`h-9 text-sm ${editInputClass}`}>
+                                                <SelectValue placeholder="Select semester" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {semesters.map((sem) => (
+                                                    <SelectItem key={sem.id} value={sem.name}>{sem.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
                                     ) : (
                                         <DisplayValue>{liquidation.semester}</DisplayValue>
                                     )}
