@@ -100,6 +100,7 @@ interface Props {
     programs: Program[];
     permissions: Record<string, Permission[]>;
     canAssignPermissions: boolean;
+    canAssignSuperAdmin: boolean;
     canCreate: boolean;
     canEdit: boolean;
     canDelete: boolean;
@@ -130,6 +131,7 @@ export default function Index({
     programs,
     permissions,
     canAssignPermissions,
+    canAssignSuperAdmin,
     canCreate,
     canEdit,
     canDelete,
@@ -271,6 +273,7 @@ export default function Index({
                 programs={programs}
                 permissions={permissions}
                 canAssignPermissions={canAssignPermissions}
+                canAssignSuperAdmin={canAssignSuperAdmin}
             />
 
             <div className="w-full min-w-0 py-8">

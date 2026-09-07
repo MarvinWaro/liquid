@@ -142,10 +142,13 @@ class HEIController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        if ($hei->regionTransfers()->exists()) {
+        // Liquidation history, attached accounts and transfer records all block a
+        // delete. Deleting an HEI used to cascade straight through liquidations
+        // into their documents, financials and comments - see HEI::deletionBlockers().
+        if ($blockers = $hei->describeDeletionBlockers()) {
             return redirect()->back()->with(
                 'error',
-                'Cannot delete an HEI with immutable region transfer history.'
+                "Cannot delete {$hei->name} - this institution is attached to {$blockers}. Set it to inactive instead to keep its records."
             );
         }
 

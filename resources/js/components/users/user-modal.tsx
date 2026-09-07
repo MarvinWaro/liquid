@@ -86,6 +86,7 @@ interface UserModalProps {
     programs?: Program[];
     permissions?: Record<string, Permission[]>;
     canAssignPermissions?: boolean;
+    canAssignSuperAdmin?: boolean;
 }
 
 interface FormData {
@@ -101,7 +102,7 @@ interface FormData {
     status: string;
 }
 
-export function UserModal({ isOpen, onClose, user, roles, regions, heis, programs = [], permissions = {}, canAssignPermissions = false }: UserModalProps) {
+export function UserModal({ isOpen, onClose, user, roles, regions, heis, programs = [], permissions = {}, canAssignPermissions = false, canAssignSuperAdmin = false }: UserModalProps) {
     const isEdit = !!user;
     const [permissionSearch, setPermissionSearch] = useState('');
 
@@ -134,6 +135,22 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis, program
         permission_ids: [],
         status: 'active',
     });
+
+    // Super Admin is only offered to a Super Admin. It stays in the list when the
+    // account being edited already holds it, so the current value still resolves
+    // in the selector - same reason index() keeps inactive HEIs in its $heis list.
+    // The server guard in UserController is the real control; this only stops the
+    // UI offering an option that would come back a 403.
+    const assignableRoles = useMemo(
+        () =>
+            roles.filter(
+                (r) =>
+                    r.name !== 'Super Admin' ||
+                    canAssignSuperAdmin ||
+                    r.id === user?.role_id,
+            ),
+        [roles, canAssignSuperAdmin, user?.role_id],
+    );
 
     // Get selected role name for conditional field display
     const selectedRole = roles.find(r => r.id.toString() === data.role_id);
@@ -280,7 +297,7 @@ export function UserModal({ isOpen, onClose, user, roles, regions, heis, program
                                     <SelectValue placeholder="Select role" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {roles.map((role) => (
+                                    {assignableRoles.map((role) => (
                                         <SelectItem key={role.id} value={role.id.toString()}>
                                             {role.name}
                                         </SelectItem>

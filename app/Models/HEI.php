@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\DescribesDeletionBlockers;
 use App\Traits\HasUuid;
 use App\Traits\LogsActivity;
 use Closure;
@@ -13,7 +14,7 @@ use Illuminate\Support\Facades\Cache;
 
 class HEI extends Model
 {
-    use HasFactory, HasUuid, LogsActivity;
+    use DescribesDeletionBlockers, HasFactory, HasUuid, LogsActivity;
 
     private static bool $regionTransferInProgress = false;
 
@@ -146,6 +147,35 @@ class HEI extends Model
         return $this->hasMany(HEIRegionTransfer::class, 'hei_id')
             ->orderByDesc('effective_date')
             ->orderByDesc('created_at');
+    }
+
+    /**
+     * Records that a hard delete of this institution would destroy or orphan.
+     *
+     * `liquidations.hei_id` cascaded, so removing one HEI took every liquidation
+     * it ever filed - and with it the documents, beneficiaries, financials,
+     * tracking entries and comments hanging off those rows. `Liquidation` uses
+     * SoftDeletes, but a database-level cascade never consults `deleted_at`, so
+     * even already-archived reports were gone for good.
+     *
+     * An institution that has history should be set to inactive, not deleted.
+     *
+     * @return array<string, int> Singular label => count, empty when safe to delete.
+     */
+    public function deletionBlockers(): array
+    {
+        return array_filter([
+            // withTrashed on purpose: the cascade ignored `deleted_at`, so a
+            // guard that counted only live rows would still lose the archive.
+            'liquidation' => Liquidation::withTrashed()->where('hei_id', $this->id)->count(),
+            // users.hei_id is SET NULL, so these accounts survive the delete but
+            // come out orphaned - an HEI role pointing at no institution, which
+            // renders as a blank Institution field and scopes to nothing.
+            'user account' => User::where('hei_id', $this->id)->count(),
+            // Immutable audit trail; hei_region_transfers.hei_id is RESTRICT, so
+            // the database refuses this one outright.
+            'region transfer record' => $this->regionTransfers()->count(),
+        ]);
     }
 
     /**

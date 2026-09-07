@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Services\SignedUrlCache;
+use App\Traits\DescribesDeletionBlockers;
 use App\Traits\HasUuid;
 use App\Traits\LogsActivity;
 use Database\Factories\UserFactory;
@@ -12,13 +13,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Support\Str;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, HasUuid, LogsActivity, Notifiable, TwoFactorAuthenticatable;
+    use DescribesDeletionBlockers, HasFactory, HasUuid, LogsActivity, Notifiable, TwoFactorAuthenticatable;
 
     protected static function getActivityModule(): string
     {
@@ -369,26 +369,6 @@ class User extends Authenticatable
             'liquidation comment' => LiquidationComment::where('user_id', $this->id)->count(),
             'support ticket' => SupportTicket::where('requester_id', $this->id)->count(),
         ]);
-    }
-
-    /**
-     * Human-readable summary of deletionBlockers(), e.g.
-     * "40 liquidations and 12 uploaded documents".
-     */
-    public function describeDeletionBlockers(): string
-    {
-        $parts = [];
-        foreach ($this->deletionBlockers() as $label => $count) {
-            $parts[] = $count.' '.Str::plural($label, $count);
-        }
-
-        if (count($parts) <= 1) {
-            return implode('', $parts);
-        }
-
-        $last = array_pop($parts);
-
-        return implode(', ', $parts).' and '.$last;
     }
 
     /**
