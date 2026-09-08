@@ -361,6 +361,19 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
     const handleExportExcel = () => queueReport('excel', buildReportPayload());
     const handleExportCsv = () => queueReport('csv', buildReportPayload());
 
+    /**
+     * The batch the page should keep watching once the import dialog closes.
+     *
+     * The dialog reports it while the import is still running. Without it the
+     * watcher below falls back to discovery, which only matches a *processing*
+     * batch - so an import that finished while the dialog was shut returned
+     * "nothing running", and the table sat stale until a manual refresh.
+     *
+     * Cleared the moment a completion is announced, by whichever watcher got
+     * there first, so the same import is never reported twice.
+     */
+    const [watchedImportBatchId, setWatchedImportBatchId] = useState<string | null>(null);
+
     const handleImportComplete = (result: { imported: number; errors: ImportRowError[] }) => {
         if (result.errors.length > 0) {
             setImportResult({ imported: result.imported, errors: result.errors });
@@ -368,6 +381,8 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
         if (result.imported > 0) {
             setLastImportCount(result.imported);
         }
+        // The dialog already announced this one.
+        setWatchedImportBatchId(null);
         // Always reload to refresh the table (covers both import and undo)
         router.reload();
     };
@@ -382,7 +397,9 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
      */
     const { progress: runningImport, stalling: runningImportStalling } = useImportProgress({
         enabled: !isImportPreviewOpen,
+        batchId: watchedImportBatchId,
         onFinished: (progress) => {
+            setWatchedImportBatchId(null);
             // Same reasoning as the dialog: a batch where every row was rejected
             // is not flagged `failed`, so it has to be caught on imported < 1 or
             // it finishes with no message at all.
@@ -397,6 +414,15 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
             router.reload();
         },
     });
+
+    // A batch found by discovery (after a mid-import refresh) is remembered too, so
+    // opening and closing the dialog does not drop back to discovery and miss the
+    // finish. Guarded on !done so a completed batch can never re-arm the watcher.
+    useEffect(() => {
+        if (runningImport && !runningImport.done) {
+            setWatchedImportBatchId(runningImport.batch_id);
+        }
+    }, [runningImport]);
 
     const handleVoid = useCallback((liquidation: Liquidation) => {
         router.post(route('liquidation.void', liquidation.id), {}, {
@@ -547,6 +573,7 @@ export default function Index({ liquidations, pinnedLiquidations, pinLimit = 10,
                 isOpen={isImportPreviewOpen}
                 onClose={() => { setIsImportPreviewOpen(false); setImportFile(null); setOpenImportHistory(false); setHighlightImportBatchId(null); }}
                 onImportComplete={handleImportComplete}
+                onBatchStarted={setWatchedImportBatchId}
                 initialFile={importFile}
                 initialShowHistory={openImportHistory}
                 highlightBatchId={highlightImportBatchId}

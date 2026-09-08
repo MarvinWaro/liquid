@@ -157,6 +157,13 @@ interface ImportPreviewDialogProps {
     initialFile?: File | null;
     initialShowHistory?: boolean;
     highlightBatchId?: string | null;
+    /**
+     * Reports the batch this dialog is watching, so the page can keep watching it
+     * after the dialog closes. Without it the page falls back to discovery mode,
+     * which only ever matches a *processing* batch - so an import that finished
+     * while the dialog was shut was never noticed and the table never refreshed.
+     */
+    onBatchStarted?: (batchId: string) => void;
 }
 
 // --- Error helpers --------------------------------------------------------
@@ -238,6 +245,7 @@ export function ImportPreviewDialog({
     initialFile,
     initialShowHistory,
     highlightBatchId,
+    onBatchStarted,
 }: ImportPreviewDialogProps) {
     const ROWS_PER_PAGE = 100;
 
@@ -345,6 +353,19 @@ export function ImportPreviewDialog({
     useEffect(() => {
         if (importProgress && !importProgress.done) {
             setStep('importing');
+        }
+    }, [importProgress]);
+
+    // Hand the batch id to the page while it is still running, so closing this
+    // dialog mid-import does not lose track of it. Only while unfinished: passing
+    // a completed batch up would let the page announce the same import a second
+    // time. Held in a ref so an inline callback cannot retrigger this.
+    const onBatchStartedRef = useRef(onBatchStarted);
+    onBatchStartedRef.current = onBatchStarted;
+
+    useEffect(() => {
+        if (importProgress && !importProgress.done) {
+            onBatchStartedRef.current?.(importProgress.batch_id);
         }
     }, [importProgress]);
 
@@ -501,6 +522,14 @@ export function ImportPreviewDialog({
             // Hand off to the poller; the worker owns the import from here.
             setWatchedBatchId(data.batch_id);
             setWatchImport(true);
+
+            // Tell the page directly rather than waiting for the poller to report
+            // it. Clicking outside is allowed while this request is in flight, and
+            // if that happened this dialog is already closed - its own watcher is
+            // gated on isOpen, so it will never produce progress to relay. The page
+            // would then be polling in discovery mode for a batch the server has
+            // only just created, get "nothing running", and stop for good.
+            onBatchStartedRef.current?.(data.batch_id);
         } catch (error: unknown) {
             // Nothing was queued, so nothing was written — keep the user on the
             // preview with the reason rather than closing into a failure report
