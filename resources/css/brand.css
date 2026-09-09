@@ -1,0 +1,26 @@
+/*
+ * Shared brand accent, imported by the public landing page and the login screen
+ * so the two cannot drift apart - the landing headline and the login button are
+ * the same family by construction rather than by copied hex values.
+ *
+ * Two blues, deliberately:
+ *   --brand-accent  is for text on the page background. At 3.9:1 against white it
+ *                   is NOT safe to put white text on, so never use it as a fill.
+ *   --brand-action  is for filled controls, 7.0:1 against white - the same family,
+ *                   deepened enough to carry white label text.
+ *
+ * Dark mode inverts the control, matching the landing page's own button.
+ */
+:root {
+    --brand-accent: #6b82a6;
+    --brand-action: #3f5a80;
+    --brand-action-hover: #34496a;
+    --brand-action-fg: #ffffff;
+}
+
+.dark {
+    --brand-accent: #93a8c4;
+    --brand-action: #dbe6f7;
+    --brand-action-hover: #c3d5ee;
+    --brand-action-fg: #18243b;
+}

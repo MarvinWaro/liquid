@@ -6,7 +6,6 @@ use App\Models\Announcement;
 use App\Models\AnnouncementComment;
 use App\Models\LiquidationStatus;
 use App\Models\Program;
-use App\Models\Region;
 use App\Services\AnnouncementImageService;
 use App\Services\HtmlSanitizer;
 use Carbon\Carbon;
@@ -20,30 +19,28 @@ class AnnouncementController extends Controller
     // Landing page (honor / shame boards) — unchanged
     // ---------------------------------------------------------------------
 
-    public function welcome(Request $request)
+    /**
+     * Public landing page.
+     *
+     * Renders no data on purpose. It used to publish an Honor Roll and a
+     * "For Action" board naming every institution with its peso figures and
+     * percentage, to anyone, with no login. getBoards() is a plain
+     * SUM(liquidated) / SUM(received) with no due-date or workflow filtering, so
+     * an HEI whose funds were released last week showed at 0% at the top of the
+     * "For Action" list - published as delinquent while not yet due. A
+     * liquidation sitting in RC or Accounting review counted against the
+     * institution the same way.
+     *
+     * Dropping it also takes an uncached four-table aggregate off the one URL
+     * reachable without authenticating.
+     *
+     * getBoards() below is kept, not dead: the boards return once the measure is
+     * fair (count only past-due, exclude anything awaiting CHED review, and give
+     * partial progress its own band instead of one all-or-nothing split).
+     */
+    public function welcome()
     {
-        $regionId = $request->query('region');
-        $programFilter = $request->query('program');
-
-        $programs = Program::select('id', 'name', 'code', 'parent_id')
-            ->orderBy('name')
-            ->get();
-        $programIds = $this->resolveProgramFilter($programFilter, $programs);
-
-        [$honorBoard, $shameBoard] = $this->getBoards($regionId, null, $programIds, false);
-
-        $regions = Region::select('id', 'name', 'code')->orderBy('name')->get();
-
-        return Inertia::render('welcome', [
-            'honorBoard' => $honorBoard,
-            'shameBoard' => $shameBoard,
-            'regions' => $regions,
-            'programs' => $programs,
-            'filters' => array_filter([
-                'region' => $regionId,
-                'program' => $programFilter,
-            ]),
-        ]);
+        return Inertia::render('welcome');
     }
 
     private function resolveProgramFilter(?string $value, $programs): ?array

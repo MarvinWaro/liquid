@@ -1,3 +1,4 @@
+import '../../../css/brand.css';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -170,6 +171,14 @@ export default function Login({
                             title="Back to landing page"
                             className="anim-logos mb-8 flex items-center justify-center gap-3 rounded-md transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
                         >
+                            {/* Heights are deliberately unequal, matching the landing
+                                page. The files carry different transparent padding -
+                                the artwork fills 100% of its canvas for UniFAST, 98%
+                                for Bagong Pilipinas, 92% for CHED and only 59% tall
+                                for ACHIEVE - so flat heights rendered ACHIEVE at 28px
+                                against 39px for the rest. Circles also read smaller
+                                than bold wide marks at the same size, so the seals
+                                take the most and ACHIEVE the least. */}
                             <img
                                 src="/assets/img/ched-logo.png"
                                 alt="CHED"
@@ -178,30 +187,30 @@ export default function Login({
                             <img
                                 src="/assets/img/unifast.png"
                                 alt="UniFAST"
-                                className="h-9 w-auto"
+                                className="h-[37px] w-auto"
                             />
                             <img
                                 src="/assets/img/bagong-pilipinas.png"
                                 alt="Bagong Pilipinas"
-                                className="h-10 w-auto"
+                                className="h-[34px] w-auto"
                             />
                             <img
                                 src="/assets/img/achieve.png"
                                 alt="ACHIEVE"
-                                className="h-12 w-auto"
+                                className="h-[51px] w-auto"
                             />
                         </Link>
 
                         {/* Header text */}
                         <div className="anim-header mb-6 flex flex-col items-center gap-1 text-center">
-                            <p className="pb-2 text-[10px] font-semibold tracking-[0.25em] text-muted-foreground uppercase">
+                            <p className="pb-2 text-[10px] font-medium tracking-[0.25em] text-muted-foreground uppercase">
                                 CHED Region XII — SOCCSKSARGEN
                             </p>
-                            <h1 className="text-sm font-bold tracking-wide text-foreground">
+                            <h1 className="text-sm font-medium tracking-wide text-foreground">
                                 Liquidation Management System
                             </h1>
                             <div className="my-3 h-px w-12 bg-border" />
-                            <h2 className="text-xs font-bold tracking-widest text-muted-foreground uppercase">
+                            <h2 className="text-xs font-medium tracking-widest text-muted-foreground uppercase">
                                 User Login
                             </h2>
                             <p className="text-xs text-muted-foreground">
@@ -362,7 +371,7 @@ export default function Login({
 
                                         <Button
                                             type="submit"
-                                            className="mt-2 w-full rounded-md bg-foreground text-background hover:bg-foreground/90"
+                                            className="mt-2 w-full rounded-md bg-[var(--brand-action)] text-[var(--brand-action-fg)] transition-colors hover:bg-[var(--brand-action-hover)] focus-visible:ring-2 focus-visible:ring-[var(--brand-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                                             tabIndex={4}
                                             disabled={
                                                 processing || !isTurnstileReady
