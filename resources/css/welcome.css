@@ -1,0 +1,205 @@
+@import './brand.css';
+
+/* Scoped to the public landing page so the rest of the application keeps its palette. */
+.landing-page {
+    --landing-ink: #2b3444;
+    --landing-blue: var(--brand-accent);
+    --landing-sheen: #b3c4dc;
+    --landing-ink-sheen: #7b8698;
+    --landing-muted: #637086;
+    --landing-button: #202d45;
+    --landing-button-hover: #334a6b;
+    --landing-grid: rgb(93 119 159 / 10%);
+    --landing-glow: rgb(224 234 255 / 38%);
+}
+
+.dark .landing-page {
+    --landing-ink: #edf1f9;
+    --landing-blue: var(--brand-accent);
+    --landing-sheen: #e4edfb;
+    --landing-ink-sheen: #ffffff;
+    --landing-muted: #a4b1c5;
+    --landing-button: #e5edff;
+    --landing-button-hover: #c9daff;
+    --landing-grid: rgb(151 177 214 / 12%);
+    --landing-glow: rgb(47 80 137 / 12%);
+}
+
+.landing-page .landing-main {
+    padding-block: clamp(5rem, 9vh, 7rem) clamp(3rem, 6vh, 5rem);
+}
+
+.landing-page .landing-grid {
+    background-image:
+        linear-gradient(to right, var(--landing-grid) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--landing-grid) 1px, transparent 1px),
+        radial-gradient(ellipse at center, var(--landing-glow), transparent 70%);
+    background-position: center;
+    background-size:
+        64px 64px,
+        64px 64px,
+        100% 100%;
+    mask-image: radial-gradient(ellipse at center, #000 20%, transparent 72%);
+}
+
+.landing-page .landing-eyebrow {
+    color: var(--landing-muted);
+}
+
+.landing-page .landing-heading {
+    font-size: clamp(2.25rem, 5.5vw, 4.5rem);
+    /* Weight lives here rather than as a class on the element, so there is one
+       place to change it. Tracking moves with the weight: -0.045em was tuned for a
+       semibold face and collided once the strokes thinned, so it opened up at 300
+       and tightens again slightly now the letters carry more ink. */
+    font-weight: 400;
+    line-height: 1.12;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+}
+
+.landing-page .landing-title {
+    color: var(--landing-ink);
+}
+
+/* Keep an opaque text color so the blue heading never depends on a clipped background. */
+.landing-page .landing-subtitle {
+    color: var(--landing-blue);
+    /* Set in em so the gap tracks the heading's clamp instead of staying a fixed
+       pixel value that looks tight at 4.5rem and cavernous at 2.25rem. */
+    margin-top: 0.14em;
+}
+
+.landing-page .landing-description {
+    color: var(--landing-muted);
+}
+
+.landing-page .landing-portal {
+    color: #fff;
+    background-color: var(--landing-button);
+}
+
+.landing-page .landing-portal:hover {
+    background-color: var(--landing-button-hover);
+}
+
+.dark .landing-page .landing-portal {
+    color: #18243b;
+}
+
+/* Motion enhances the entrance only; text stays visible with motion disabled. */
+@media (prefers-reduced-motion: no-preference) {
+    .landing-page .landing-enter {
+        animation: landing-enter 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    .landing-page .landing-eyebrow {
+        animation-delay: 60ms;
+    }
+    .landing-page .landing-heading {
+        animation-delay: 100ms;
+    }
+    .landing-page .landing-description {
+        animation-delay: 140ms;
+    }
+    .landing-page .landing-actions {
+        animation-delay: 180ms;
+    }
+
+    /* A light band travels across each heading line, clipped to the glyphs.
+       Deliberately scoped to this media query: the opaque `color` set above stays
+       the base, so the clipped background is never the only thing painting these
+       letters - the concern noted on .landing-subtitle. Slow and mostly at rest,
+       3s of travel in a 7s cycle, so it reads as a sheen rather than a loop.
+       The two lines are offset so the light crosses one then the other. */
+    .landing-page .landing-title,
+    .landing-page .landing-subtitle {
+        background-repeat: no-repeat;
+        background-size: 250% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        animation: landing-sheen 7s ease-in-out infinite;
+    }
+
+    .landing-page .landing-title {
+        background-image: linear-gradient(
+            100deg,
+            var(--landing-ink) 0%,
+            var(--landing-ink) 40%,
+            var(--landing-ink-sheen) 50%,
+            var(--landing-ink) 60%,
+            var(--landing-ink) 100%
+        );
+        animation-delay: 1.2s;
+    }
+
+    .landing-page .landing-subtitle {
+        background-image: linear-gradient(
+            100deg,
+            var(--landing-blue) 0%,
+            var(--landing-blue) 40%,
+            var(--landing-sheen) 50%,
+            var(--landing-blue) 60%,
+            var(--landing-blue) 100%
+        );
+        animation-delay: 1.55s;
+    }
+}
+
+/*
+ * Travels between 0% and 100% only.
+ *
+ * With background-size 250% those two ends are exactly where the gradient's left
+ * and right edges meet the element's, so it always covers the text. Going beyond
+ * them - an earlier version ran 150% to -150% - slides the gradient off the
+ * element entirely, and since the fill is transparent and the background does not
+ * repeat, the words simply disappeared for most of the cycle.
+ */
+@keyframes landing-sheen {
+    0% {
+        background-position: 100% 0;
+    }
+    45%,
+    100% {
+        background-position: 0% 0;
+    }
+}
+
+@keyframes landing-enter {
+    from {
+        opacity: 0;
+        transform: translateY(14px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (forced-colors: active) {
+    .landing-page .landing-grid {
+        display: none;
+    }
+
+    .landing-page .landing-title,
+    .landing-page .landing-subtitle,
+    .landing-page .landing-eyebrow,
+    .landing-page .landing-description {
+        color: CanvasText;
+    }
+
+    /* Undo the sheen's text clipping. Without this the forced colour above would
+       still be painted through a transparent fill and the line would vanish. */
+    .landing-page .landing-title,
+    .landing-page .landing-subtitle {
+        background-image: none;
+        -webkit-text-fill-color: currentColor;
+        animation: none;
+    }
+
+    .landing-page .landing-portal {
+        color: LinkText;
+        border: 1px solid LinkText;
+    }
+}
